@@ -59,11 +59,14 @@ class MinitaskDelayedReward(Wrapper):
     def __init__(self, env, success_reward=1, replacement=True):
         self._replacement = replacement
         self._success_reward = success_reward
+        # self._last_score = 0
         super().__init__(env)
 
     def reward(self, reward, info):
         success = info["minitask"]["success"] > 0
         score = int(success) * self._success_reward
         if self._replacement:
+            # self._last_score = score
             return score
+        # self._last_score = score+reward
         return reward + score

@@ -19,7 +19,8 @@ class MiniTaskGameOverScoreInfo(Wrapper):
     def info(self, info):
         # TODO: Add other metrics
         last_scores = {}
-        last_scores["score"] = self.unwrapped.overall_mini_score
+        # last_scores["score"] = self.unwrapped.overall_mini_score
+        last_scores['score'] = info['minitask']['mini_score']
         info["scores"] = last_scores
         info["scores"]["success"] = info["minitask"]["success"]
         return info
