@@ -2,7 +2,7 @@ version: "3"
 services:
 
   freeciv-web:
-    image: civrealm/freeciv-web:latest
+    image: freeciv/freeciv-web:latest
     container_name: freeciv-web
     ports:
       - "8080:80"
@@ -14,7 +14,7 @@ services:
     user: docker
 
   fciv-net:
-    image: civrealm/fciv-net:latest
+    image: freeciv/fciv-net:latest
     container_name: fciv-net
     ports:
       - "8280:80"
