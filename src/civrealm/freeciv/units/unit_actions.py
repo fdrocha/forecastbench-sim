@@ -402,7 +402,7 @@ class ActKeepActivity(Action):
     def _action_packet(self):
         return 'keep_activity'
 
-    def trigger_action(self, ws_client):
+    def trigger_action(self, ws_client, **kwargs):
         ws_client.send_message(
             f"Unit {self.focus.punit['id']} keeps activity.")
         self.focus.punit['keep_activity'] = True

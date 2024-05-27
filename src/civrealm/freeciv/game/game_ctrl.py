@@ -17,6 +17,7 @@ import os
 import json
 import time
 from civrealm.freeciv.connectivity.civ_connection import CivConnection
+from civrealm.freeciv.players.player_ctrl import PlayerCtrl
 
 from civrealm.freeciv.utils.base_controller import CivPropController
 from civrealm.freeciv.utils.base_action import NoActions
@@ -24,6 +25,7 @@ from civrealm.freeciv.utils.freeciv_logging import fc_logger
 from civrealm.freeciv.utils.eval_tags import EVALUATION_TAGS
 
 from civrealm.freeciv.game.info_states import GameState
+from civrealm.freeciv.game.game_actions import GameActions
 
 # see handle_ruleset_extra, where EXTRA_* variables are defines dynamically.
 EXTRA_NONE = -1
@@ -31,18 +33,23 @@ IDENTITY_NUMBER_ZERO = 0
 
 
 class GameCtrl(CivPropController):
-    def __init__(self, ws_client: CivConnection):
+    def __init__(self, ws_client: CivConnection, player_ctrl: PlayerCtrl):
         super().__init__(ws_client)
 
+        self.ws_client = ws_client
+        self.player_ctrl = player_ctrl
         self.calendar_info = {}
         self.scenario_info = {}
         self.page_msg = {}
-        self.ws_client = ws_client
         self.prop_state = GameState(self.scenario_info, self.calendar_info)
-        self.prop_actions = NoActions(ws_client)
+        self.prop_actions = GameActions(ws_client)
         self.end_game_player_packet = None
         self.end_game_report = None
         self.game_results = dict()
+
+    @property
+    def action_space(self):
+        return self.prop_actions.action_space()
 
     def register_all_handlers(self):
         self.register_handler(13, "handle_scenario_description")

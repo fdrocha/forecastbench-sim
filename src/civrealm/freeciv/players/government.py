@@ -167,5 +167,5 @@ class GovDoNothing(Action):
     def _action_packet(self):
         return 'do_nothing'
 
-    def trigger_action(self, ws_client):
+    def trigger_action(self, ws_client, **kwargs):
         self.ws_client.send_message("No change for gov.")

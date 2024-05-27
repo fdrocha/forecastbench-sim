@@ -165,29 +165,22 @@ class CivController(CivPropController):
         """
         Initialize all controllers for the game. This is done in the constructor before the WebSocket connection is open, hence it is called before init_game() is called.
         """
-        self.game_ctrl = GameCtrl(self.ws_client)
         self.opt_ctrl = OptionCtrl(self.ws_client)
         self.rule_ctrl = RulesetCtrl(self.ws_client)
         self.map_ctrl = MapCtrl(self.ws_client, self.rule_ctrl)
 
-        self.clstate = ClientState(self.username,
-                                   self.ws_client, self.rule_ctrl)
+        self.clstate = ClientState(self.username, self.ws_client, self.rule_ctrl)
 
-        self.city_ctrl = CityCtrl(
-            self.ws_client, self.rule_ctrl, self.clstate, self.game_ctrl, self.map_ctrl)
-        self.player_ctrl = PlayerCtrl(
-            self.ws_client, self.clstate, self.city_ctrl, self.rule_ctrl)
-        self.dipl_ctrl = DiplomacyCtrl(
-            self.ws_client, self.clstate, self.city_ctrl, self.rule_ctrl, self.player_ctrl)
-
-        self.tech_ctrl = TechCtrl(
-            self.ws_client, self.rule_ctrl, self.player_ctrl)
+        self.city_ctrl = CityCtrl(self.ws_client, self.rule_ctrl, self.clstate, self.map_ctrl)
+        self.player_ctrl = PlayerCtrl(self.ws_client, self.clstate, self.city_ctrl, self.rule_ctrl)
+        self.game_ctrl = GameCtrl(self.ws_client, self.player_ctrl)
+        self.dipl_ctrl = DiplomacyCtrl(self.ws_client, self.clstate, self.city_ctrl, self.rule_ctrl, self.player_ctrl)
+        self.tech_ctrl = TechCtrl(self.ws_client, self.rule_ctrl, self.player_ctrl)
 
         self.unit_ctrl = UnitCtrl(self.ws_client, self.opt_ctrl, self.rule_ctrl, self.map_ctrl,
                                   self.player_ctrl, self.city_ctrl, self.dipl_ctrl)
 
-        self.gov_ctrl = GovernmentCtrl(
-            self.ws_client, self.rule_ctrl, self.dipl_ctrl)
+        self.gov_ctrl = GovernmentCtrl(self.ws_client, self.rule_ctrl, self.dipl_ctrl)
 
         self.controller_list = {"game": self.game_ctrl,
                                 "rules": self.rule_ctrl,

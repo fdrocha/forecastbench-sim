@@ -495,6 +495,6 @@ class CityKeepProduction(Action):
     def _action_packet(self):
         return 'keep_production'
 
-    def trigger_action(self, ws_client):
+    def trigger_action(self, ws_client, **kwargs):
         self.ws_client.send_message(
             f"City {self.pcity['id']} keeps production.")

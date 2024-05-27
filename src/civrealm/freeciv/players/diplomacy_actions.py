@@ -613,7 +613,7 @@ class IgnoreDiplomacy(Action):
     def _action_packet(self):
         return 'ignore_diplomacy_request'
 
-    def trigger_action(self, ws_client):
+    def trigger_action(self, ws_client, **kwargs):
         self.ws_client.send_message(
             f"Ignore diplomacy request of player {self.counter_id}")
 
