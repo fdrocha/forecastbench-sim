@@ -41,7 +41,7 @@ class GameCtrl(CivPropController):
         self.calendar_info = {}
         self.scenario_info = {}
         self.page_msg = {}
-        self.prop_state = GameState(self.scenario_info, self.calendar_info)
+        self.prop_state = GameState(self.player_ctrl, self.scenario_info, self.calendar_info)
         self.prop_actions = GameActions(ws_client)
         self.end_game_player_packet = None
         self.end_game_report = None
