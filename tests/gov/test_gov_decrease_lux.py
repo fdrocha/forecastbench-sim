@@ -45,7 +45,7 @@ def test_gov_decrease_lux(controller):
     _, options = get_first_observation_option(controller)
 
     player_opt = options['player']
-    pplayer = player_opt.players[0]
+    pplayer = controller.player_ctrl.get_player(0)
 
     decrease_lux_action_set = find_keys_with_keyword(player_opt.get_actions(0, valid_only=True),
                                                      'decrease_lux')

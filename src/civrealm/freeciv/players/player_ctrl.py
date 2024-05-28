@@ -13,11 +13,9 @@
 # You should have received a copy of the GNU General Public License along
 # with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 from typing import Dict
 from BitVector import BitVector
 from civrealm.freeciv.utils.utility import byte_to_bit_array
-
 
 from civrealm.freeciv.connectivity.civ_connection import CivConnection
 from civrealm.freeciv.connectivity.client_state import ClientState
@@ -27,7 +25,7 @@ from civrealm.freeciv.city.city_ctrl import CityCtrl
 from civrealm.freeciv.utils.base_controller import CivPropController
 
 from civrealm.freeciv.players.player_state import PlayerState
-from civrealm.freeciv.players.player_actions import PlayerOptions
+from civrealm.freeciv.players.player_actions import PlayerActions
 from civrealm.freeciv.city.city_state import CityState
 from civrealm.freeciv.utils.utility import format_hex
 
@@ -53,8 +51,11 @@ class PlayerCtrl(CivPropController):
         self.endgame_player_info = []
 
         self.prop_state = PlayerState(self, rule_ctrl, clstate)
-        self.prop_actions = PlayerOptions(
-            ws_client, rule_ctrl, city_ctrl, self.players)
+        self.prop_actions = PlayerActions(ws_client)
+
+    @property
+    def action_space(self):
+        return self.prop_actions.action_space()
 
     def register_all_handlers(self):
         self.register_handler(50, "handle_player_remove")

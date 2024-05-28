@@ -33,7 +33,7 @@ class Action(ABC):
             f'encode_to_json not implemented for {self.__class__}')
         return self._action_packet()
 
-    def trigger_action(self, ws_client):
+    def trigger_action(self, ws_client, **kwargs):
         """Trigger validated action"""
         packet = self._action_packet()
         if type(packet) == list:
@@ -83,7 +83,7 @@ class ActionList(object):
         return dict(
             [(actor_id,
               dict(
-                  [(action_key, self._action_dict[actor_id][action_key].is_action_valid())
+                  [(action_key, self.get_action(actor_id, action_key).is_action_valid())
                    for action_key in self._action_dict[actor_id]])) for actor_id in self._action_dict])
 
     def add_actor(self, actor_id):
@@ -149,6 +149,9 @@ class ActionList(object):
     def get_actors(self):
         return self._action_dict.keys()
 
+    def get_action(self, actor_id, action_key):
+        return self._action_dict[actor_id].get(action_key, None)
+
     def get_actions(self, actor_id, valid_only=False):
         if self.actor_exists(actor_id):
             if valid_only:
@@ -158,7 +161,7 @@ class ActionList(object):
                                 for key in self._action_dict[actor_id]])
             if self._can_actor_act(actor_id):
                 for action_key in self._action_dict[actor_id]:
-                    action = self._action_dict[actor_id][action_key]
+                    action = self.get_action(actor_id, action_key)
                     if action.is_action_valid():
                         act_dict[action_key] = action
             return act_dict
@@ -169,21 +172,20 @@ class ActionList(object):
         if self.actor_exists(actor_id):
             act_list = [False for key in self._action_dict[actor_id]]
             if self._can_actor_act(actor_id):
-                act_list = [self._action_dict[actor_id][action_key].is_action_valid() for
-                            action_key in act_keys]
+                act_list = [self.get_action(actor_id, action_key).is_action_valid() for action_key in act_keys]
             return act_list
 
     def _can_actor_act(self, actor_id):
         raise Exception(
             "To be overwritten with function returning True/False %i" % actor_id)
 
-    def trigger_single_action(self, actor_id, action_id):
+    def trigger_single_action(self, actor_id, action_id, **kwargs):
         # FIXME: unsed function
-        act = self._action_dict[actor_id][action_id]
+        act = self.get_action(actor_id, action_id)
         # if not self._can_actor_act(actor_id):
         #     raise Exception('_can_actor_act error')
         if act.is_action_valid():
-            act.trigger_action(self.ws_client)
+            act.trigger_action(self.ws_client, **kwargs)
             return True
         print(f"Action {action_id} of {actor_id} is not valid")
         fc_logger.info(f"Action {action_id} of {actor_id} is not valid")

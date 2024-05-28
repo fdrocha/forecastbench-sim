@@ -44,7 +44,7 @@ def test_change_government(controller):
     fc_logger.info("test_change_government")
     _, options = get_first_observation_option(controller)
 
-    pplayer = options['player'].players[0]
+    pplayer = controller.player_ctrl.get_player(0)
     gov_opt = options['gov']
 
     change_gov_action = find_keys_with_keyword(gov_opt.get_actions(0, valid_only=True),

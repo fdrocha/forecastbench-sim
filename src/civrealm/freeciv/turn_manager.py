@@ -89,13 +89,22 @@ class TurnManager(object):
 
         action_space = dict()
         fc_logger.debug('Computing action space for: ')
-        for ctrl_type, ctrl in self._turn_ctrls.items():
-            if ctrl_type != 'tech':
-                # TODO: add action spaces for all controllers
-                action_space[ctrl_type] = gymnasium.spaces.Discrete(1)
-                continue
-            fc_logger.debug('....: %s', ctrl_type)
-            action_space[ctrl_type] = ctrl.get_action_space(self._turn_player)
+        for ctrl_type, ctrl in [
+            'rules',
+            'game',
+            'map',
+            'city',
+            'unit',
+            'options',
+            'dipl',
+            'gov',
+            'client',
+        ]:
+            # TODO: add action spaces for all controllers
+            action_space[ctrl_type] = gymnasium.spaces.Discrete(1)
+            continue
+        action_space['player'] = self._turn_ctrls['player'].action_space
+        action_space['tech'] = self._turn_ctrls['tech'].action_space
 
         return gymnasium.spaces.Dict(action_space)
 
@@ -167,7 +176,7 @@ class TurnManager(object):
     # Get the action object based on the input action tuple
     def _get_action_object(self, action):
         ctrl_type, valid_actor_id, action_name = action
-        return self._turn_actions[ctrl_type]._action_dict[valid_actor_id][action_name]
+        return self._turn_actions[ctrl_type].get_action(valid_actor_id, action_name)
 
     def get_reward(self, current_score):
         # FIXME: this function gets called every time the agent takes an action. However, the score only changes between turns.

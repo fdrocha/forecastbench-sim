@@ -165,29 +165,22 @@ class CivController(CivPropController):
         """
         Initialize all controllers for the game. This is done in the constructor before the WebSocket connection is open, hence it is called before init_game() is called.
         """
-        self.game_ctrl = GameCtrl(self.ws_client)
         self.opt_ctrl = OptionCtrl(self.ws_client)
         self.rule_ctrl = RulesetCtrl(self.ws_client)
         self.map_ctrl = MapCtrl(self.ws_client, self.rule_ctrl)
 
-        self.clstate = ClientState(self.username,
-                                   self.ws_client, self.rule_ctrl)
+        self.clstate = ClientState(self.username, self.ws_client, self.rule_ctrl)
 
-        self.city_ctrl = CityCtrl(
-            self.ws_client, self.rule_ctrl, self.clstate, self.game_ctrl, self.map_ctrl)
-        self.player_ctrl = PlayerCtrl(
-            self.ws_client, self.clstate, self.city_ctrl, self.rule_ctrl)
-        self.dipl_ctrl = DiplomacyCtrl(
-            self.ws_client, self.clstate, self.city_ctrl, self.rule_ctrl, self.player_ctrl)
-
-        self.tech_ctrl = TechCtrl(
-            self.ws_client, self.rule_ctrl, self.player_ctrl)
+        self.city_ctrl = CityCtrl(self.ws_client, self.rule_ctrl, self.clstate, self.map_ctrl)
+        self.player_ctrl = PlayerCtrl(self.ws_client, self.clstate, self.city_ctrl, self.rule_ctrl)
+        self.game_ctrl = GameCtrl(self.ws_client, self.player_ctrl)
+        self.dipl_ctrl = DiplomacyCtrl(self.ws_client, self.clstate, self.city_ctrl, self.rule_ctrl, self.player_ctrl)
+        self.tech_ctrl = TechCtrl(self.ws_client, self.rule_ctrl, self.player_ctrl)
 
         self.unit_ctrl = UnitCtrl(self.ws_client, self.opt_ctrl, self.rule_ctrl, self.map_ctrl,
                                   self.player_ctrl, self.city_ctrl, self.dipl_ctrl)
 
-        self.gov_ctrl = GovernmentCtrl(
-            self.ws_client, self.rule_ctrl, self.dipl_ctrl)
+        self.gov_ctrl = GovernmentCtrl(self.ws_client, self.rule_ctrl, self.dipl_ctrl)
 
         self.controller_list = {"game": self.game_ctrl,
                                 "rules": self.rule_ctrl,
@@ -509,15 +502,24 @@ class CivController(CivPropController):
                 if packet is None:
                     continue
                 pid_info = None
+                # See:
+                # https://github.com/freeciv/freeciv/blob/main/common/networking/packets.def
+                # for all pid defination
                 if packet['pid'] == 31:
+                    # PACKET_CITY_INFO = 31
                     pid_info = (packet['pid'], packet['tile'])
                 elif packet['pid'] == 44 or packet['pid'] == 62:
+                    # PACKET_CITY_NAME_SUGGESTION_INFO = 44
+                    # PACKET_UNIT_REMOVE = 62
                     pid_info = (packet['pid'], packet['unit_id'])
                 elif packet['pid'] == 249:
+                    # PACKET_TRADE_ROUTE_INFO = 249
                     pid_info = (packet['pid'], packet['city'])
                 elif packet['pid'] == 223:
+                    # PACKET_ENDGAME_PLAYER = 223
                     pid_info = (packet['pid'], packet['player_id'])
                 elif packet['pid'] == 65:
+                    # PACKET_UNIT_COMBAT_INFO = 65
                     pid_info = (packet['pid'], packet['attacker_unit_id'])
                 else:
                     if 'id' in packet:

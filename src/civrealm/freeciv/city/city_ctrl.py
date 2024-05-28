@@ -22,7 +22,6 @@ from collections import defaultdict
 from civrealm.freeciv.connectivity.civ_connection import CivConnection
 from civrealm.freeciv.connectivity.client_state import ClientState
 from civrealm.freeciv.game.ruleset import RulesetCtrl
-from civrealm.freeciv.game.game_ctrl import GameCtrl
 from civrealm.freeciv.map.map_ctrl import MapCtrl
 
 from civrealm.freeciv.utils.base_controller import CivPropController
@@ -59,14 +58,11 @@ FEELING_FINAL = 5
 
 
 class CityCtrl(CivPropController):
-    def __init__(
-            self, ws_client: CivConnection, rule_ctrl: RulesetCtrl, clstate: ClientState, game_ctrl: GameCtrl,
-            map_ctrl: MapCtrl):
+    def __init__(self, ws_client: CivConnection, rule_ctrl: RulesetCtrl, clstate: ClientState, map_ctrl: MapCtrl):
         super().__init__(ws_client)
 
         self.cities: Dict[int, Dict] = {}
         self.city_trade_routes = {}
-        self.game_ctrl = game_ctrl
         self.rule_ctrl = rule_ctrl
         self.map_ctrl = map_ctrl
         self.clstate = clstate
@@ -248,7 +244,7 @@ class CityCtrl(CivPropController):
         improvement = self.rule_ctrl.improvements[pcity['production_value']]
 
         return (not pcity['did_buy'] and
-                pcity['turn_founded'] != self.game_ctrl.game_info['turn'] and
+                pcity['turn_founded'] != self.rule_ctrl.game_info['turn'] and
                 improvement['name'] != "Coinage")
 
     def handle_city_short_info(self, packet):

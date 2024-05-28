@@ -52,6 +52,10 @@ class TechCtrl(CivPropController):
         self.is_tech_tree_init = False
         self.wikipedia_url = "http://en.wikipedia.org/wiki/"
 
+    @property
+    def action_space(self):
+        return self.prop_state.get_action_space()
+
     def register_all_handlers(self):
         pass
 

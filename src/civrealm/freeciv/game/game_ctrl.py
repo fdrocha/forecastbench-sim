@@ -17,6 +17,7 @@ import os
 import json
 import time
 from civrealm.freeciv.connectivity.civ_connection import CivConnection
+from civrealm.freeciv.players.player_ctrl import PlayerCtrl
 
 from civrealm.freeciv.utils.base_controller import CivPropController
 from civrealm.freeciv.utils.base_action import NoActions
@@ -31,14 +32,15 @@ IDENTITY_NUMBER_ZERO = 0
 
 
 class GameCtrl(CivPropController):
-    def __init__(self, ws_client: CivConnection):
+    def __init__(self, ws_client: CivConnection, player_ctrl: PlayerCtrl):
         super().__init__(ws_client)
 
+        self.ws_client = ws_client
+        self.player_ctrl = player_ctrl
         self.calendar_info = {}
         self.scenario_info = {}
         self.page_msg = {}
-        self.ws_client = ws_client
-        self.prop_state = GameState(self.scenario_info, self.calendar_info)
+        self.prop_state = GameState(self.player_ctrl, self.scenario_info, self.calendar_info)
         self.prop_actions = NoActions(ws_client)
         self.end_game_player_packet = None
         self.end_game_report = None

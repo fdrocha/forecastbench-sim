@@ -15,21 +15,45 @@
 
 from civrealm.freeciv.utils.base_state import PlainState, DictState
 
+WELCOME_TEMPLATE = (
+    'Welcome, {username} ruler of the {nation} empire.'
+    'Your task is to create a great empire! You should start by '
+    'exploring the land around you with your explorer, '
+    'and using your settlers to find a good place to build '
+    'a city. Right-click with the mouse on your units for a list of available '
+    'orders such as move, explore, build cities and attack. '
+    'Good luck, and have a lot of fun!'
+)
+
 
 class GameState(PlainState):
-    def __init__(self, scenario_info, calendar_info):
+    def __init__(self, player_ctrl, scenario_info, calendar_info):
         super().__init__()
+        self.player_ctrl = player_ctrl
         self.scenario_info = scenario_info
         self.calendar_info = calendar_info
         self.chat_messages = ''
+        self._update_message = self._update_message_welcome
 
     def _update_state(self, pplayer):
         if pplayer != None:
             self._state.update(self.calendar_info)
             del self._state['calendar_fragment_name']
             self._state.update(self.scenario_info)
-            self._state['messages'] = self.chat_messages
-            self.chat_messages = ''
+            self._update_message()
+
+    def _update_message_welcome(self):
+        my_player = self.player_ctrl.my_player
+        self.chat_messages = WELCOME_TEMPLATE.format(
+            username=my_player['name'],
+            nation=my_player['nation'],
+        )
+        self._update_message = self._update_message_play
+        self._update_message_play()
+
+    def _update_message_play(self):
+        self._state['messages'] = self.chat_messages
+        self.chat_messages = ''
 
 
 class ServerState(DictState):
