@@ -45,7 +45,7 @@ def test_gov_set_sci_lux_tax(controller):
     _, options = get_first_observation_option(controller)
 
     player_opt = options['gov']
-    pplayer = options['player'].players[0]
+    pplayer = controller.player_ctrl.get_player(0)
 
     print('current sci_lux_tax:',
           (pplayer['science'], pplayer['luxury'], pplayer['tax']))

@@ -38,7 +38,7 @@ def test_spy_steal_tech(controller):
     _, options = get_first_observation_option(controller)
     # Class: UnitActions
     unit_opt = options['unit']
-    player_opt = options['player']
+    player_ctrl = controller.player_ctrl
     test_action_list = []
     diplomat_id = 915
 
@@ -58,7 +58,7 @@ def test_spy_steal_tech(controller):
         valid_actions[f'spy_steal_tech_{map_const.DIR8_SOUTH}'])
 
     print('Steal technology from the city on the south tile')
-    techs_researched_before = player_opt.players[0]['techs_researched']
+    techs_researched_before = player_ctrl.get_player(0)['techs_researched']
     # Perform spy_steal_tech action of the diplomat
     for action in test_action_list:
         action.trigger_action(controller.ws_client)
@@ -67,8 +67,8 @@ def test_spy_steal_tech(controller):
     controller.get_info_and_observation()
     options = controller.turn_manager.turn_actions
     unit_opt = options['unit']
-    player_opt = options['player']
-    techs_researched_after = player_opt.players[0]['techs_researched']
+    player_ctrl = controller.player_ctrl
+    techs_researched_after = player_ctrl.get_player(0)['techs_researched']
     assert (techs_researched_after == techs_researched_before + 1)
 
 
