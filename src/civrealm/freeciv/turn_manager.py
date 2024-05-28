@@ -91,8 +91,8 @@ class TurnManager(object):
         fc_logger.debug('Computing action space for: ')
         for ctrl_type, ctrl in [
             'rules',
+            'game',
             'map',
-            'player',
             'city',
             'unit',
             'options',
@@ -103,7 +103,7 @@ class TurnManager(object):
             # TODO: add action spaces for all controllers
             action_space[ctrl_type] = gymnasium.spaces.Discrete(1)
             continue
-        action_space['game'] = self._turn_ctrls['game'].action_space
+        action_space['player'] = self._turn_ctrls['player'].action_space
         action_space['tech'] = self._turn_ctrls['tech'].action_space
 
         return gymnasium.spaces.Dict(action_space)

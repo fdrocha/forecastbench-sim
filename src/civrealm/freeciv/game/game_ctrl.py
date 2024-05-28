@@ -25,7 +25,6 @@ from civrealm.freeciv.utils.freeciv_logging import fc_logger
 from civrealm.freeciv.utils.eval_tags import EVALUATION_TAGS
 
 from civrealm.freeciv.game.info_states import GameState
-from civrealm.freeciv.game.game_actions import GameActions
 
 # see handle_ruleset_extra, where EXTRA_* variables are defines dynamically.
 EXTRA_NONE = -1
@@ -42,14 +41,10 @@ class GameCtrl(CivPropController):
         self.scenario_info = {}
         self.page_msg = {}
         self.prop_state = GameState(self.player_ctrl, self.scenario_info, self.calendar_info)
-        self.prop_actions = GameActions(ws_client)
+        self.prop_actions = NoActions(ws_client)
         self.end_game_player_packet = None
         self.end_game_report = None
         self.game_results = dict()
-
-    @property
-    def action_space(self):
-        return self.prop_actions.action_space()
 
     def register_all_handlers(self):
         self.register_handler(13, "handle_scenario_description")
