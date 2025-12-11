@@ -103,13 +103,17 @@ class MetricsCollector:
             "note": "Territory maps generated during rendering from state files"
         }
 
+        print("  Collecting diplomacy data...")
+        diplomacy = self.collect_diplomacy(states, config, civilizations)
+
         return {
             "metadata": metadata,
             "civilizations": civilizations,
             "time_series": time_series,
             "events": events,
             "snapshots": snapshots,
-            "territory_snapshots": territory_snapshots
+            "territory_snapshots": territory_snapshots,
+            "diplomacy": diplomacy
         }
 
     def collect_metadata(self, states: Dict[int, Dict], config: Any) -> Dict[str, Any]:
@@ -560,6 +564,99 @@ class MetricsCollector:
         }
 
         return snapshots
+
+    def collect_diplomacy(
+        self,
+        states: Dict[int, Dict],
+        config: Any,
+        civilizations: Dict[int, Dict]
+    ) -> Dict[str, Any]:
+        """Collect diplomatic relationships over time from savegames
+
+        Extracts both diplomatic state (War, Peace, Alliance, etc.) and
+        AI love values (-1000 to 1000) for all player pairs.
+
+        Args:
+            states: Dict mapping turn numbers to game states
+            config: ReportConfig instance
+            civilizations: Dict of civilization info
+
+        Returns:
+            Dict with structure:
+            {
+                "relations": {
+                    "{from_player}_{to_player}": {
+                        turn: {
+                            "state": str,  # War, Peace, Alliance, etc.
+                            "love": int    # -1000 to 1000
+                        }
+                    }
+                },
+                "attitude_thresholds": {
+                    "worshipful": 900,
+                    "admiring": 700,
+                    ...
+                }
+            }
+        """
+        relations = {}
+        sorted_turns = sorted(states.keys())
+        player_ids = list(civilizations.keys())
+
+        # Attitude thresholds (based on Freeciv source code)
+        # MAX_AI_LOVE = 1000, and attitude is divided into 11 levels
+        # Each level spans ~182 points (-1000 to 1000 = 2000 range / 11 levels)
+        attitude_thresholds = {
+            "worshipful": 820,    # >= 820
+            "admiring": 640,      # 640 to 819
+            "enthusiastic": 460,  # 460 to 639
+            "helpful": 280,       # 280 to 459
+            "respectful": 100,    # 100 to 279
+            "neutral": -100,      # -100 to 99
+            "uneasy": -280,       # -280 to -101
+            "uncooperative": -460,  # -460 to -281
+            "hostile": -640,      # -640 to -461
+            "belligerent": -820,  # -820 to -641
+            "genocidal": -1000    # < -820
+        }
+
+        for turn in sorted_turns:
+            # Get savegame data which contains diplomacy
+            savegame_data = get_savegame_data_for_report(config, turn)
+            if not savegame_data or 'diplomacy' not in savegame_data:
+                continue
+
+            diplomacy_data = savegame_data['diplomacy']
+
+            # Process each player's relationships
+            for from_player, player_relations in diplomacy_data.items():
+                if from_player not in player_ids:
+                    continue
+
+                for to_player, relation in player_relations.items():
+                    if to_player not in player_ids:
+                        continue
+                    if from_player == to_player:
+                        continue  # Skip self-relationships
+
+                    # Create key for this relationship pair
+                    relation_key = f"{from_player}_{to_player}"
+
+                    if relation_key not in relations:
+                        relations[relation_key] = {}
+
+                    relations[relation_key][turn] = {
+                        "state": relation.get('state', 'Unknown'),
+                        "love": relation.get('love', 0),
+                        "first_contact_turn": relation.get('first_contact_turn', 0),
+                        "embassy": relation.get('embassy', False),
+                        "shared_vision": relation.get('shared_vision', False)
+                    }
+
+        return {
+            "relations": relations,
+            "attitude_thresholds": attitude_thresholds
+        }
 
     # Helper methods (replicated from base_section.py)
 

@@ -518,6 +518,155 @@ def parse_player_science(savegame_content: str) -> Dict[int, Dict[str, any]]:
     return science_data
 
 
+def parse_player_diplomacy(savegame_content: str) -> Dict[int, Dict[int, Dict[str, any]]]:
+    """Parse diplomatic relationships from savegame
+
+    Each player section contains diplstate and ai sections with data about
+    their relationship with every other player.
+
+    Args:
+        savegame_content: Decompressed savegame file content
+
+    Returns:
+        Dict mapping player_id to their relationships with other players:
+        {
+            player_id: {
+                other_player_id: {
+                    'state': str,  # Current diplomatic state (War, Peace, etc.)
+                    'closest': str,  # Best relationship achieved
+                    'first_contact_turn': int,
+                    'love': int,  # AI opinion value (-1000 to 1000)
+                    'embassy': bool,
+                    'shared_vision': bool
+                }
+            }
+        }
+    """
+    diplomacy = {}
+
+    # Find all player sections
+    player_sections = re.finditer(r'\[player(\d+)\]', savegame_content)
+    player_starts = []
+
+    for match in player_sections:
+        player_starts.append((int(match.group(1)), match.end()))
+
+    # Process each player section
+    for i, (player_id, start_pos) in enumerate(player_starts):
+        # Find end of this player section
+        if i + 1 < len(player_starts):
+            end_pos = savegame_content.rfind('\n[player', start_pos, player_starts[i + 1][1])
+            if end_pos == -1:
+                end_pos = player_starts[i + 1][1] - len(f'[player{player_starts[i + 1][0]}]')
+        else:
+            end_pos = len(savegame_content)
+
+        player_content = savegame_content[start_pos:end_pos]
+
+        # Parse diplstate section
+        # Format: diplstate={"col1","col2",...}\ndata_row1\ndata_row2\n...\n}
+        diplstate_match = re.search(
+            r'diplstate=\{([^\n]+)\n(.*?)\n\}',
+            player_content,
+            re.DOTALL
+        )
+
+        diplstates = []
+        if diplstate_match:
+            # Parse schema (first line after =)
+            schema_str = diplstate_match.group(1)
+            schema = [s.strip().strip('"') for s in schema_str.split(',')]
+
+            # Parse data rows (everything between schema and closing brace)
+            data_section = diplstate_match.group(2)
+            for line in data_section.strip().split('\n'):
+                line = line.strip()
+                if not line or line == '}':
+                    continue
+
+                # Parse CSV with quoted strings
+                values = []
+                current = ""
+                in_quotes = False
+                for char in line:
+                    if char == '"':
+                        in_quotes = not in_quotes
+                    elif char == ',' and not in_quotes:
+                        values.append(current.strip().strip('"'))
+                        current = ""
+                    else:
+                        current += char
+                values.append(current.strip().strip('"'))
+
+                if len(values) >= len(schema):
+                    row = dict(zip(schema, values))
+                    diplstates.append(row)
+
+        # Parse ai section for love values
+        # Format: ai={"col1","col2",...}\ndata_row1\ndata_row2\n...\n}
+        ai_match = re.search(
+            r'\nai=\{([^\n]+)\n(.*?)\n\}',
+            player_content,
+            re.DOTALL
+        )
+
+        ai_data = []
+        if ai_match:
+            # Parse schema
+            schema_str = ai_match.group(1)
+            schema = [s.strip().strip('"') for s in schema_str.split(',')]
+
+            # Parse data rows
+            data_section = ai_match.group(2)
+            for line in data_section.strip().split('\n'):
+                line = line.strip()
+                if not line or line == '}':
+                    continue
+
+                values = [v.strip() for v in line.split(',')]
+                if len(values) >= len(schema):
+                    row = dict(zip(schema, values))
+                    ai_data.append(row)
+
+        # Combine diplstate and ai data
+        # Each row corresponds to relationship with player 0, 1, 2, etc.
+        player_relations = {}
+        num_players = max(len(diplstates), len(ai_data))
+
+        for other_id in range(num_players):
+            relation = {
+                'state': 'Unknown',
+                'closest': 'Unknown',
+                'first_contact_turn': 0,
+                'love': 0,
+                'embassy': False,
+                'shared_vision': False
+            }
+
+            if other_id < len(diplstates):
+                ds = diplstates[other_id]
+                relation['state'] = ds.get('current', 'Unknown')
+                relation['closest'] = ds.get('closest', 'Unknown')
+                try:
+                    relation['first_contact_turn'] = int(ds.get('first_contact_turn', 0))
+                except ValueError:
+                    pass
+                relation['embassy'] = ds.get('embassy', 'FALSE').upper() == 'TRUE'
+                relation['shared_vision'] = ds.get('gives_shared_vision', 'FALSE').upper() == 'TRUE'
+
+            if other_id < len(ai_data):
+                try:
+                    relation['love'] = int(ai_data[other_id].get('love', 0))
+                except ValueError:
+                    pass
+
+            player_relations[other_id] = relation
+
+        diplomacy[player_id] = player_relations
+
+    return diplomacy
+
+
 def parse_player_technologies(savegame_content: str, ruleset_techs: Optional[Dict] = None) -> Dict[int, set]:
     """Parse detailed technology discoveries from savegame
 
@@ -639,12 +788,14 @@ def extract_complete_data_from_savegame(username: str, turn: int, host: str = 'l
         science = parse_player_science(content)
         nations = parse_player_nations(content)
         technologies = parse_player_technologies(content)
+        diplomacy = parse_player_diplomacy(content)
 
         return {
             'production': production,
             'science': science,
             'nations': nations,
-            'technologies': technologies
+            'technologies': technologies,
+            'diplomacy': diplomacy
         }
 
     except Exception as e:

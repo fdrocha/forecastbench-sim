@@ -239,6 +239,46 @@ class GraphGenerator:
             ylabel='Number of Military Units'
         )
 
+    def create_diplomacy_chart(
+        self,
+        json_data: Dict[str, Any],
+        from_player_id: int,
+        use_love: bool = False
+    ) -> BytesIO:
+        """Create a FOCUS-style diplomacy chart for one civilization
+
+        Args:
+            json_data: Complete world report JSON data
+            from_player_id: The player whose perspective to show
+            use_love: If True, color by opinion/love; if False, by diplomatic state
+
+        Returns:
+            BytesIO buffer containing PNG image
+        """
+        if 'diplomacy' not in json_data or 'relations' not in json_data['diplomacy']:
+            raise KeyError("'diplomacy.relations' not found in JSON data")
+
+        relations = json_data['diplomacy']['relations']
+        player_names = self._get_player_names(json_data)
+
+        # Get civilization name for title
+        civ_name = player_names.get(from_player_id, f'Player {from_player_id}')
+
+        if use_love:
+            title = f'Diplomatic Opinions of {civ_name} Toward Other Countries'
+        else:
+            title = f'Diplomatic Stance of {civ_name} Toward Other Countries'
+
+        return graphs.create_diplomacy_chart(
+            relations=relations,
+            from_player_id=from_player_id,
+            player_names=player_names,
+            title=title,
+            dpi=self.dpi,
+            style=self.style,
+            use_love=use_love
+        )
+
     def _get_player_names(self, json_data: Dict[str, Any]) -> Dict[int, str]:
         """Extract player names from JSON data
 

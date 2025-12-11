@@ -23,10 +23,10 @@ def main():
     # Configuration
     report_config = ReportConfig(
         # Input: where game recordings are stored
-        recording_dir='logs/recordings/myagent2/',
+        recording_dir='logs/recordings/myagent42/',
 
         # Output: where to save the report
-        output_dir='reports/latest_game/',
+        output_dir='reports/myagent42/',
 
         # Generate reports at specific turns
         # Set to the turns you want to analyze

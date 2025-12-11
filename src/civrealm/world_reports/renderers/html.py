@@ -91,6 +91,11 @@ class HTMLRenderer:
         html_parts.append(self._render_technology(json_data, graph_gen))
         html_parts.append('</div>')
 
+        # Section 6: Diplomacy
+        html_parts.append('<div id="section6" class="section">')
+        html_parts.append(self._render_diplomacy(json_data, graph_gen))
+        html_parts.append('</div>')
+
         html_parts.append(self._get_html_footer())
 
         # Save all images
@@ -118,7 +123,8 @@ class HTMLRenderer:
             "Major Historical Events",
             "Economics",
             "Social Characteristics",
-            "Science and Technology"
+            "Science and Technology",
+            "Diplomacy"
         ]
 
         html = ['<div class="toc">']
@@ -585,6 +591,107 @@ class HTMLRenderer:
         except Exception as e:
             print(f"Warning: Failed to generate technology content: {e}")
             html.append('<p>Technology data not available.</p>')
+
+        return '\n'.join(html)
+
+    def _render_diplomacy(
+        self,
+        json_data: Dict[str, Any],
+        graph_gen: GraphGenerator
+    ) -> str:
+        """Render diplomacy section from JSON"""
+        html = []
+
+        html.append('<h2>6. Diplomacy</h2>')
+
+        # Check if diplomacy data is available
+        diplomacy_data = json_data.get('diplomacy', {})
+        relations = diplomacy_data.get('relations', {})
+
+        if not relations:
+            html.append('<p>No diplomatic data available for this game.</p>')
+            html.append('<p><em>Diplomacy data is extracted from savegame files. '
+                       'Ensure savegames are being recorded during gameplay.</em></p>')
+            return '\n'.join(html)
+
+        civilizations = json_data.get('civilizations', {})
+
+        # Introduction
+        html.append('<p>This section shows the diplomatic relationships between civilizations over time. '
+                   'Two views are provided for each civilization:</p>')
+        html.append('<ul>')
+        html.append('<li><strong>Diplomatic Stance:</strong> The official relationship status '
+                   '(Alliance, Peace, Cease-fire, War, etc.)</li>')
+        html.append('<li><strong>Diplomatic Opinion:</strong> The internal "love" value representing '
+                   'how favorably one civilization views another (-1000 to +1000)</li>')
+        html.append('</ul>')
+
+        # Create charts for each civilization
+        section_num = 1
+        for player_id_str in sorted(civilizations.keys(), key=int):
+            player_id = int(player_id_str)
+            civ_name = civilizations[player_id_str].get('name', f'Player {player_id}')
+
+            # Check if this player has any relations data
+            has_relations = any(
+                key.startswith(f"{player_id}_") for key in relations.keys()
+            )
+
+            if not has_relations:
+                continue
+
+            html.append(f'<h3>6.{section_num} Diplomatic Relations of {civ_name}</h3>')
+
+            # Diplomatic Stance chart
+            try:
+                img_buf = graph_gen.create_diplomacy_chart(
+                    json_data, player_id, use_love=False
+                )
+                img_name = f'diplomacy_stance_player_{player_id}'
+                self.images[img_name] = img_buf
+                html.append('<div class="graph">')
+                html.append(f'<img src="turn_{self.turn:03d}_images/{img_name}.png" '
+                           f'alt="Diplomatic stance of {civ_name}"/>')
+                html.append('</div>')
+            except Exception as e:
+                print(f"Warning: Failed to generate diplomacy stance chart for player {player_id}: {e}")
+
+            # Diplomatic Opinion chart
+            try:
+                img_buf = graph_gen.create_diplomacy_chart(
+                    json_data, player_id, use_love=True
+                )
+                img_name = f'diplomacy_opinion_player_{player_id}'
+                self.images[img_name] = img_buf
+                html.append('<div class="graph">')
+                html.append(f'<img src="turn_{self.turn:03d}_images/{img_name}.png" '
+                           f'alt="Diplomatic opinion of {civ_name}"/>')
+                html.append('</div>')
+            except Exception as e:
+                print(f"Warning: Failed to generate diplomacy opinion chart for player {player_id}: {e}")
+
+            section_num += 1
+
+        # Diplomatic events summary
+        events = json_data.get('events', [])
+        diplo_events = [e for e in events if e['type'] == 'diplomatic_change']
+
+        if diplo_events:
+            html.append(f'<h3>6.{section_num} Diplomatic Events</h3>')
+
+            rows = []
+            for event in diplo_events:
+                turn_str = f"Turn {event['turn']}"
+                description = event['description']
+                rows.append(f'<tr><td>{turn_str}</td><td>{description}</td></tr>')
+
+            html.append('<table class="data-table">')
+            html.append('<caption>Diplomatic State Changes</caption>')
+            html.append('<thead><tr><th>Turn</th><th>Event</th></tr></thead>')
+            html.append('<tbody>')
+            html.append('\n'.join(rows))
+            html.append('</tbody>')
+            html.append('</table>')
 
         return '\n'.join(html)
 
