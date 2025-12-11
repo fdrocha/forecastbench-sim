@@ -255,7 +255,8 @@ class MetricsCollector:
             "culture": {},
             "techs_known": {},
             "cities_count": {},
-            "units_count": {}
+            "units_count": {},
+            "military_units_count": {}
         }
 
         # Collect data for each turn
@@ -306,6 +307,13 @@ class MetricsCollector:
                 time_series["units_count"][turn][pid] = len([
                     u for u in units.values()
                     if isinstance(u, dict) and u.get('owner') == pid
+                ])
+
+                # Count military units (units with attack_strength > 0)
+                time_series["military_units_count"][turn][pid] = len([
+                    u for u in units.values()
+                    if isinstance(u, dict) and u.get('owner') == pid
+                    and u.get('type_attack_strength', 0) > 0
                 ])
 
             # Try to override with complete savegame data
@@ -509,6 +517,7 @@ class MetricsCollector:
 
         cities_count = {}
         units_count = {}
+        military_units_count = {}
 
         for pid in scores.keys():
             cities_count[pid] = len([
@@ -519,10 +528,19 @@ class MetricsCollector:
                 u for u in units.values()
                 if isinstance(u, dict) and u.get('owner') == pid
             ])
+            military_units_count[pid] = len([
+                u for u in units.values()
+                if isinstance(u, dict) and u.get('owner') == pid
+                and u.get('type_attack_strength', 0) > 0
+            ])
 
         # World totals
         total_cities = len([c for c in cities.values() if isinstance(c, dict)])
         total_units = len([u for u in units.values() if isinstance(u, dict)])
+        total_military_units = len([
+            u for u in units.values()
+            if isinstance(u, dict) and u.get('type_attack_strength', 0) > 0
+        ])
         total_population = sum(
             c.get('size', 0) for c in cities.values() if isinstance(c, dict)
         )
@@ -532,9 +550,11 @@ class MetricsCollector:
             "rankings": rankings,
             "cities_count": cities_count,
             "units_count": units_count,
+            "military_units_count": military_units_count,
             "world_totals": {
                 "total_cities": total_cities,
                 "total_units": total_units,
+                "total_military_units": total_military_units,
                 "total_population": total_population
             }
         }

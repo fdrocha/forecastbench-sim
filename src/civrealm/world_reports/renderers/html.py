@@ -193,6 +193,7 @@ class HTMLRenderer:
             html.append('<ul>')
             html.append(f'<li><strong>Total Cities:</strong> {totals.get("total_cities", 0)}</li>')
             html.append(f'<li><strong>Total Units:</strong> {totals.get("total_units", 0)}</li>')
+            html.append(f'<li><strong>Total Military Units:</strong> {totals.get("total_military_units", 0)}</li>')
             html.append(f'<li><strong>Total Population:</strong> {totals.get("total_population", 0)}</li>')
             html.append('</ul>')
             html.append('</div>')
@@ -462,6 +463,55 @@ class HTMLRenderer:
         except Exception as e:
             print(f"Warning: Failed to generate population content: {e}")
             html.append('<p>Population data not available.</p>')
+
+        # Military Units
+        html.append('<h3>4.2 Military Forces</h3>')
+        try:
+            img_buf = graph_gen.create_military_units_graph(json_data)
+            img_name = 'military_units_over_time'
+            self.images[img_name] = img_buf
+            html.append(f'<div class="graph">')
+            html.append(f'<img src="turn_{self.turn:03d}_images/{img_name}.png" alt="Military units over time"/>')
+            html.append('</div>')
+
+            # Military statistics table
+            html.append('<h4>Military Statistics</h4>')
+
+            civilizations = json_data['civilizations']
+            time_series = json_data['time_series']
+            military_data = time_series.get('military_units_count', {})
+            units_data = time_series.get('units_count', {})
+
+            if military_data and units_data:
+                # Get final turn data
+                turns = sorted([int(t) for t in military_data.keys()])
+                final_turn = max(turns)
+                final_military = military_data[str(final_turn)]
+                final_units = units_data[str(final_turn)]
+
+                rows = []
+                for player_id_str in sorted(civilizations.keys(), key=int):
+                    player_id = int(player_id_str)
+                    civ_name = civilizations[player_id_str]['name']
+                    military = final_military.get(str(player_id), 0)
+                    total_units = final_units.get(str(player_id), 0)
+                    civilian = total_units - military
+                    rows.append(f'<tr><td>{civ_name}</td><td>{int(military)}</td><td>{int(civilian)}</td><td>{int(total_units)}</td></tr>')
+
+                # Sort by military units
+                rows.sort(key=lambda x: int(x.split('<td>')[2].split('</td>')[0]), reverse=True)
+
+                html.append('<table class="data-table">')
+                html.append(f'<caption>Military Forces at Turn {final_turn}</caption>')
+                html.append('<thead><tr><th>Civilization</th><th>Military Units</th><th>Civilian Units</th><th>Total Units</th></tr></thead>')
+                html.append('<tbody>')
+                html.append('\n'.join(rows))
+                html.append('</tbody>')
+                html.append('</table>')
+
+        except Exception as e:
+            print(f"Warning: Failed to generate military content: {e}")
+            html.append('<p>Military data not available.</p>')
 
         return '\n'.join(html)
 

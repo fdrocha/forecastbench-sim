@@ -223,6 +223,22 @@ class GraphGenerator:
             ylabel='Arable Tiles'
         )
 
+    def create_military_units_graph(self, json_data: Dict[str, Any]) -> BytesIO:
+        """Create military units over time graph
+
+        Args:
+            json_data: Complete world report JSON data
+
+        Returns:
+            BytesIO buffer containing PNG image
+        """
+        return self.create_time_series_graph(
+            json_data=json_data,
+            metric_name='military_units_count',
+            title='Military Units Over Time',
+            ylabel='Number of Military Units'
+        )
+
     def _get_player_names(self, json_data: Dict[str, Any]) -> Dict[int, str]:
         """Extract player names from JSON data
 
