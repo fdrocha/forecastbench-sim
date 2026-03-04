@@ -212,7 +212,35 @@ def main():
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.5))
 
-    # ── Left panel: Gap vs |ΔBR| scatter ──
+    # ── Left panel: Gap vs horizon (inverted U — what's happening) ──
+
+    for name, config in INTERVENTIONS.items():
+        hdata = get_horizon_data(config, models)
+        x = list(range(len(hdata)))
+        y = [d["gap"] for d in hdata]
+
+        ax1.plot(x, y, color=config["color"], marker=config["marker"],
+                 markersize=7, linewidth=2, label=config["label"],
+                 markeredgecolor="white", markeredgewidth=0.5)
+
+    ax1.set_xlabel("Temporal horizon", fontsize=10)
+    ax1.set_ylabel("Brier gap  (conditional \u2212 baseline)", fontsize=10)
+    ax1.set_title("Conditional gap as a function of time", fontsize=11,
+                  fontweight="bold")
+
+    # Use Republic horizons for x-ticks (superset)
+    rep_hdata = get_horizon_data(INTERVENTIONS["republic"], models)
+    ax1.set_xticks(range(len(rep_hdata)))
+    ax1.set_xticklabels([d["horizon"] for d in rep_hdata], fontsize=9)
+    ax1.legend(fontsize=9, loc="upper right")
+    ax1.axhline(y=0, color="black", linewidth=0.5, alpha=0.3)
+
+    # Clean style
+    ax1.spines['top'].set_visible(False)
+    ax1.spines['right'].set_visible(False)
+    ax1.tick_params(axis='both', which='both', length=4)
+
+    # ── Right panel: Gap vs |ΔBR| scatter (why) ──
 
     all_abs_dbr = []
     all_gaps = []
@@ -223,23 +251,21 @@ def main():
         x = [d["abs_delta_br"] for d in tdata]
         y = [d["gap"] for d in tdata]
 
-        ax1.scatter(x, y, c=config["color"], marker=config["marker"],
+        ax2.scatter(x, y, c=config["color"], marker=config["marker"],
                     s=50, label=config["label"], zorder=3, edgecolors="white",
                     linewidth=0.5)
 
         # Label points
         for d in tdata:
-            # Offset labels to avoid overlap
             offset_x = 0.012
             offset_y = 0.012
-            # Special cases for crowded regions
             if d["short"] in ("govt",):
                 offset_y = -0.025
             if d["short"] in ("wonder",) and name == "gold500":
                 offset_x = -0.06
                 offset_y = -0.025
 
-            ax1.annotate(d["short"], (d["abs_delta_br"], d["gap"]),
+            ax2.annotate(d["short"], (d["abs_delta_br"], d["gap"]),
                          xytext=(d["abs_delta_br"] + offset_x,
                                  d["gap"] + offset_y),
                          fontsize=6.5, color=config["color"], alpha=0.8)
@@ -253,51 +279,31 @@ def main():
     slope, intercept, r_value, p_value, std_err = stats.linregress(x_arr, y_arr)
     x_line = np.linspace(0, max(x_arr) * 1.05, 100)
     y_line = slope * x_line + intercept
-    ax1.plot(x_line, y_line, color="gray", linewidth=1, linestyle="--", alpha=0.7,
+    ax2.plot(x_line, y_line, color="gray", linewidth=1, linestyle="--", alpha=0.7,
              zorder=1)
-    ax1.text(0.55, 0.08, f"r = {r_value:.2f}",
-             transform=ax1.transAxes, fontsize=10, color="gray")
+    ax2.text(0.55, 0.08, f"r = {r_value:.2f}",
+             transform=ax2.transAxes, fontsize=10, color="gray")
 
-    ax1.set_xlabel("|ΔBR|  (base-rate divergence)", fontsize=10)
-    ax1.set_ylabel("Brier gap  (conditional − baseline)", fontsize=10)
-    ax1.set_title("Gap tracks ground-truth divergence", fontsize=11, fontweight="bold")
-    ax1.legend(fontsize=9, loc="upper left")
-    ax1.axhline(y=0, color="black", linewidth=0.5, alpha=0.3)
-    ax1.set_xlim(-0.02, max(all_abs_dbr) * 1.12)
-    ax1.set_ylim(min(all_gaps) - 0.05, max(all_gaps) + 0.08)
-
-    # ── Right panel: Gap vs horizon ──
-
-    for name, config in INTERVENTIONS.items():
-        hdata = get_horizon_data(config, models)
-        x = list(range(len(hdata)))
-        y = [d["gap"] for d in hdata]
-        labels = [d["horizon"] for d in hdata]
-
-        ax2.plot(x, y, color=config["color"], marker=config["marker"],
-                 markersize=7, linewidth=2, label=config["label"],
-                 markeredgecolor="white", markeredgewidth=0.5)
-
-    ax2.set_xlabel("Temporal horizon", fontsize=10)
-    ax2.set_ylabel("Brier gap  (conditional − baseline)", fontsize=10)
-    ax2.set_title("Gap peaks where intervention\neffect is strongest", fontsize=11,
-                  fontweight="bold")
-
-    # Use Republic horizons for x-ticks (superset)
-    rep_hdata = get_horizon_data(INTERVENTIONS["republic"], models)
-    ax2.set_xticks(range(len(rep_hdata)))
-    ax2.set_xticklabels([d["horizon"] for d in rep_hdata], fontsize=9)
-    ax2.legend(fontsize=9, loc="upper right")
+    ax2.set_xlabel("|ΔBR|  (base-rate divergence)", fontsize=10)
+    ax2.set_ylabel("Brier gap  (conditional \u2212 baseline)", fontsize=10)
+    ax2.set_title("Conditional gap as a function of\nbase-rate divergence", fontsize=11, fontweight="bold")
+    ax2.legend(fontsize=9, loc="upper left")
     ax2.axhline(y=0, color="black", linewidth=0.5, alpha=0.3)
+    ax2.set_xlim(-0.02, max(all_abs_dbr) * 1.12)
+    ax2.set_ylim(min(all_gaps) - 0.05, max(all_gaps) + 0.08)
+
+    # Clean style
+    ax2.spines['top'].set_visible(False)
+    ax2.spines['right'].set_visible(False)
+    ax2.tick_params(axis='both', which='both', length=4)
 
     plt.tight_layout()
-    out_path = "../fri-vault/_artifacts/static/study4_gap_structure.pdf"
+    out_path = "/Users/elsehow/Projects/fri-vault/_artifacts/static/study2_gap_structure.pdf"
     plt.savefig(out_path, bbox_inches="tight", dpi=300)
     print(f"Saved to {out_path}")
 
-    # Also save PNG for quick preview
-    out_png = "../fri-vault/_artifacts/static/study4_gap_structure.png"
-    plt.savefig(out_png, bbox_inches="tight", dpi=150)
+    out_png = "/Users/elsehow/Projects/fri-vault/_artifacts/static/study2_gap_structure.png"
+    plt.savefig(out_png, bbox_inches="tight", dpi=300)
     print(f"Saved to {out_png}")
 
 
