@@ -22,7 +22,8 @@ __pycache__/
 *.log
 tmp.prof
 dataset/
-data/
+data/*
+!data/results/
 archive/
 
 .DS_Store
