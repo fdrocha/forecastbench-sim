@@ -48,7 +48,7 @@ dependencies = [
     # The following packages are for parallel training
     'ray==2.6.3; python_version < "3.12"',
     "python-dotenv>=1.0.1",
-    "litellm>=1.80.0",
+    "litellm>=1.80.0,<1.82",
     "google-cloud-secret-manager>=2.16.0",
 ]
 requires-python = ">= 3.8"
@@ -172,4 +172,9 @@ addopts = [
     
     # Deprecated test
     # "tests/unit/test_disband.py",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
 ]
