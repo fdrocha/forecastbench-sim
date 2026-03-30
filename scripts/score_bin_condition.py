@@ -344,6 +344,47 @@ def analyze_results(results_file: str, compare_file: str = None):
             h_label = f"H{(h-60)//30} (T{h})"
             print(f"  {h_label:<12} ρ={rho:+.3f}  p={p:.3f} {sig:<4} ({direction})")
 
+    # ── Normalized ECI × CRPS correlation by horizon ──
+    print(f"\n{'='*70}")
+    print("ECI × Normalized CRPS correlation by horizon (Spearman)")
+    print(f"{'='*70}\n")
+
+    tmpl_h_model = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    for r in valid:
+        tmpl_h_model[r["template_id"]][r["resolution_turn"]][r["model"]].append(r["crps"])
+
+    tmpl_h_medians = {}
+    for tmpl in tmpl_h_model:
+        for h in tmpl_h_model[tmpl]:
+            model_means = [np.mean(scores) for scores in tmpl_h_model[tmpl][h].values()]
+            if model_means:
+                tmpl_h_medians[(tmpl, h)] = np.median(model_means)
+
+    for h in horizons:
+        model_norm = defaultdict(list)
+        for tmpl in tmpl_h_model:
+            med = tmpl_h_medians.get((tmpl, h))
+            if med is None or med == 0:
+                continue
+            for model, scores in tmpl_h_model[tmpl][h].items():
+                model_norm[model].append(np.mean(scores) / med)
+
+        ecis = []
+        norm_vals = []
+        for model in models:
+            eci = ECI_MAP.get(model)
+            if eci is None or model not in model_norm:
+                continue
+            ecis.append(eci)
+            norm_vals.append(np.mean(model_norm[model]))
+
+        if len(ecis) >= 4:
+            rho, p = stats.spearmanr(ecis, norm_vals)
+            sig = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
+            direction = "anti-g" if rho > 0 else "pro-g"
+            h_label = f"H{(h-60)//30} (T{h})"
+            print(f"  {h_label:<12} ρ={rho:+.3f}  p={p:.3f} {sig:<4} ({direction})")
+
     # ── RPS by model and horizon ──
     print(f"\n{'='*70}")
     print("RPS by model × horizon (bin_probability condition)")

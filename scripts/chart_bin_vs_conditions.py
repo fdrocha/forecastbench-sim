@@ -107,6 +107,7 @@ def load_quantile_condition(filepath: str, condition_name: str) -> list[dict]:
                 "model": r["model"],
                 "resolution_turn": r["resolution_turn"],
                 "crps": crps,
+                "template_id": r["template_id"],
             })
     return results
 
@@ -126,6 +127,7 @@ def load_bin_condition(filepath: str) -> list[dict]:
             "model": r["model"],
             "resolution_turn": r["resolution_turn"],
             "crps": crps,
+            "template_id": r["template_id"],
         })
     return results
 
@@ -187,6 +189,57 @@ def compute_eci_correlation(results: list[dict]) -> dict:
     return correlations
 
 
+def compute_eci_correlation_normalized(results: list[dict]) -> dict:
+    """Compute Spearman rho(ECI, normalized_CRPS) by horizon.
+
+    Normalizes per (template, horizon) by cross-model median before aggregating,
+    giving each template equal weight regardless of raw scale.
+    """
+    # Step 1: per-(template, horizon, model) mean CRPS
+    tmpl_h_model = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    for r in results:
+        tmpl = r.get("template_id")
+        if tmpl is None:
+            continue
+        tmpl_h_model[tmpl][r["resolution_turn"]][r["model"]].append(r["crps"])
+
+    # Step 2: per-(template, horizon) cross-model medians
+    tmpl_h_medians = {}
+    for tmpl in tmpl_h_model:
+        for h in tmpl_h_model[tmpl]:
+            model_means = [np.mean(scores) for scores in tmpl_h_model[tmpl][h].values()]
+            if model_means:
+                tmpl_h_medians[(tmpl, h)] = np.median(model_means)
+
+    # Step 3: normalized aggregate per (model, horizon)
+    correlations = {}
+    for h in HORIZONS:
+        model_norm = defaultdict(list)
+        for tmpl in tmpl_h_model:
+            med = tmpl_h_medians.get((tmpl, h))
+            if med is None or med == 0:
+                continue
+            for model, scores in tmpl_h_model[tmpl][h].items():
+                model_norm[model].append(np.mean(scores) / med)
+
+        ecis = []
+        norm_vals = []
+        for model in sorted(model_norm.keys()):
+            eci = ECI_MAP.get(model)
+            if eci is None:
+                continue
+            ecis.append(eci)
+            norm_vals.append(np.mean(model_norm[model]))
+
+        if len(ecis) >= 4:
+            rho, p = stats.spearmanr(ecis, norm_vals)
+            correlations[h] = {"rho": rho, "p": p, "n": len(ecis)}
+        else:
+            correlations[h] = {"rho": float("nan"), "p": 1.0, "n": len(ecis)}
+
+    return correlations
+
+
 # ── Chart ───────────────────────────────────────────────────────────────────
 
 def main():
@@ -224,9 +277,15 @@ def main():
     # ── Compute metrics ──
     crps_by_condition = {}
     eci_corr_by_condition = {}
+    eci_corr_norm_by_condition = {}
     for name, results in conditions.items():
         crps_by_condition[name] = compute_crps_by_horizon(results)
         eci_corr_by_condition[name] = compute_eci_correlation(results)
+        # Agentic results are pre-aggregated (no template_id) — skip normalization
+        if name == "Agentic":
+            eci_corr_norm_by_condition[name] = eci_corr_by_condition[name]
+        else:
+            eci_corr_norm_by_condition[name] = compute_eci_correlation_normalized(results)
 
     # ── Plot ──
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
@@ -258,10 +317,10 @@ def main():
     ax1.legend(loc="upper left", fontsize=8)
     ax1.grid(True, alpha=0.3)
 
-    # Bottom panel: ECI × CRPS correlation (anti-g test)
+    # Bottom panel: ECI × normalized CRPS correlation (anti-g test)
     ax2.axhline(y=0, color="black", linewidth=0.5, linestyle="-")
     for name in conditions:
-        corr = eci_corr_by_condition[name]
+        corr = eci_corr_norm_by_condition[name]
         x = [h for h in HORIZONS if h in corr]
         y = [corr[h]["rho"] for h in x]
         p_vals = [corr[h]["p"] for h in x]
@@ -309,7 +368,7 @@ def main():
         print(f"  {name:<25} {np.nanmean(far_h):>8.1f}")
 
     print(f"\n{'='*70}")
-    print("ECI × CRPS at H4-H6 (anti-g test)")
+    print("ECI × CRPS at H4-H6 (raw, anti-g test)")
     print(f"{'='*70}")
     for name in conditions:
         corr = eci_corr_by_condition[name]
@@ -319,6 +378,53 @@ def main():
                 sig = "***" if c["p"] < 0.001 else "**" if c["p"] < 0.01 else "*" if c["p"] < 0.05 else ""
                 h_label = f"H{(h-60)//30}"
                 print(f"  {name:<25} {h_label} ρ={c['rho']:+.3f} p={c['p']:.3f} {sig}")
+
+    # ── Normalized ECI × CRPS summary table (Table tab:anti-g-by-condition) ──
+    print(f"\n{'='*70}")
+    print("ECI × Normalized CRPS — ALL horizons H1-H6 (Spearman)")
+    print("(Agentic: raw correlation, no template_id available)")
+    print(f"{'='*70}\n")
+
+    cond_names = list(conditions.keys())
+    # Header row
+    header = f"{'Horizon':<10}" + "".join(f"{n:>27}" for n in cond_names)
+    print(header)
+    print("-" * len(header))
+
+    for h in HORIZONS:
+        h_label = f"H{(h-60)//30}"
+        row = f"{h_label:<10}"
+        for name in cond_names:
+            corr = eci_corr_norm_by_condition[name]
+            if h in corr:
+                c = corr[h]
+                sig = "***" if c["p"] < 0.001 else "**" if c["p"] < 0.01 else "*" if c["p"] < 0.05 else ""
+                cell = f"ρ={c['rho']:+.3f} p={c['p']:.3f}{sig}"
+            else:
+                cell = "n/a"
+            row += f"{cell:>27}"
+        print(row)
+
+    # Also print a compact ρ-only table for easy copy/paste into paper
+    print(f"\n{'='*70}")
+    print("Compact normalized ρ table (H1-H6 × condition)")
+    print(f"{'='*70}\n")
+    compact_header = f"{'Horizon':<8}" + "".join(f"{n[:14]:>16}" for n in cond_names)
+    print(compact_header)
+    print("-" * len(compact_header))
+    for h in HORIZONS:
+        h_label = f"H{(h-60)//30}"
+        row = f"{h_label:<8}"
+        for name in cond_names:
+            corr = eci_corr_norm_by_condition[name]
+            if h in corr and not np.isnan(corr[h]["rho"]):
+                c = corr[h]
+                sig = "***" if c["p"] < 0.001 else "**" if c["p"] < 0.01 else "*" if c["p"] < 0.05 else ""
+                cell = f"{c['rho']:+.3f}{sig}"
+            else:
+                cell = "n/a"
+            row += f"{cell:>16}"
+        print(row)
 
 
 if __name__ == "__main__":
