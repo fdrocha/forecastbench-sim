@@ -52,7 +52,23 @@ Game Execution → Serialization → Question Generation → Conditional Experim
 | Questions | `scripts/generate_questions_batch.py` | Generate questions across seeds |
 | Conditional | `scripts/setup_republic_conditional_eval.py` | Set up republic conditional framings |
 | Conditional | `scripts/setup_gold500_conditional_eval.py` | Set up gold500 conditional framings |
+| Conditional | `scripts/setup_navigation_conditional_eval.py` | Set up navigation tech conditional |
 | Evaluation | `scripts/evaluate_llm_forecasts_parallel.py` | Run LLM evaluations in parallel |
+
+### Intervention experiments
+
+These scripts run specific experimental conditions on the standard 10-seed evaluation set (5 crash + 5 growth worlds, 4 disruptable templates, horizons H1-H6 = 240 questions per model per condition).
+
+| Script | Condition | What it tests |
+|--------|-----------|---------------|
+| `scripts/run_domain_knowledge_standardized.py` | Domain knowledge | Does providing FreeCiv warfare mechanics + crash base rates improve tail calibration? |
+| `scripts/run_tutorial_conditions.py` | Tutorial framing | Does the type of example world (crash-only, growth-only, both) affect performance? |
+| `scripts/run_scenario_enumeration.py` | Scenario enumeration | Can models identify disruption scenarios when asked to enumerate futures? (Sub-task 1 of decomposition) |
+| `scripts/run_scenario_weighting.py` | Scenario weighting | Given fixed scenarios, can models assign reasonable P(disruption)? (Sub-task 2) |
+| `scripts/run_structured_mixture.py` | SME (fixed scenarios) | Fixed continuation/disruption scenarios with model-generated conditional distributions |
+| `scripts/run_generate_scenario.py` | GenSME | Models generate their own scenarios, weights, and conditional distributions in one call |
+
+Prompt templates for the intervention experiments live in `src/civrealm/evaluation/`.
 
 ## Data
 
