@@ -288,7 +288,7 @@ Use the standard evaluation script with conditional questions:
 ```bash
 uv run python scripts/evaluate_llm_forecasts_parallel.py \
   --questions data/questions/s100/conditional_questions.json \
-  --output data/results/s100_conditional_eval.json
+  --output data/evaluations/runs/s100_conditional_eval.json
 ```
 
 ## Files

@@ -65,11 +65,8 @@ export ANTHROPIC_API_KEY=sk-ant-api...
 ### Basic Usage
 
 ```bash
-# Activate virtual environment
-source .venv/bin/activate
-
 # Run evaluation with specific models
-python scripts/evaluate_llm_forecasts_parallel.py \
+uv run python scripts/evaluate_llm_forecasts_parallel.py \
     --data-dir data/questions \
     --models "anthropic/claude-opus-4-5-20251101" \
     --questions-per-template 10 \
@@ -104,12 +101,12 @@ Examples:
 
 ```bash
 # Generate null conditional questions
-python scripts/generate_null_conditional_questions.py \
+uv run python scripts/generate_null_conditional_questions.py \
     --input-dir data/questions \
     --output-dir data/conditional/null_conditional
 
 # Evaluate on reframed questions
-python scripts/evaluate_llm_forecasts_parallel.py \
+uv run python scripts/evaluate_llm_forecasts_parallel.py \
     --data-dir data/conditional/null_conditional \
     --models "anthropic/claude-opus-4-5-20251101" \
     -n 10 --seed 42 \

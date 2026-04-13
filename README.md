@@ -53,27 +53,10 @@ Game Execution → Serialization → Question Generation → Conditional Experim
 | Conditional | `scripts/setup_republic_conditional_eval.py` | Set up republic conditional framings |
 | Conditional | `scripts/setup_gold500_conditional_eval.py` | Set up gold500 conditional framings |
 | Evaluation | `scripts/evaluate_llm_forecasts_parallel.py` | Run LLM evaluations in parallel |
-| Analysis | `scripts/analyze_conditional_comparison.py` | Compare conditional vs. baseline |
-| Analysis | `scripts/compute_difficulty_scores.py` | Compute question difficulty |
-| Analysis | `scripts/plot_conditional_framing_comparison.py` | Plot framing comparison results |
 
-## Data layout
+## Data
 
-```
-data/
-├── games/                  # Serialized game state JSON (base seeds + forks)
-├── questions/              # Generated forecasting questions + world reports
-├── conditional/            # Conditional forecasting experiments
-│   ├── republic/           # Government-change intervention (5 framings)
-│   ├── gold500/            # Treasury-boost intervention (2 framings)
-│   └── null_conditional/   # Framing placebo control
-└── evaluations/
-    ├── runs/               # Raw per-run evaluation JSON
-    ├── results/            # Aggregated evaluation results
-    └── plots/              # Visualizations (PNG, PDF)
-```
-
-See `data/README.md` and `data/conditional/README.md` for details.
+All generated data (game snapshots, questions, evaluation results) is produced by the pipeline scripts above and excluded from the repository. See `data/README.md` for the expected directory structure.
 
 ## Evaluation output
 
