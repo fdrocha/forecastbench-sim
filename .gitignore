@@ -23,7 +23,6 @@ __pycache__/
 tmp.prof
 dataset/
 data/*
-!data/results/
 archive/
 
 .DS_Store
