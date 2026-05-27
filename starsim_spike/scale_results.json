@@ -1,0 +1,51 @@
+{
+  "generated_at": "2026-05-27T16:40:44.926474+00:00",
+  "n_scenarios": 30,
+  "horizons": [
+    40,
+    60
+  ],
+  "snapshot_day": 20,
+  "base_rates": {
+    "unconditional": 0.6333333333333333,
+    "conditional": 0.21666666666666667
+  },
+  "results": {
+    "Meta-Llama-3.1-8B-Instruct": {
+      "unconditional": {
+        "brier": 0.27338508333333333,
+        "n": 60,
+        "mean_pred": 0.9037499999999999
+      },
+      "conditional": {
+        "brier": 0.4273666666666666,
+        "n": 60,
+        "mean_pred": 0.7433333333333331
+      }
+    },
+    "Meta-Llama-3.1-70B-Instruct": {
+      "unconditional": {
+        "brier": 0.053495,
+        "n": 60,
+        "mean_pred": 0.7048333333333334
+      },
+      "conditional": {
+        "brier": 0.041095,
+        "n": 60,
+        "mean_pred": 0.2825
+      }
+    },
+    "Qwen2.5-72B-Instruct": {
+      "unconditional": {
+        "brier": 0.052000000000000005,
+        "n": 60,
+        "mean_pred": 0.7100000000000003
+      },
+      "conditional": {
+        "brier": 0.07549999999999998,
+        "n": 60,
+        "mean_pred": 0.3733333333333333
+      }
+    }
+  }
+}
