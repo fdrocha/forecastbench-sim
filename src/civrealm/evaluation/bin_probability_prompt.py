@@ -22,13 +22,14 @@ TEMPLATE_LABELS = {
     "scores_continuous": "score",
 }
 
-# Corpus decile bin edges (N=30,517 per template, all 1019 seeds × H1-H6).
+# Corpus decile bin edges (N=29,845 per template, all 1019 seeds × H1-H6).
 # Each list has 11 values defining 10 bins.
 BIN_EDGES = {
     "population_continuous": [0, 2, 10, 18, 26, 35, 44, 54, 67, 82, 375],
     "territory_continuous": [0, 15, 52, 82, 109, 137, 168, 206, 249, 312, 1142],
     "treasury_continuous": [0, 0, 98, 167, 236, 331, 469, 648, 891, 1280, 6578],
     "cities_count_continuous": [0, 1, 5, 8, 10, 13, 16, 20, 24, 29, 102],
+    "techs_continuous": [0, 24, 31, 36, 40, 44, 47, 49, 52, 56, 113],
 }
 
 

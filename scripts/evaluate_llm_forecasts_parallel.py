@@ -386,7 +386,7 @@ async def main():
     args = parser.parse_args()
 
     # Setup run ID and logging
-    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + f"_{os.getpid()}"
     log_dir = Path("logs") / f"eval_{run_id}"
     logger = setup_logging(run_id, log_dir)
 
