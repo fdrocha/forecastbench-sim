@@ -1,0 +1,10 @@
+numpy
+litellm
+python-dotenv
+
+[dev]
+pytest
+pytest-xdist
+
+[gcp]
+google-cloud-secret-manager

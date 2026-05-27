@@ -75,6 +75,9 @@ Issues = "https://github.com/bigai-ai/civrealm/issues"
 Documentation = "https://bigai-ai.github.io/civrealm/"
 Source = "https://github.com/bigai-ai/civrealm"
 
+[tool.uv.workspace]
+members = ["packages/*", "worlds/*"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

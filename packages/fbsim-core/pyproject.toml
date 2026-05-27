@@ -1,0 +1,26 @@
+[project]
+name = "fbsim-core"
+version = "0.1.0"
+description = "Domain-agnostic core for ForecastBench-Sim: question schema, resolver, generator, eval harness, scoring. Hosts arbitrary simulation 'worlds'."
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "litellm",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+gcp = ["google-cloud-secret-manager"]
+dev = ["pytest", "pytest-xdist"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fbsim_core*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--import-mode=importlib"]
