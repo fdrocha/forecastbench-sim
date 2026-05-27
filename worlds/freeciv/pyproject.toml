@@ -1,0 +1,65 @@
+[project]
+name = "freeciv-world"
+version = "0.1.2"
+description = "FreeCiv world for ForecastBench-Sim: the CivRealm game engine + FreeCiv question templates, serializer, reports, and conditional runner. Plugs into fbsim-core."
+readme = "README.md"
+license = {text = "GLP3.0"}
+keywords = ["freeciv", "forecastbench", "ai", "reinforcement-learning"]
+requires-python = ">=3.11"
+dependencies = [
+    "fbsim-core",
+    'importlib-resources',
+    'pyyaml>=5.4.1',
+    'overrides',
+    'wheel',
+    'docker',
+    'urllib3',
+    'BitVector',
+    'numpy',
+    'tornado==6.3.2',
+    'gymnasium==0.29.1',
+    'selenium==4.9.1',
+    'websocket-client',
+    'filelock>=3.12.2',
+    'matplotlib',
+    'tqdm',
+    'ray==2.6.3; python_version < "3.12"',
+    "python-dotenv>=1.0.1",
+    "litellm>=1.80.0,<1.82",
+    "google-cloud-secret-manager>=2.16.0",
+    "datasets>=3.1.0",
+]
+
+[project.optional-dependencies]
+dev = ['pytest', 'pytest-xdist']
+
+[project.scripts]
+test_freeciv = "freeciv_world.random_game:main"
+download_freeciv_web_image = "freeciv_world.freeciv.build_server:download_freeciv_web_image"
+start_freeciv_web_service = "freeciv_world.freeciv.build_server:start_freeciv_web_service"
+stop_freeciv_web_service = "freeciv_world.freeciv.build_server:stop_freeciv_web_service"
+build_freeciv_web_service = "freeciv_world.freeciv.build_server:build_freeciv_web_service"
+update_javascript_for_clean_screenshot = "freeciv_world.freeciv.build_server:update_javascript_for_clean_screenshot"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["freeciv_world*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml"]
+
+[tool.uv.sources]
+fbsim-core = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--import-mode=importlib"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore:.*obs returned by the.*method.*",
+    "ignore:.*Casting input x to numpy array.*",
+]
