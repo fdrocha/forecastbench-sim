@@ -12,8 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..world_reports.questions.schema import EmpiricalDifficulty
-from ..world_reports.questions.io import (
+from ..questions.schema import EmpiricalDifficulty
+from ..questions.io import (
     load_question_bank,
     save_question_bank,
     _dict_to_empirical_difficulty,

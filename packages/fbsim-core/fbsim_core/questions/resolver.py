@@ -6,7 +6,8 @@ from datetime import datetime
 from typing import Any
 
 from .schema import QuestionInstance, QuestionBank, Resolution
-from .templates import get_template
+from .registry import TemplateRegistry
+from .timeseries import signal_at
 
 
 class QuestionResolver:
@@ -14,8 +15,12 @@ class QuestionResolver:
     Resolves questions by computing answers from game data.
 
     The resolver reads the complete game data and determines the ground truth
-    answer for each question based on its template and parameters.
+    answer for each question based on its template and parameters. Templates are
+    looked up through a world-provided TemplateRegistry.
     """
+
+    def __init__(self, registry: TemplateRegistry):
+        self.registry = registry
 
     def resolve(
         self,
@@ -39,7 +44,7 @@ class QuestionResolver:
         if template_id.startswith("h0_"):
             template_id = template_id[3:]  # Strip "h0_" prefix
 
-        template = get_template(template_id)
+        template = self.registry.get(template_id)
 
         # Dispatch based on resolution type and template
         if template.resolution_type == "comparative":
@@ -84,35 +89,12 @@ class QuestionResolver:
         player_id: int,
         turn: int,
     ) -> float | int | None:
+        """Get a value from a single metric's turn-major series.
+
+        Layout is the explicit canonical one: time_series[turn][entity] = value.
+        See fbsim_core.questions.timeseries.
         """
-        Get signal value for a player at a specific turn.
-
-        Handles both data structures:
-        - turn -> player_id -> value
-        - player_id -> turn -> value
-        """
-        if not time_series:
-            return None
-
-        # Check structure
-        first_key = list(time_series.keys())[0]
-        first_value = time_series.get(first_key)
-
-        if isinstance(first_value, dict):
-            # Could be turn -> player or player -> turn
-            # Check if first_key looks like a turn number
-            try:
-                int(first_key)
-                # Structure: turn -> player_id -> value
-                turn_data = time_series.get(str(turn), {})
-                return turn_data.get(str(player_id))
-            except ValueError:
-                # Structure: player_id -> turn -> value
-                player_data = time_series.get(str(player_id), {})
-                if isinstance(player_data, dict):
-                    return player_data.get(str(turn))
-
-        return None
+        return signal_at(time_series, player_id, turn)
 
     def _resolve_comparative(
         self,

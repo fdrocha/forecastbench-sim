@@ -1,10 +1,10 @@
 """
-Tests for src/civrealm/metrics.py
+Tests for fbsim_core.metrics
 """
 
 import math
 import pytest
-from civrealm.metrics import compute_brier_score, compute_calibration_error
+from fbsim_core.metrics import compute_brier_score, compute_calibration_error
 
 
 class TestBrierScore:

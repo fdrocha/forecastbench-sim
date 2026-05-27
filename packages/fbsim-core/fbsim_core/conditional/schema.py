@@ -23,12 +23,9 @@ class Condition:
     condition_id: str
     """Unique identifier, e.g., 'gold_5000_p0'"""
 
-    condition_type: Literal["gold", "government", "tech"]
-    """Type of intervention:
-    - gold: Add gold to a player's treasury
-    - government: Change a player's government type
-    - tech: Grant a technology to a player
-    """
+    condition_type: str
+    """World-defined intervention type, e.g. FreeCiv 'gold'/'government'/'tech',
+    or pandemic 'vaccine'. The world's conditional executor interprets it."""
 
     player_id: int
     """Player to apply the intervention to"""

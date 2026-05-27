@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .schema import (
+from ..questions.schema import (
     QuestionBank,
     QuestionInstance,
     Resolution,
@@ -17,7 +17,7 @@ from .schema import (
     CivilizationInfo,
     classify_horizon,
 )
-from .conditional_schema import (
+from .schema import (
     Condition,
     ConditionalQuestion,
     ConditionalResult,
