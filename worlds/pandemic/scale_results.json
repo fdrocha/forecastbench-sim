@@ -1,11 +1,10 @@
 {
-  "generated_at": "2026-05-27T16:40:44.926474+00:00",
+  "generated_at": "2026-05-27T17:13:52.448699+00:00",
   "n_scenarios": 30,
   "horizons": [
     40,
     60
   ],
-  "snapshot_day": 20,
   "base_rates": {
     "unconditional": 0.6333333333333333,
     "conditional": 0.21666666666666667
