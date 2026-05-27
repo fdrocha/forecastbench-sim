@@ -1,99 +1,54 @@
-# CivBench
+# ForecastBench-Sim
 
-Forecasting benchmark for LLMs built on FreeCiv game simulations. Models read a world state report from a game in progress and answer questions about future game outcomes.
+A forecasting benchmark that can host an **arbitrary number of simulation "worlds."**
+A world runs a simulation, and models read a world-state report and forecast future
+outcomes. The domain-agnostic machinery (question schema, resolver, generator, scoring,
+eval harness) lives in `fbsim-core`; each world is a plugin.
 
-## What it tests
+```
+packages/fbsim-core/      # schema, resolver, registry, generator machinery,
+                          # metrics, eval (models/sampling/difficulty)
+worlds/freeciv/           # FreeCiv strategy-game world (CivRealm engine + benchmark)
+worlds/pandemic/          # Starsim SIR epidemic world (conditional vaccine forecasting)
+```
 
-- **Binary questions** (20 templates): Will event X happen? Models output probability estimates, scored with Brier score and ECE.
-- **Continuous questions** (6 templates): What will the value of Y be? Models output percentile estimates (p10, p25, p50, p75, p90), scored with CRPS and MAE.
-- **Conditional reasoning**: Given a hypothetical intervention (government change, treasury boost), can the model update its forecasts? Five framing variants test different aspects of causal reasoning.
-
-The benchmark contains 9,426 questions across 26 templates, 14 game seeds, and 8 forecast horizons (0--210 turns).
-
-## Quick start
+It's a [uv workspace](https://docs.astral.sh/uv/concepts/workspaces/). Install with:
 
 ```bash
-# Install
-uv sync
-
-# Dry run (no API calls)
-uv run python scripts/evaluate_llm_forecasts_parallel.py --dry-run -n 2
-
-# Evaluate a model (2 questions per template)
-uv run python scripts/evaluate_llm_forecasts_parallel.py \
-  --models anthropic/claude-sonnet-4-5-20250929 -n 2
-
-# Continuous questions only
-uv run python scripts/evaluate_llm_forecasts_parallel.py \
-  --models anthropic/claude-sonnet-4-5-20250929 -n 2 \
-  --question-type continuous
-
-# Filter by forecast horizon
-uv run python scripts/evaluate_llm_forecasts_parallel.py \
-  --models openai/gpt-4o -n 5 --horizon H0 H1
+uv sync --all-packages
 ```
 
-Results are saved to `data/evaluations/runs/`.
+## Adding a world
 
-## Pipeline
+A world provides these to `fbsim-core` (see `worlds/pandemic/` for a compact example):
 
+1. **Serializer → `game_data`** in the canonical **turn-major** layout
+   `time_series[metric][turn][entity_id] = value` (see `fbsim_core.questions.timeseries`).
+   Core never infers the layout — the world emits it.
+2. **Template registry** — build a `fbsim_core.questions.registry.TemplateRegistry`
+   from the world's `QuestionTemplate`s and pass it to `QuestionResolver(registry)`.
+   (`worlds/pandemic/pandemic_world/templates.py`)
+3. **Report renderer** — a function producing the model-facing world-state text
+   for a snapshot. (`pandemic_world/report.py`)
+4. **Eval driver / adapter** — turn questions + report into prompts, query models
+   (`fbsim_core.evaluation.models`), score with `fbsim_core.metrics`.
+   (`pandemic_world/scale_eval.py`)
+5. **(Optional) conditional executor** — how an intervention is applied. FreeCiv forks
+   a savegame; pandemic re-runs the sim with a vaccine. Core keeps the generic
+   control-vs-intervention structure; the executor is world-specific.
+
+## Verify
+
+```bash
+# core (domain-agnostic) tests
+cd packages/fbsim-core && uv run --project .. python -m pytest tests
+
+# FreeCiv world: generate + resolve questions from a recorded game
+uv run python worlds/freeciv/scripts/generate_questions.py \
+    data/games/seed1619_data.json --snapshot-turn 60 --summary
+
+# Pandemic world: scaled conditional/unconditional benchmark + chart (cached)
+uv run python -m pandemic_world.scale_eval --eval
 ```
-Game Execution → Serialization → Question Generation → Conditional Experiments → LLM Evaluation
-(FreeCiv)          (games/)        (questions/)          (conditional/)           (evaluations/)
-```
 
-| Stage | Script | Purpose |
-|-------|--------|---------|
-| Game execution | `scripts/run_world.py` | Run a single FreeCiv simulation |
-| Game execution | `scripts/run_worlds.py` | Run batch of simulations |
-| Game execution | `scripts/run_fork.py` | Fork a game with an intervention |
-| Serialization | `scripts/generate_data_batch.py` | Serialize game saves to JSON |
-| Questions | `scripts/generate_questions.py` | Generate questions for one game |
-| Questions | `scripts/generate_questions_batch.py` | Generate questions across seeds |
-| Conditional | `scripts/setup_republic_conditional_eval.py` | Set up republic conditional framings |
-| Conditional | `scripts/setup_gold500_conditional_eval.py` | Set up gold500 conditional framings |
-| Conditional | `scripts/setup_navigation_conditional_eval.py` | Set up navigation tech conditional |
-| Evaluation | `scripts/evaluate_llm_forecasts_parallel.py` | Run LLM evaluations in parallel |
-
-### Intervention experiments
-
-These scripts run specific experimental conditions on the standard 10-seed evaluation set (5 crash + 5 growth worlds, 4 disruptable templates, horizons H1-H6 = 240 questions per model per condition).
-
-| Script | Condition | What it tests |
-|--------|-----------|---------------|
-| `scripts/run_domain_knowledge_standardized.py` | Domain knowledge | Does providing FreeCiv warfare mechanics + crash base rates improve tail calibration? |
-| `scripts/run_tutorial_conditions.py` | Tutorial framing | Does the type of example world (crash-only, growth-only, both) affect performance? |
-| `scripts/run_scenario_enumeration.py` | Scenario enumeration | Can models identify disruption scenarios when asked to enumerate futures? (Sub-task 1 of decomposition) |
-| `scripts/run_scenario_weighting.py` | Scenario weighting | Given fixed scenarios, can models assign reasonable P(disruption)? (Sub-task 2) |
-| `scripts/run_structured_mixture.py` | SME (fixed scenarios) | Fixed continuation/disruption scenarios with model-generated conditional distributions |
-| `scripts/run_generate_scenario.py` | GenSME | Models generate their own scenarios, weights, and conditional distributions in one call |
-
-Prompt templates for the intervention experiments live in `src/civrealm/evaluation/`.
-
-## Data
-
-All generated data (game snapshots, questions, evaluation results) is produced by the pipeline scripts above and excluded from the repository. See `data/README.md` for the expected directory structure.
-
-## Evaluation output
-
-Each run produces a JSON file with:
-
-- **`model_results`**: Per-model metrics split by question type
-  - `binary`: `brier_score`, `ece`, per-template Brier breakdown
-  - `continuous`: `crps`, `mae`, per-template CRPS/MAE breakdown
-- **`questions`**: Per-question predictions with `question_type`, ground truth, and model outputs
-- **`metadata`**: Run config, question type distribution, template distribution
-
-## Citation
-
-This project extends [CivRealm](https://github.com/bigai-ai/civrealm) (Qi et al., ICLR 2024) as a forecasting benchmark.
-
-```bibtex
-@inproceedings{qi2024civrealm,
-  title     = {CivRealm: A Learning and Reasoning Odyssey in Civilization for Decision-Making Agents},
-  author    = {Siyuan Qi and Shuo Chen and Yexin Li and Xiangyu Kong and Junqi Wang and Bangcheng Yang and Pring Wong and Yifan Zhong and Xiaoyuan Zhang and Zhaowei Zhang and Nian Liu and Wei Wang and Yaodong Yang and Song-Chun Zhu},
-  booktitle = {International Conference on Learning Representations},
-  year      = {2024},
-  url       = {https://openreview.net/forum?id=UBVNwD3hPN}
-}
-```
+Both worlds resolve through the *same* core resolver and registry — that's the point.
