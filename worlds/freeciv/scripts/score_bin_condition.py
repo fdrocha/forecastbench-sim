@@ -481,13 +481,11 @@ def analyze_results(results_file: str, compare_file: str = None):
             return
 
         # Compute CRPS for baseline (from quantiles)
-        from freeciv_world.evaluation.scoring import crps_from_quantiles
+        from fbsim_core.metrics import compute_crps
         for r in baseline:
             pcts = r["percentiles"]
-            quantiles = [pcts.get(k) for k in ["p10", "p25", "p50", "p75", "p90"]]
-            if all(q is not None for q in quantiles):
-                r["crps"] = crps_from_quantiles(
-                    quantiles, [0.1, 0.25, 0.5, 0.75, 0.9], r["ground_truth"])
+            if all(pcts.get(k) is not None for k in ["p10", "p25", "p50", "p75", "p90"]):
+                r["crps"] = compute_crps(pcts, r["ground_truth"])
 
         baseline_valid = [r for r in baseline if "crps" in r]
 

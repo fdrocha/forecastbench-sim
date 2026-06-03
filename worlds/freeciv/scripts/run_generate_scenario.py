@@ -30,6 +30,7 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from fbsim_core.evaluation.models import load_api_keys_from_gcp, LiteLLMModel
+from fbsim_core.metrics import compute_crps
 from freeciv_world.evaluation.generate_scenario_prompt import build_generate_scenario_prompt
 
 _keys_loaded = False
@@ -245,18 +246,7 @@ def parse_gensme(response: str, num_questions: int) -> list[dict | None]:
 
 # ── CRPS ────────────────────────────────────────────────────────────────────
 
-def crps_quantile(quantiles: dict, ground_truth: float) -> float:
-    taus = [0.10, 0.25, 0.50, 0.75, 0.90]
-    keys = ["p10", "p25", "p50", "p75", "p90"]
-    total = 0.0
-    for tau, key in zip(taus, keys):
-        q = quantiles[key]
-        diff = ground_truth - q
-        if diff >= 0:
-            total += tau * diff
-        else:
-            total += (tau - 1) * diff
-    return total * 2 / len(taus)
+# CRPS via fbsim_core.metrics.compute_crps (imported above)
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
@@ -317,7 +307,7 @@ async def run_experiment(models: list[str], seeds: list[str] = None,
                     truth = q["resolution"]["value_at_resolution"]
 
                     if gs is not None:
-                        mix_crps = crps_quantile(gs["mixture"], truth)
+                        mix_crps = compute_crps(gs["mixture"], truth)
 
                         result = {
                             "model": model_id,
