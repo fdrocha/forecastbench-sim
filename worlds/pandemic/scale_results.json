@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-27T17:13:52.448699+00:00",
+  "generated_at": "2026-07-09T12:48:23.514776+00:00",
   "n_scenarios": 30,
   "horizons": [
     40,
@@ -10,6 +10,138 @@
     "conditional": 0.21666666666666667
   },
   "results": {
+    "gpt-4.1-2025-04-14": {
+      "unconditional": {
+        "brier": 0.050175,
+        "n": 60,
+        "mean_pred": 0.7308333333333333
+      },
+      "conditional": {
+        "brier": 0.016288333333333332,
+        "n": 60,
+        "mean_pred": 0.2645
+      }
+    },
+    "gpt-5-2025-08-07": {
+      "unconditional": {
+        "brier": 0.05398518333333333,
+        "n": 60,
+        "mean_pred": 0.70945
+      },
+      "conditional": {
+        "brier": 0.08571741379310345,
+        "n": 58,
+        "mean_pred": 0.11396551724137932
+      }
+    },
+    "gpt-5-mini-2025-08-07": {
+      "unconditional": {
+        "brier": 0.09119201711864407,
+        "n": 59,
+        "mean_pred": 0.6705237288135595
+      },
+      "conditional": {
+        "brier": 0.04315006666666667,
+        "n": 60,
+        "mean_pred": 0.1604
+      }
+    },
+    "gpt-5-nano-2025-08-07": {
+      "unconditional": {
+        "brier": 0.09556712654166667,
+        "n": 60,
+        "mean_pred": 0.6304458333333334
+      },
+      "conditional": {
+        "brier": 0.06704003333333333,
+        "n": 60,
+        "mean_pred": 0.17099999999999999
+      }
+    },
+    "gpt-5.1-2025-11-13": {
+      "unconditional": {
+        "brier": 0.05874166666666667,
+        "n": 60,
+        "mean_pred": 0.7135
+      },
+      "conditional": {
+        "brier": 0.04659833333333333,
+        "n": 60,
+        "mean_pred": 0.2381666666666667
+      }
+    },
+    "o3-2025-04-16": {
+      "unconditional": {
+        "brier": 0.10145333333333334,
+        "n": 60,
+        "mean_pred": 0.6266666666666667
+      },
+      "conditional": {
+        "brier": 0.09803543333333334,
+        "n": 60,
+        "mean_pred": 0.12359999999999999
+      }
+    },
+    "o3-mini-2025-01-31": {
+      "unconditional": {
+        "brier": 0.06407333333333333,
+        "n": 60,
+        "mean_pred": 0.6913333333333334
+      },
+      "conditional": {
+        "brier": 0.068505,
+        "n": 60,
+        "mean_pred": 0.13816666666666666
+      }
+    },
+    "o4-mini-2025-04-16": {
+      "unconditional": {
+        "brier": 0.07421333333333333,
+        "n": 60,
+        "mean_pred": 0.6686666666666667
+      },
+      "conditional": {
+        "brier": 0.1548067,
+        "n": 60,
+        "mean_pred": 0.04936666666666667
+      }
+    },
+    "gemini-2.5-pro": {
+      "unconditional": {
+        "brier": 0.088935,
+        "n": 60,
+        "mean_pred": 0.6858333333333334
+      },
+      "conditional": {
+        "brier": 0.12568363636363636,
+        "n": 55,
+        "mean_pred": 0.07963636363636363
+      }
+    },
+    "DeepSeek-V3": {
+      "unconditional": {
+        "brier": 0.053885,
+        "n": 60,
+        "mean_pred": 0.7191666666666668
+      },
+      "conditional": {
+        "brier": 0.06979166666666667,
+        "n": 60,
+        "mean_pred": 0.3528333333333334
+      }
+    },
+    "grok-4-0709": {
+      "unconditional": {
+        "brier": 0.14128833333333332,
+        "n": 60,
+        "mean_pred": 0.4998333333333334
+      },
+      "conditional": {
+        "brier": 0.12497393333333333,
+        "n": 60,
+        "mean_pred": 0.3052333333333334
+      }
+    },
     "Meta-Llama-3.1-8B-Instruct": {
       "unconditional": {
         "brier": 0.27338508333333333,
