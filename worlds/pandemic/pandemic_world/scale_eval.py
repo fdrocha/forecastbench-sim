@@ -34,7 +34,9 @@ DEFAULT_MODELS = [
 ]
 
 
-def parse_prob(text: str) -> float | None:
+def parse_prob(text: str | None) -> float | None:
+    if text is None:
+        return None
     m = re.search(r"(?<![\d.])(0?\.\d+|1\.0+|0|1)(?![\d.])", text.strip())
     if not m:
         m = re.search(r"\d+(\.\d+)?", text)
@@ -156,7 +158,9 @@ def main() -> None:
             if ck in cache:
                 p = cache[ck]
             else:
-                raw = model.get_response(build_prompt(c["context"], c["question_text"]), max_tokens=2000)
+                # 2000 starved reasoning models: thinking tokens consumed the whole
+                # budget and content came back empty (parsed as None)
+                raw = model.get_response(build_prompt(c["context"], c["question_text"]), max_tokens=16000)
                 p = parse_prob(raw)
                 cache[ck] = p
                 n_new += 1

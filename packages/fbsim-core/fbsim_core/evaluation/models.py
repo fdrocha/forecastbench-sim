@@ -58,7 +58,7 @@ MODELS_WITHOUT_TEMPERATURE = {
     "o1", "o1-mini", "o1-preview",
     "o3", "o3-mini", "o3-pro",
     "o4-mini",
-    "gpt-5", "gpt-5-mini", "gpt-5-codex",
+    "gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-5-codex",
 }
 
 # Models that typically need a larger token budget for reasoning traces.
