@@ -1,0 +1,19 @@
+SCREEN 03: EXAMPLE WORLD
+========================
+
+Before you start forecasting, here's an example of a completed game so you
+can see how civilizations develop over ~300 turns.
+
+[EMBED: example world report from seed10 — full end-game (turn 301) report]
+[See: human_subjects/survey_materials/example_worlds/seed10_world_report.md]
+
+This is a completed game with 10 civilizations. Notice how:
+- Some civilizations grew steadily while others collapsed
+- Wars caused sudden drops in population, territory, and cities
+- Treasury fluctuated dramatically (wars are expensive)
+- Technologies only ever increased (knowledge is never lost)
+- Final scores ranged from 44 to 496
+
+In the real task, you'll see only the FIRST 60 turns and predict what
+happens next. There is no single right answer — the goal is to express your
+genuine uncertainty about what might happen.

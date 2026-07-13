@@ -1,0 +1,341 @@
+WORLD REPORT TXT v1
+Game ID: seed1525
+Snapshot turn: 60
+Turns analyzed: 1..60
+Map size: 78x52
+
+
+## CIVILIZATIONS
+
+ID | Name        | Adjective   | Nation ID
+|---|-------------|-------------|----------|
+0  | Maori       | Maori       | 307      
+1  | Walloon     | Walloon     | 538      
+2  | Rwandan     | Rwandan     | 412      
+3  | Ukrainian   | Ukrainian   | 514      
+4  | Palestinian | Palestinian | 377      
+5  | Pirate      | Pirate      | 559      
+6  | Barbarian   | Barbarian   | 558      
+7  | New Zealand | New Zealand | 350      
+8  | Israeli     | Israeli     | 235      
+9  | Jordanian   | Jordanian   | 244      
+
+
+## CURRENT STATE (TURN 60)
+
+ID | Name        | Score | Rank | Government | Treasury | Population | Techs | Wonders | Cities | Territory | Units | Military | Science | Trade | Food | Shields
+|---|-------------|-------|------|------------|----------|------------|-------|---------|--------|-----------|-------|----------|---------|-------|------|--------|
+0  | Maori       | 37    | NA   | Despotism  | 224.0    | 20.0       | 9     | 1       | 11     | 175       | 11    | 9        | 60      | 20.0  | 40.0 | 35.0   
+1  | Walloon     | -1    | NA   | Anarchy    | 0.0      | 0.0        | 9     | 0       | 0      | 0         | 0     | 0        | 60      | 34.0  | 68.0 | 52.0   
+2  | Rwandan     | 32    | NA   | Despotism  | 273.0    | 1.0        | 8     | 0       | 1      | 23        | 0     | 0        | 60      | 29.0  | 58.0 | 35.0   
+3  | Ukrainian   | 44    | NA   | Despotism  | 279.0    | 0.0        | 11    | 0       | 0      | 0         | 1     | 1        | 60      | 41.0  | 82.0 | 40.0   
+4  | Palestinian | -1    | NA   | Anarchy    | 0.0      | 0.0        | 10    | 0       | 0      | 0         | 0     | 0        | 60      | 44.0  | 88.0 | 44.0   
+5  | Pirate      | NA    | NA   | NA         | None     | None       | None  | None    | None   | None      | None  | None     | None    | None  | None | None   
+6  | Barbarian   | NA    | NA   | NA         | None     | None       | None  | None    | None   | None      | None  | None     | None    | None  | None | None   
+7  | New Zealand | NA    | NA   | NA         | None     | None       | None  | None    | None   | None      | None  | None     | None    | None  | None | None   
+8  | Israeli     | NA    | NA   | NA         | None     | None       | None  | None    | None   | None      | None  | None     | None    | None  | None | None   
+9  | Jordanian   | NA    | NA   | NA         | None     | None       | None  | None    | None   | None      | None  | None     | None    | None  | None | None   
+
+GOVERNMENT TIMELINE (derived from recordings)
+Each entry is a change point (turn number -> new government); the first entry is the first observed government.
+0 Maori: 1 Despotism
+1 Walloon: 1 Anarchy
+2 Rwandan: 1 Anarchy; 9 Despotism; 30 Anarchy; 45 Despotism
+3 Ukrainian: 1 Anarchy; 28 Despotism
+4 Palestinian: 1 Anarchy
+5 Pirate: NA (no changes observed)
+6 Barbarian: NA (no changes observed)
+7 New Zealand: NA (no changes observed)
+8 Israeli: NA (no changes observed)
+9 Jordanian: NA (no changes observed)
+
+TREASURY (sampled every 5 turns)
+turns: 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
+0 Maori: 50.0, 55.0, 65.0, 75.0, 85.0, 100.0, 120.0, 140.0, 160.0, 182.0, 209.0, 219.0, 224.0
+1 Walloon: 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+2 Rwandan: 0.0, 0.0, 61.0, 71.0, 80.0, 95.0, 0.0, 0.0, 0.0, 194.0, 219.0, 244.0, 273.0
+3 Ukrainian: 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 176.0, 192.0, 204.0, 219.0, 230.0, 247.0, 279.0
+4 Palestinian: 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+5 Pirate: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+6 Barbarian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+7 New Zealand: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+8 Israeli: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+9 Jordanian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+
+POPULATION (sampled every 5 turns)
+turns: 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
+0 Maori: 0.0, 2.0, 3.0, 5.0, 4.0, 6.0, 8.0, 11.0, 11.0, 14.0, 18.0, 19.0, 20.0
+1 Walloon: 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+2 Rwandan: 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0
+3 Ukrainian: 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+4 Palestinian: 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+5 Pirate: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+6 Barbarian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+7 New Zealand: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+8 Israeli: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+9 Jordanian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+
+TECHS KNOWN (sampled every 5 turns)
+turns: 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
+0 Maori: 1, 1, 1, 2, 3, 4, 5, 6, 6, 7, 8, 8, 9
+1 Walloon: 1, 1, 1, 1, 2, 3, 4, 4, 6, 7, 7, 8, 9
+2 Rwandan: 1, 1, 1, 1, 2, 3, 3, 4, 5, 6, 7, 8, 8
+3 Ukrainian: 1, 1, 1, 3, 4, 5, 6, 7, 7, 8, 9, 9, 11
+4 Palestinian: 1, 1, 1, 2, 3, 4, 5, 5, 5, 6, 8, 9, 10
+5 Pirate: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+6 Barbarian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+7 New Zealand: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+8 Israeli: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+9 Jordanian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+
+WONDERS DISCOVERED (sampled every 5 turns)
+turns: 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
+0 Maori: 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+1 Walloon: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+2 Rwandan: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+3 Ukrainian: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+4 Palestinian: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+5 Pirate: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+6 Barbarian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+7 New Zealand: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+8 Israeli: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+9 Jordanian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+
+CITIES COUNT (sampled every 5 turns)
+turns: 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
+0 Maori: 0, 2, 2, 3, 3, 4, 6, 6, 7, 10, 9, 9, 11
+1 Walloon: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+2 Rwandan: 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1
+3 Ukrainian: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+4 Palestinian: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+5 Pirate: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+6 Barbarian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+7 New Zealand: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+8 Israeli: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+9 Jordanian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+
+TERRITORY SIZE (sampled every 5 turns)
+turns: 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
+0 Maori: 0, 42, 49, 87, 92, 106, 123, 123, 133, 156, 163, 164, 175
+1 Walloon: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+2 Rwandan: 0, 0, 1, 1, 1, 1, 1, 1, 1, 12, 12, 12, 23
+3 Ukrainian: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+4 Palestinian: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+5 Pirate: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+6 Barbarian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+7 New Zealand: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+8 Israeli: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+9 Jordanian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+
+SCIENCE (sampled every 5 turns)
+turns: 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
+0 Maori: 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60
+1 Walloon: 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60
+2 Rwandan: 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60
+3 Ukrainian: 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60
+4 Palestinian: 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60
+5 Pirate: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+6 Barbarian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+7 New Zealand: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+8 Israeli: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+9 Jordanian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+
+TRADE PRODUCTION (sampled every 5 turns)
+turns: 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
+0 Maori: 0.0, 2.0, 3.0, 5.0, 4.0, 6.0, 8.0, 11.0, 11.0, 14.0, 18.0, 19.0, 20.0
+1 Walloon: 0.0, 5.0, 5.0, 7.0, 7.0, 10.0, 11.0, 14.0, 16.0, 20.0, 26.0, 25.0, 34.0
+2 Rwandan: 0.0, 10.0, 8.0, 10.0, 11.0, 8.0, 13.0, 14.0, 14.0, 17.0, 22.0, 25.0, 29.0
+3 Ukrainian: 0.0, 11.0, 11.0, 15.0, 13.0, 19.0, 21.0, 20.0, 28.0, 35.0, 31.0, 35.0, 41.0
+4 Palestinian: 0.0, 15.0, 15.0, 17.0, 20.0, 22.0, 22.0, 23.0, 34.0, 34.0, 36.0, 42.0, 44.0
+5 Pirate: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+6 Barbarian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+7 New Zealand: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+8 Israeli: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+9 Jordanian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+
+FOOD PRODUCTION (sampled every 5 turns)
+turns: 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
+0 Maori: 0.0, 4.0, 6.0, 10.0, 8.0, 12.0, 16.0, 22.0, 22.0, 28.0, 36.0, 38.0, 40.0
+1 Walloon: 0.0, 10.0, 10.0, 14.0, 14.0, 20.0, 22.0, 28.0, 32.0, 40.0, 52.0, 50.0, 68.0
+2 Rwandan: 0.0, 20.0, 16.0, 20.0, 22.0, 16.0, 26.0, 28.0, 28.0, 34.0, 44.0, 50.0, 58.0
+3 Ukrainian: 0.0, 22.0, 22.0, 30.0, 26.0, 38.0, 42.0, 40.0, 56.0, 70.0, 62.0, 70.0, 82.0
+4 Palestinian: 0.0, 30.0, 30.0, 34.0, 40.0, 44.0, 44.0, 46.0, 68.0, 68.0, 72.0, 84.0, 88.0
+5 Pirate: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+6 Barbarian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+7 New Zealand: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+8 Israeli: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+9 Jordanian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+
+SHIELD PRODUCTION (sampled every 5 turns)
+turns: 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
+0 Maori: 0.0, 2.0, 2.0, 10.0, 5.0, 9.0, 15.0, 14.0, 17.0, 22.0, 31.0, 30.0, 35.0
+1 Walloon: 0.0, 8.0, 8.0, 9.0, 11.0, 14.0, 18.0, 16.0, 26.0, 28.0, 34.0, 38.0, 52.0
+2 Rwandan: 0.0, 3.0, 3.0, 11.0, 8.0, 15.0, 9.0, 18.0, 24.0, 27.0, 28.0, 26.0, 35.0
+3 Ukrainian: 0.0, 3.0, 3.0, 9.0, 8.0, 14.0, 14.0, 15.0, 22.0, 21.0, 24.0, 30.0, 40.0
+4 Palestinian: 0.0, 6.0, 6.0, 10.0, 10.0, 13.0, 21.0, 21.0, 23.0, 26.0, 37.0, 32.0, 44.0
+5 Pirate: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+6 Barbarian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+7 New Zealand: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+8 Israeli: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+9 Jordanian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+
+UNITS COUNT (sampled every 5 turns)
+turns: 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
+0 Maori: 5, 3, 4, 4, 5, 4, 3, 5, 6, 6, 7, 9, 11
+1 Walloon: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+2 Rwandan: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+3 Ukrainian: 0, 0, 0, 0, 0, 0, 2, 1, 1, 1, 1, 0, 1
+4 Palestinian: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+5 Pirate: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+6 Barbarian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+7 New Zealand: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+8 Israeli: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+9 Jordanian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+
+MILITARY UNITS COUNT (sampled every 5 turns)
+turns: 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
+0 Maori: 0, 0, 1, 1, 1, 1, 1, 2, 2, 4, 5, 6, 9
+1 Walloon: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+2 Rwandan: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+3 Ukrainian: 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 1
+4 Palestinian: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+5 Pirate: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+6 Barbarian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+7 New Zealand: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+8 Israeli: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+9 Jordanian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+
+SCORES (derived from recordings)
+turns: 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
+0 Maori: 0, 2, 3, 7, 8, 12, 16, 21, 21, 27, 33, 34, 37
+1 Walloon: -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+2 Rwandan: -1, -1, 2, 4, 5, 8, -1, -1, -1, 23, 26, 30, 32
+3 Ukrainian: -1, -1, -1, -1, -1, -1, 16, 20, 25, 25, 30, 34, 44
+4 Palestinian: -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+5 Pirate: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+6 Barbarian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+7 New Zealand: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+8 Israeli: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+9 Jordanian: NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+
+RANKINGS (derived from scores)
+Turn 1: 1=Maori(0), 2=Walloon(-1), 3=Rwandan(-1), 4=Ukrainian(-1), 5=Palestinian(-1)
+Turn 5: 1=Maori(2), 2=Walloon(-1), 3=Rwandan(-1), 4=Ukrainian(-1), 5=Palestinian(-1)
+Turn 10: 1=Maori(3), 2=Rwandan(2), 3=Walloon(-1), 4=Ukrainian(-1), 5=Palestinian(-1)
+Turn 15: 1=Maori(7), 2=Rwandan(4), 3=Walloon(-1), 4=Ukrainian(-1), 5=Palestinian(-1)
+Turn 20: 1=Maori(8), 2=Rwandan(5), 3=Walloon(-1), 4=Ukrainian(-1), 5=Palestinian(-1)
+Turn 25: 1=Maori(12), 2=Rwandan(8), 3=Walloon(-1), 4=Ukrainian(-1), 5=Palestinian(-1)
+Turn 30: 1=Maori(16), 2=Ukrainian(16), 3=Walloon(-1), 4=Rwandan(-1), 5=Palestinian(-1)
+Turn 35: 1=Maori(21), 2=Ukrainian(20), 3=Walloon(-1), 4=Rwandan(-1), 5=Palestinian(-1)
+Turn 40: 1=Ukrainian(25), 2=Maori(21), 3=Walloon(-1), 4=Rwandan(-1), 5=Palestinian(-1)
+Turn 45: 1=Maori(27), 2=Ukrainian(25), 3=Rwandan(23), 4=Walloon(-1), 5=Palestinian(-1)
+Turn 50: 1=Maori(33), 2=Ukrainian(30), 3=Rwandan(26), 4=Walloon(-1), 5=Palestinian(-1)
+Turn 55: 1=Maori(34), 2=Ukrainian(34), 3=Rwandan(30), 4=Walloon(-1), 5=Palestinian(-1)
+Turn 60: 1=Ukrainian(44), 2=Maori(37), 3=Rwandan(32), 4=Walloon(-1), 5=Palestinian(-1)
+
+EVENT TYPES (exhaustive)
+city_founded, city_conquered, city_destroyed, government_change, diplomatic_change, tech_discovered, wonder_completed
+If a type does not appear in EVENTS, it did not occur in the analyzed turns.
+
+EVENTS (chronological)
+Turn | Type | Civ | Description | Metadata
+--------------------------------------------------------------------------------
+1 | tech_discovered | Maori | Maori discovered Tech #0 | tech_id=0, tech_name=Tech #0
+1 | tech_discovered | Walloon | Walloon discovered Tech #0 | tech_id=0, tech_name=Tech #0
+1 | tech_discovered | Rwandan | Rwandan discovered Tech #0 | tech_id=0, tech_name=Tech #0
+1 | tech_discovered | Ukrainian | Ukrainian discovered Tech #0 | tech_id=0, tech_name=Tech #0
+1 | tech_discovered | Palestinian | Palestinian discovered Tech #0 | tech_id=0, tech_name=Tech #0
+2 | wonder_completed | Walloon | Walloon completed Palace in Charleroi | wonder_id=21, wonder_name=Palace, city_name=Charleroi
+2 | wonder_completed | Ukrainian | Ukrainian completed Palace in Lviv | wonder_id=21, wonder_name=Palace, city_name=Lviv
+2 | wonder_completed | Palestinian | Palestinian completed Palace in Al-Quds | wonder_id=21, wonder_name=Palace, city_name=Al-Quds
+3 | city_founded | Maori | Manukau founded by Maori | city_id=130, city_name=Manukau
+3 | wonder_completed | Maori | Maori completed Palace in Manukau | wonder_id=21, wonder_name=Palace, city_name=Manukau
+3 | wonder_completed | Rwandan | Rwandan completed Palace in Kigali | wonder_id=21, wonder_name=Palace, city_name=Kigali
+4 | city_founded | Maori | Wairoa founded by Maori | city_id=134, city_name=Wairoa
+9 | government_change | Rwandan | Rwandan changed government from Anarchy to Despotism | from=Anarchy, to=Despotism
+11 | city_founded | Maori | Tamaki founded by Maori | city_id=139, city_name=Tamaki
+12 | tech_discovered | Maori | Maori discovered Masonry | tech_id=46, tech_name=Masonry
+12 | tech_discovered | Palestinian | Palestinian discovered Masonry | tech_id=46, tech_name=Masonry
+13 | tech_discovered | Ukrainian | Ukrainian discovered Masonry | tech_id=46, tech_name=Masonry
+14 | tech_discovered | Ukrainian | Ukrainian discovered Alphabet | tech_id=2, tech_name=Alphabet
+16 | tech_discovered | Walloon | Walloon discovered Masonry | tech_id=46, tech_name=Masonry
+17 | tech_discovered | Rwandan | Rwandan discovered Masonry | tech_id=46, tech_name=Masonry
+17 | tech_discovered | Ukrainian | Ukrainian discovered Code of Laws | tech_id=13, tech_name=Code of Laws
+19 | tech_discovered | Maori | Maori discovered Pottery | tech_id=63, tech_name=Pottery
+19 | tech_discovered | Palestinian | Palestinian discovered Horseback Riding | tech_id=35, tech_name=Horseback Riding
+22 | city_founded | Maori | Ngaruawahia founded by Maori | city_id=156, city_name=Ngaruawahia
+23 | tech_discovered | Walloon | Walloon discovered Warrior Code | tech_id=86, tech_name=Warrior Code
+23 | tech_discovered | Ukrainian | Ukrainian discovered Pottery | tech_id=63, tech_name=Pottery
+25 | tech_discovered | Maori | Maori discovered Horseback Riding | tech_id=35, tech_name=Horseback Riding
+25 | tech_discovered | Rwandan | Rwandan discovered Alphabet | tech_id=2, tech_name=Alphabet
+25 | tech_discovered | Palestinian | Palestinian discovered Warrior Code | tech_id=86, tech_name=Warrior Code
+26 | city_founded | Maori | Otautahi founded by Maori | city_id=162, city_name=Otautahi
+28 | government_change | Ukrainian | Ukrainian changed government from Anarchy to Despotism | from=Anarchy, to=Despotism
+28 | tech_discovered | Walloon | Walloon discovered Alphabet | tech_id=2, tech_name=Alphabet
+29 | city_founded | Maori | Rotorua founded by Maori | city_id=168, city_name=Rotorua
+29 | tech_discovered | Ukrainian | Ukrainian discovered Horseback Riding | tech_id=35, tech_name=Horseback Riding
+29 | tech_discovered | Palestinian | Palestinian discovered Alphabet | tech_id=2, tech_name=Alphabet
+30 | government_change | Rwandan | Rwandan changed government from Despotism to Anarchy | from=Despotism, to=Anarchy
+30 | tech_discovered | Maori | Maori discovered Alphabet | tech_id=2, tech_name=Alphabet
+31 | tech_discovered | Rwandan | Rwandan discovered Horseback Riding | tech_id=35, tech_name=Horseback Riding
+35 | tech_discovered | Maori | Maori discovered Bronze Working | tech_id=9, tech_name=Bronze Working
+35 | tech_discovered | Ukrainian | Ukrainian discovered Warrior Code | tech_id=86, tech_name=Warrior Code
+36 | tech_discovered | Walloon | Walloon discovered Code of Laws | tech_id=13, tech_name=Code of Laws
+37 | city_founded | Maori | Whakatane founded by Maori | city_id=186, city_name=Whakatane
+39 | tech_discovered | Rwandan | Rwandan discovered Code of Laws | tech_id=13, tech_name=Code of Laws
+40 | tech_discovered | Walloon | Walloon discovered Mathematics | tech_id=48, tech_name=Mathematics
+41 | tech_discovered | Palestinian | Palestinian discovered Mathematics | tech_id=48, tech_name=Mathematics
+42 | city_founded | Maori | Kataia founded by Maori | city_id=201, city_name=Kataia
+42 | tech_discovered | Maori | Maori discovered Writing | tech_id=87, tech_name=Writing
+43 | city_founded | Maori | Otepoti founded by Maori | city_id=203, city_name=Otepoti
+43 | tech_discovered | Walloon | Walloon discovered Writing | tech_id=87, tech_name=Writing
+43 | tech_discovered | Ukrainian | Ukrainian discovered The Wheel | tech_id=81, tech_name=The Wheel
+44 | city_founded | Maori | Te Whanganui founded by Maori | city_id=207, city_name=Te Whanganui
+45 | city_founded | Rwandan | Cyangugu founded by Rwandan | city_id=190, city_name=Cyangugu
+45 | government_change | Rwandan | Rwandan changed government from Anarchy to Despotism | from=Anarchy, to=Despotism
+45 | tech_discovered | Rwandan | Rwandan discovered The Wheel | tech_id=81, tech_name=The Wheel
+46 | tech_discovered | Palestinian | Palestinian discovered Code of Laws | tech_id=13, tech_name=Code of Laws
+47 | tech_discovered | Maori | Maori discovered Code of Laws | tech_id=13, tech_name=Code of Laws
+48 | city_destroyed | Maori | Kataia (Maori) was destroyed | city_id=201, city_name=Kataia
+48 | tech_discovered | Rwandan | Rwandan discovered Warrior Code | tech_id=86, tech_name=Warrior Code
+49 | tech_discovered | Ukrainian | Ukrainian discovered Writing | tech_id=87, tech_name=Writing
+50 | tech_discovered | Palestinian | Palestinian discovered Writing | tech_id=87, tech_name=Writing
+52 | tech_discovered | Palestinian | Palestinian discovered Ceremonial Burial | tech_id=10, tech_name=Ceremonial Burial
+53 | tech_discovered | Rwandan | Rwandan discovered Writing | tech_id=87, tech_name=Writing
+54 | tech_discovered | Walloon | Walloon discovered Literacy | tech_id=42, tech_name=Literacy
+56 | tech_discovered | Walloon | Walloon discovered Bronze Working | tech_id=9, tech_name=Bronze Working
+56 | tech_discovered | Ukrainian | Ukrainian discovered Mathematics | tech_id=48, tech_name=Mathematics
+57 | city_founded | Maori | Waiheke founded by Maori | city_id=259, city_name=Waiheke
+58 | city_founded | Rwandan | Kabuga founded by Rwandan | city_id=252, city_name=Kabuga
+58 | tech_discovered | Ukrainian | Ukrainian discovered Ceremonial Burial | tech_id=10, tech_name=Ceremonial Burial
+59 | city_destroyed | Rwandan | Kabuga (Rwandan) was destroyed | city_id=252, city_name=Kabuga
+59 | tech_discovered | Maori | Maori discovered Literacy | tech_id=42, tech_name=Literacy
+60 | city_founded | Maori | Hokianga founded by Maori | city_id=271, city_name=Hokianga
+60 | tech_discovered | Palestinian | Palestinian discovered Literacy | tech_id=42, tech_name=Literacy
+
+
+## TERRITORY MAPS
+
+### Turn 10
+
+![Territory map at turn 10](maps/territory_turn_010.png)
+
+### Turn 20
+
+![Territory map at turn 20](maps/territory_turn_020.png)
+
+### Turn 30
+
+![Territory map at turn 30](maps/territory_turn_030.png)
+
+### Turn 40
+
+![Territory map at turn 40](maps/territory_turn_040.png)
+
+### Turn 50
+
+![Territory map at turn 50](maps/territory_turn_050.png)
+
+### Turn 60
+
+![Territory map at turn 60](maps/territory_turn_060.png)

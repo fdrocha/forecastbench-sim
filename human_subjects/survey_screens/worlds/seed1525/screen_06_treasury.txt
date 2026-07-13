@@ -1,0 +1,44 @@
+SCREEN 06: TREASURY QUESTIONS — seed1525 (Maori)
+=
+
+Forecast Maori's treasury at four future turns.
+Assign a percentage to each range. Your percentages must sum to 100%.
+
+Bins: [0–500] | [500–1,000] | [1,000–1,500] | [1,500–2,000] | [2,000+]
+
+Q1. How much gold will Maori have at turn 90?
+[H1, Turn 90]
+
+  [0–500]: ___%
+  [500–1,000]: ___%
+  [1,000–1,500]: ___%
+  [1,500–2,000]: ___%
+  [2,000+]: ___%
+
+Q2. How much gold will Maori have at turn 150?
+[H3, Turn 150]
+
+  [0–500]: ___%
+  [500–1,000]: ___%
+  [1,000–1,500]: ___%
+  [1,500–2,000]: ___%
+  [2,000+]: ___%
+
+Q3. How much gold will Maori have at turn 180?
+[H4, Turn 180]
+
+  [0–500]: ___%
+  [500–1,000]: ___%
+  [1,000–1,500]: ___%
+  [1,500–2,000]: ___%
+  [2,000+]: ___%
+
+Q4. How much gold will Maori have at turn 240?
+[H6, Turn 240]
+
+  [0–500]: ___%
+  [500–1,000]: ___%
+  [1,000–1,500]: ___%
+  [1,500–2,000]: ___%
+  [2,000+]: ___%
+

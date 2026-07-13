@@ -37,13 +37,15 @@ DEFAULT_MODELS = [
 def parse_prob(text: str | None) -> float | None:
     if text is None:
         return None
-    m = re.search(r"(?<![\d.])(0?\.\d+|1\.0+|0|1)(?![\d.])", text.strip())
-    if not m:
-        m = re.search(r"\d+(\.\d+)?", text)
-    if not m:
+    # last match wins: verbose models put the answer at the end after a
+    # chain-of-thought preamble full of incidental numbers
+    ms = re.findall(r"(?<![\d.])(0?\.\d+|1\.0+|0|1)(?![\d.])", text.strip())
+    if not ms:
+        ms = re.findall(r"\d+(?:\.\d+)?", text)
+    if not ms:
         return None
     try:
-        return min(max(float(m.group(0)), 0.0), 1.0)
+        return min(max(float(ms[-1]), 0.0), 1.0)
     except ValueError:
         return None
 

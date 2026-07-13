@@ -13,8 +13,8 @@ The benchmark contains 9,426 questions across 26 templates, 14 game seeds, and 8
 ## Quick start
 
 ```bash
-# Install
-uv sync
+# Install (workspace root)
+uv sync --all-packages
 
 # Dry run (no API calls)
 uv run python scripts/evaluate_llm_forecasts_parallel.py --dry-run -n 2
@@ -68,7 +68,7 @@ These scripts run specific experimental conditions on the standard 10-seed evalu
 | `scripts/run_structured_mixture.py` | SME (fixed scenarios) | Fixed continuation/disruption scenarios with model-generated conditional distributions |
 | `scripts/run_generate_scenario.py` | GenSME | Models generate their own scenarios, weights, and conditional distributions in one call |
 
-Prompt templates for the intervention experiments live in `src/civrealm/evaluation/`.
+Prompt templates for the intervention experiments live in `freeciv_world/evaluation/`.
 
 ## Data
 

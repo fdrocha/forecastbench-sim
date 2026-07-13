@@ -1,0 +1,44 @@
+SCREEN 08: TECHS QUESTIONS — seed1515 (Micronesian)
+=
+
+Forecast Micronesian's techs at four future turns.
+Assign a percentage to each range. Your percentages must sum to 100%.
+
+Bins: [0–15] | [15–30] | [30–45] | [45–60] | [60+]
+
+Q9. How many technologies will Micronesian have discovered by turn 90?
+[H1, Turn 90]
+
+  [0–15]: ___%
+  [15–30]: ___%
+  [30–45]: ___%
+  [45–60]: ___%
+  [60+]: ___%
+
+Q10. How many technologies will Micronesian have discovered by turn 150?
+[H3, Turn 150]
+
+  [0–15]: ___%
+  [15–30]: ___%
+  [30–45]: ___%
+  [45–60]: ___%
+  [60+]: ___%
+
+Q11. How many technologies will Micronesian have discovered by turn 180?
+[H4, Turn 180]
+
+  [0–15]: ___%
+  [15–30]: ___%
+  [30–45]: ___%
+  [45–60]: ___%
+  [60+]: ___%
+
+Q12. How many technologies will Micronesian have discovered by turn 240?
+[H6, Turn 240]
+
+  [0–15]: ___%
+  [15–30]: ___%
+  [30–45]: ___%
+  [45–60]: ___%
+  [60+]: ___%
+

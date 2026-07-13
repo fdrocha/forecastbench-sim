@@ -1,0 +1,44 @@
+SCREEN 07: CITIES QUESTIONS — seed1525 (Maori)
+=
+
+Forecast Maori's cities at four future turns.
+Assign a percentage to each range. Your percentages must sum to 100%.
+
+Bins: [0–10] | [10–20] | [20–30] | [30–40] | [40+]
+
+Q5. How many cities will Maori have at turn 90?
+[H1, Turn 90]
+
+  [0–10]: ___%
+  [10–20]: ___%
+  [20–30]: ___%
+  [30–40]: ___%
+  [40+]: ___%
+
+Q6. How many cities will Maori have at turn 150?
+[H3, Turn 150]
+
+  [0–10]: ___%
+  [10–20]: ___%
+  [20–30]: ___%
+  [30–40]: ___%
+  [40+]: ___%
+
+Q7. How many cities will Maori have at turn 180?
+[H4, Turn 180]
+
+  [0–10]: ___%
+  [10–20]: ___%
+  [20–30]: ___%
+  [30–40]: ___%
+  [40+]: ___%
+
+Q8. How many cities will Maori have at turn 240?
+[H6, Turn 240]
+
+  [0–10]: ___%
+  [10–20]: ___%
+  [20–30]: ___%
+  [30–40]: ___%
+  [40+]: ___%
+

@@ -1,0 +1,19 @@
+SCREEN 14: DEBRIEF
+==================
+
+Thank you for participating!
+
+You just completed a forecasting task on simulated Civilization games. This
+study is part of a research project investigating how well humans and AI
+systems can predict outcomes in complex, dynamic environments.
+
+Your responses will help us understand:
+- Whether humans can make reasonable forecasts about game outcomes
+- How human forecasting compares to AI language model forecasting
+- Whether certain types of outcomes are harder to predict than others
+
+Your data is anonymous and will be used for research purposes only.
+
+If you have questions about this study, please contact: [PI email]
+
+[Prolific completion code: XXXXXXXX]

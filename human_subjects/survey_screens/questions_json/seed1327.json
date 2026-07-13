@@ -1,0 +1,218 @@
+[
+  {
+    "question_id": "seed1327_treasury_H1",
+    "question_text": "How much gold will Italian Greek have at turn 90?",
+    "x_labels_suffix": " gold",
+    "min_max_range": [
+      0,
+      2000
+    ],
+    "decimals": 0,
+    "metadata": {
+      "seed": "seed1327",
+      "template": "treasury",
+      "horizon": "H1",
+      "resolution_turn": 90,
+      "civ_name": "Italian Greek",
+      "ground_truth": 364.0
+    }
+  },
+  {
+    "question_id": "seed1327_treasury_H3",
+    "question_text": "How much gold will Italian Greek have at turn 150?",
+    "x_labels_suffix": " gold",
+    "min_max_range": [
+      0,
+      2000
+    ],
+    "decimals": 0,
+    "metadata": {
+      "seed": "seed1327",
+      "template": "treasury",
+      "horizon": "H3",
+      "resolution_turn": 150,
+      "civ_name": "Italian Greek",
+      "ground_truth": 485.0
+    }
+  },
+  {
+    "question_id": "seed1327_treasury_H4",
+    "question_text": "How much gold will Italian Greek have at turn 180?",
+    "x_labels_suffix": " gold",
+    "min_max_range": [
+      0,
+      2000
+    ],
+    "decimals": 0,
+    "metadata": {
+      "seed": "seed1327",
+      "template": "treasury",
+      "horizon": "H4",
+      "resolution_turn": 180,
+      "civ_name": "Italian Greek",
+      "ground_truth": 304.0
+    }
+  },
+  {
+    "question_id": "seed1327_treasury_H6",
+    "question_text": "How much gold will Italian Greek have at turn 240?",
+    "x_labels_suffix": " gold",
+    "min_max_range": [
+      0,
+      2000
+    ],
+    "decimals": 0,
+    "metadata": {
+      "seed": "seed1327",
+      "template": "treasury",
+      "horizon": "H6",
+      "resolution_turn": 240,
+      "civ_name": "Italian Greek",
+      "ground_truth": 161.0
+    }
+  },
+  {
+    "question_id": "seed1327_cities_H1",
+    "question_text": "How many cities will Italian Greek have at turn 90?",
+    "x_labels_suffix": " cities",
+    "min_max_range": [
+      0,
+      40
+    ],
+    "decimals": 0,
+    "metadata": {
+      "seed": "seed1327",
+      "template": "cities",
+      "horizon": "H1",
+      "resolution_turn": 90,
+      "civ_name": "Italian Greek",
+      "ground_truth": 10
+    }
+  },
+  {
+    "question_id": "seed1327_cities_H3",
+    "question_text": "How many cities will Italian Greek have at turn 150?",
+    "x_labels_suffix": " cities",
+    "min_max_range": [
+      0,
+      40
+    ],
+    "decimals": 0,
+    "metadata": {
+      "seed": "seed1327",
+      "template": "cities",
+      "horizon": "H3",
+      "resolution_turn": 150,
+      "civ_name": "Italian Greek",
+      "ground_truth": 18
+    }
+  },
+  {
+    "question_id": "seed1327_cities_H4",
+    "question_text": "How many cities will Italian Greek have at turn 180?",
+    "x_labels_suffix": " cities",
+    "min_max_range": [
+      0,
+      40
+    ],
+    "decimals": 0,
+    "metadata": {
+      "seed": "seed1327",
+      "template": "cities",
+      "horizon": "H4",
+      "resolution_turn": 180,
+      "civ_name": "Italian Greek",
+      "ground_truth": 19
+    }
+  },
+  {
+    "question_id": "seed1327_cities_H6",
+    "question_text": "How many cities will Italian Greek have at turn 240?",
+    "x_labels_suffix": " cities",
+    "min_max_range": [
+      0,
+      40
+    ],
+    "decimals": 0,
+    "metadata": {
+      "seed": "seed1327",
+      "template": "cities",
+      "horizon": "H6",
+      "resolution_turn": 240,
+      "civ_name": "Italian Greek",
+      "ground_truth": 22
+    }
+  },
+  {
+    "question_id": "seed1327_techs_H1",
+    "question_text": "How many technologies will Italian Greek have discovered by turn 90?",
+    "x_labels_suffix": " techs",
+    "min_max_range": [
+      0,
+      60
+    ],
+    "decimals": 0,
+    "metadata": {
+      "seed": "seed1327",
+      "template": "techs",
+      "horizon": "H1",
+      "resolution_turn": 90,
+      "civ_name": "Italian Greek",
+      "ground_truth": 19
+    }
+  },
+  {
+    "question_id": "seed1327_techs_H3",
+    "question_text": "How many technologies will Italian Greek have discovered by turn 150?",
+    "x_labels_suffix": " techs",
+    "min_max_range": [
+      0,
+      60
+    ],
+    "decimals": 0,
+    "metadata": {
+      "seed": "seed1327",
+      "template": "techs",
+      "horizon": "H3",
+      "resolution_turn": 150,
+      "civ_name": "Italian Greek",
+      "ground_truth": 35
+    }
+  },
+  {
+    "question_id": "seed1327_techs_H4",
+    "question_text": "How many technologies will Italian Greek have discovered by turn 180?",
+    "x_labels_suffix": " techs",
+    "min_max_range": [
+      0,
+      60
+    ],
+    "decimals": 0,
+    "metadata": {
+      "seed": "seed1327",
+      "template": "techs",
+      "horizon": "H4",
+      "resolution_turn": 180,
+      "civ_name": "Italian Greek",
+      "ground_truth": 48
+    }
+  },
+  {
+    "question_id": "seed1327_techs_H6",
+    "question_text": "How many technologies will Italian Greek have discovered by turn 240?",
+    "x_labels_suffix": " techs",
+    "min_max_range": [
+      0,
+      60
+    ],
+    "decimals": 0,
+    "metadata": {
+      "seed": "seed1327",
+      "template": "techs",
+      "horizon": "H6",
+      "resolution_turn": 240,
+      "civ_name": "Italian Greek",
+      "ground_truth": 55
+    }
+  }
+]

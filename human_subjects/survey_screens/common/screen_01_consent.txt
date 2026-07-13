@@ -1,0 +1,16 @@
+SCREEN 01: CONSENT
+==================
+
+[Standard Prolific/IRB consent form — Nik to use FRI template]
+
+Key points to include:
+
+- Study purpose: "You will read descriptions of simulated strategy games and
+  make predictions about future outcomes."
+- Duration: approximately 45–55 minutes
+- Compensation: [TBD — Prolific rate]
+- Data use: Research purposes only. Responses are anonymous.
+- Voluntary: You may withdraw at any time without penalty.
+- Contact: [PI email]
+
+[Participant must click "I consent" to proceed]

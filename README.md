@@ -1,9 +1,16 @@
 # ForecastBench-Sim
 
-A forecasting benchmark that can host an **arbitrary number of simulation "worlds."**
-A world runs a simulation, and models read a world-state report and forecast future
-outcomes. The domain-agnostic machinery (question schema, resolver, generator, scoring,
-eval harness) lives in `fbsim-core`; each world is a plugin.
+A multi-simulation forecasting benchmark that can host an **arbitrary number of
+simulation "worlds."** A world runs a simulation, and models read a world-state report
+and forecast future outcomes. The domain-agnostic machinery (question schema, resolver,
+generator, scoring, eval harness) lives in `fbsim-core`; each world is a plugin.
+
+Two worlds ship today:
+
+- **FreeCiv** (`worlds/freeciv/`) — strategy-game world on the CivRealm engine.
+- **Starsim** (`worlds/pandemic/`) — SIR epidemic world with conditional vaccine forecasting.
+
+Adding a third is the [Adding a world](#adding-a-world) flow below.
 
 ```
 packages/fbsim-core/      # schema, resolver, registry, generator machinery,

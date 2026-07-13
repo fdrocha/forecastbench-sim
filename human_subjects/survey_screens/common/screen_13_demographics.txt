@@ -1,0 +1,27 @@
+SCREEN 13: DEMOGRAPHICS
+=======================
+
+A few quick questions about your background (optional).
+
+1. Have you played Civilization or similar strategy games before?
+   ( ) Never
+   ( ) A few times
+   ( ) Regularly
+   ( ) Extensively (hundreds of hours)
+
+2. Have you made forecasts or predictions in a structured setting before?
+   (e.g., prediction markets, forecasting tournaments, professional forecasting)
+   ( ) Never
+   ( ) Once or twice
+   ( ) Occasionally
+   ( ) Regularly
+
+3. How would you rate the difficulty of this task?
+   ( ) Very easy
+   ( ) Easy
+   ( ) Moderate
+   ( ) Difficult
+   ( ) Very difficult
+
+4. Any comments on the task? (free text, optional)
+   [_______________________________________________]
