@@ -1875,6 +1875,7 @@ dependencies = [
     { name = "fbsim-core" },
     { name = "matplotlib" },
     { name = "numpy" },
+    { name = "python-dotenv" },
 ]
 
 [package.optional-dependencies]
@@ -1888,6 +1889,7 @@ requires-dist = [
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "pytest", marker = "extra == 'dev'" },
+    { name = "python-dotenv", specifier = ">=1.0.1" },
 ]
 provides-extras = ["dev"]
 

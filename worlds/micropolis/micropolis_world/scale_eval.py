@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
+from dotenv import load_dotenv
 
 from fbsim_core.metrics import compute_brier_score
 
@@ -26,6 +27,7 @@ from .scenarios import sample_scenarios, build_corpus
 from .report import build_prompt
 
 PKG_DIR = Path(__file__).resolve().parent.parent  # worlds/micropolis
+load_dotenv(PKG_DIR / ".env")
 CACHE_PATH = PKG_DIR / ".response_cache.json"
 RESULTS_PATH = PKG_DIR / "scale_results.json"
 CHART_PATH = PKG_DIR / "conditional_brier_gap.png"
