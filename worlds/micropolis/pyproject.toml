@@ -1,0 +1,24 @@
+[project]
+name = "micropolis-world"
+version = "0.1.0"
+description = "Micropolis (city simulation) world for ForecastBench-Sim. Plugs into fbsim-core."
+requires-python = ">=3.11"
+dependencies = [
+    "fbsim-core",
+    "numpy",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["micropolis_world*"]
+
+[tool.uv.sources]
+fbsim-core = { workspace = true }
