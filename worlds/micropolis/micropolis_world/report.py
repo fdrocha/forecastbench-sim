@@ -2,79 +2,28 @@
 
 from collections import Counter
 
-from .city_sim import METRICS, CitySimulation, turn_of
-
-# cityClass as reported by the engine's evaluation pass, indexed 0..5.
-CITY_CLASSES = ["Village", "Town", "City", "Capital", "Metropolis", "Megalopolis"]
-
-# sendMessage messageNum values that mean a disaster actually struck, as opposed
-# to a standing advisory like "Pollution very high". See the engine's text.h for
-# the enum and message.cpp's sound-effect switch for the disaster subset.
-DISASTER_MESSAGES = {
-    20: "Fire",
-    21: "Monster",
-    22: "Tornado",
-    23: "Earthquake",
-    24: "Plane crash",
-    25: "Shipwreck",
-    26: "Train crash",
-    27: "Helicopter crash",
-    30: "Firebombing",
-    32: "Explosion",
-    42: "Flooding",
-    43: "Nuclear meltdown",
-    44: "Riots",
-}
-
-# Report labels for the city_sim.METRICS keys.
-METRIC_LABELS = {
-    "cityScore": "Score",
-    "cityPop": "Population",
-    "totalFunds": "Funds ($)",
-    "trafficAverage": "Traffic",
-    "pollutionAverage": "Pollution",
-    "crimeAverage": "Crime",
-    "landValueAverage": "Land value",
-}
-
-# Extra log fields worth showing in the snapshot, beyond METRICS.
-SNAPSHOT_COMPOSITION = [
-    ("resPop", "Residential"),
-    ("comPop", "Commercial"),
-    ("indPop", "Industrial"),
-]
-SNAPSHOT_INFRASTRUCTURE = [
-    ("roadTotal", "Roads"),
-    ("railTotal", "Rail"),
-    ("policeStationPop", "Police stations"),
-    ("fireStationPop", "Fire stations"),
-    ("seaportPop", "Seaports"),
-    ("airportPop", "Airports"),
-    ("coalPowerPop", "Coal plants"),
-    ("nuclearPowerPop", "Nuclear plants"),
-    ("poweredZoneCount", "Powered zones"),
-    ("unpoweredZoneCount", "Unpowered zones"),
-]
+from . import module_globals as g
+from .city_sim import CitySimulation, turn_of
 
 
 def _snapshot_section(row: dict) -> list[str]:
     """Current-state block from a single log_data row."""
     lines = [f"CURRENT STATE (turn {turn_of(row)})", ""]
     city_class = row.get("cityClass")
-    if city_class is not None and 0 <= city_class < len(CITY_CLASSES):
-        lines.append(f"  City class: {CITY_CLASSES[city_class]}")
-    for metric in METRICS:
-        label = METRIC_LABELS.get(metric, metric)
+    if city_class is not None and 0 <= city_class < len(g.CITY_CLASSES):
+        lines.append(f"  City class: {g.CITY_CLASSES[city_class]}")
+    for metric in g.METRICS:
+        label = g.METRIC_LABELS.get(metric, metric)
         lines.append(f"  {label}: {row[metric]}")
     lines.append(f"  Cash flow: {row['cashFlow']}")
     lines.append(f"  Tax rate: {row['cityTax']}%")
     lines.append("")
     # Skipping this for now, it has weird units and is hard to interpret
     #    lines.append("  Zone population — " + ", ".join(
-    #        f"{label} {row[key]}" for key, label in SNAPSHOT_COMPOSITION))
+    #        f"{label} {row[key]}" for key, label in g.SNAPSHOT_COMPOSITION))
     lines.append(
         "  Infrastructure — "
-        + ", ".join(f"{label} {row[key]}" for key, label in SNAPSHOT_INFRASTRUCTURE)
+        + ", ".join(f"{label} {row[key]}" for key, label in g.SNAPSHOT_INFRASTRUCTURE)
     )
     return lines
 
@@ -82,8 +31,8 @@ def _snapshot_section(row: dict) -> list[str]:
 def _history_section(log_data: list[dict], turn: int, history_freq: int) -> list[str]:
     """Metric history sampled every history_freq turns, ending on the snapshot turn."""
     turns = sorted(set(range(turn, -1, -history_freq)))
-    header = ["Turn"] + [METRIC_LABELS.get(m, m) for m in METRICS]
-    rows = [[str(t)] + [str(log_data[t][m]) for m in METRICS] for t in turns]
+    header = ["Turn"] + [g.METRIC_LABELS.get(m, m) for m in g.METRICS]
+    rows = [[str(t)] + [str(log_data[t][m]) for m in g.METRICS] for t in turns]
     return [f"HISTORY (every {history_freq} turns)", "", ",".join(header)] + [
         ",".join(row) for row in rows
     ]
@@ -96,8 +45,8 @@ def _events_section(events_data: list[dict], cutoff_tick: int) -> list[str]:
         for e in events_data
         if e.get("event") == "sendMessage" and e["tick"] <= cutoff_tick
     ]
-    disasters = [e for e in messages if e["messageNum"] in DISASTER_MESSAGES]
-    advisories = [e for e in messages if e["messageNum"] not in DISASTER_MESSAGES]
+    disasters = [e for e in messages if e["messageNum"] in g.DISASTER_MESSAGES]
+    advisories = [e for e in messages if e["messageNum"] not in g.DISASTER_MESSAGES]
 
     lines = ["EVENTS", ""]
 
