@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+from collections import defaultdict
 from pathlib import Path
 from typing import Literal
 
@@ -66,6 +67,7 @@ class CitySimulation:
         self.disasters = disasters
         self.log_data: list[dict] | None = None
         self.events_data: list[dict] | None = None
+        self.nturns: int | None = None
 
     def run(self, nturns: int, quiet: bool = True) -> None:
         """Run the simulation for a given number of turns."""
@@ -114,43 +116,36 @@ class CitySimulation:
 
         self.log_data = _load_jsonl(log_path)
         self.events_data = _load_jsonl(events_path)
+        self.nturns = len(self.log_data)
 
 
-N_REGIONS_DEFAULT = 2
-N_TURNS = 90
-METRICS = ["population", "funds", "pollution"]
+METRICS = [
+    "cityScore",
+    "cityPop",
+    "totalFunds",
+    "trafficAverage",
+    "pollutionAverage",
+    "crimeAverage",
+    "landValueAverage",
+]
 
 
-def run_region(
-    growth_rate: float, policy_enabled: bool, seed: int, **policy_kwargs
-) -> dict:
-    """Run one city/region's simulation; return per-turn metric arrays.
-
-    Args:
-        growth_rate: TODO — placeholder scenario parameter analogous to pandemic's beta.
-        policy_enabled: TODO — whether the intervention (e.g. zoning/tax policy) is active.
-        seed: RNG seed for reproducibility.
-        **policy_kwargs: TODO — intervention-specific parameters (e.g. policy_turn, magnitude).
-
-    Returns:
-        dict mapping metric name -> list of per-turn values, length N_TURNS.
-    """
-    raise NotImplementedError("TODO: implement Micropolis city simulation")
-
-
-def to_world(region_series: dict[int, dict], names: dict[int, str]) -> dict:
+def to_world(sims: dict[str, CitySimulation]) -> dict:
     """Assemble game_data in the core TURN-MAJOR schema:
     time_series[metric][turn][region_id] = value.
     """
-    ts = {m: {} for m in METRICS}
-    for rid, series in region_series.items():
-        for m in METRICS:
-            for turn, val in enumerate(series[m]):
-                ts[m].setdefault(str(turn), {})[str(rid)] = val
+    ts = {m: defaultdict(dict) for m in METRICS}
+    for sim_id, (name, sim) in enumerate(sims.items()):
+        if sim.log_data is None:
+            raise ValueError(f"Simulation {name} has no log_data")
+        for line in sim.log_data:
+            city_time = line["cityTime"]
+            for metric in METRICS:
+                ts[metric][str(city_time)][str(sim_id)] = line[metric]
     return {
         "time_series": ts,
         "civilizations": {
-            str(rid): {"name": names[rid], "nation_id": str(rid)}
-            for rid in region_series
+            str(sim_id): {"name": name, "nation_id": str(sim_id)}
+            for sim_id, (name, _) in enumerate(sims.items())
         },
     }
