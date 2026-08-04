@@ -129,6 +129,16 @@ METRICS = [
     "landValueAverage",
 ]
 
+# The engine logs one row every 16 ticks, so a row's turn is its tick // 16,
+# which equals the row's index in log_data. Events carry raw ticks only, so
+# this is also how an event is placed on the same turn axis.
+TICKS_PER_TURN = 16
+
+
+def turn_of(row: dict) -> int:
+    """The turn a log or event row falls on."""
+    return row["tick"] // TICKS_PER_TURN
+
 
 def to_world(sims: dict[str, CitySimulation]) -> dict:
     """Assemble game_data in the core TURN-MAJOR schema:
@@ -139,9 +149,9 @@ def to_world(sims: dict[str, CitySimulation]) -> dict:
         if sim.log_data is None:
             raise ValueError(f"Simulation {name} has no log_data")
         for line in sim.log_data:
-            city_time = line["cityTime"]
+            turn = turn_of(line)
             for metric in METRICS:
-                ts[metric][str(city_time)][str(sim_id)] = line[metric]
+                ts[metric][str(turn)][str(sim_id)] = line[metric]
     return {
         "time_series": ts,
         "civilizations": {
