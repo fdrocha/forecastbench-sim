@@ -3,11 +3,13 @@
 
 Usage:
     uv run python scripts/run_sim.py --city haight --seed 1 --turns 1000 --disasters
+    uv run python scripts/run_sim.py --city haight --seed 1 --turns 1000 --plot
 """
 
 import argparse
 
 from micropolis_world.city_sim import CITY_CHOICES, CitySimulation
+from plot_run import plot_run
 
 
 def main() -> None:
@@ -17,10 +19,15 @@ def main() -> None:
     ap.add_argument("--turns", type=int, default=100)
     ap.add_argument("--disasters", action="store_true")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--plot", action="store_true", help="Plot the simulation results after running")
+    ap.add_argument("-o", "--output", help="Save the plot to this PNG file instead of showing it interactively (implies --plot)")
     args = ap.parse_args()
 
     sim = CitySimulation(city_name=args.city, seed=args.seed, disasters=args.disasters)
     sim.run(nturns=args.turns, quiet=args.quiet)
+
+    if args.plot or args.output:
+        plot_run(sim, output=args.output)
 
 
 if __name__ == "__main__":
