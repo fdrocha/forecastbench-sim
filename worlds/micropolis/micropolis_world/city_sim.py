@@ -4,7 +4,7 @@ import json
 import subprocess
 from collections import defaultdict
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from . import module_globals as g
 
@@ -25,6 +25,15 @@ class CitySimulation:
         self.log_data: list[dict] | None = None
         self.events_data: list[dict] | None = None
         self.nturns: int | None = None
+
+    def get_id_str(self) -> str:
+        """Get a unique string identifier for this simulation."""
+        return (
+            f"{self.city_name}-{'-disasters' if self.disasters else ''}-seed{self.seed}"
+        )
+
+    def decribe(self) -> dict[str, Any]:
+        return {"name": self.city_name, "seed": self.seed, "disasters": self.disasters}
 
     def run(self, nturns: int, quiet: bool = True) -> None:
         """Run the simulation for a given number of turns."""
@@ -74,6 +83,23 @@ class CitySimulation:
         self.log_data = _load_jsonl(log_path)
         self.events_data = _load_jsonl(events_path)
         self.nturns = len(self.log_data)
+
+    def run_if_needed_and_load(self, nturns: int, quiet: bool = True) -> None:
+        """Load cached data from disk, re-running the sim only if it's missing or short.
+
+        A cached run longer than nturns is reused as-is (callers index into
+        log_data, so extra turns are harmless).
+        """
+        try:
+            self.load_from_disk()
+        except FileNotFoundError:
+            pass
+        else:
+            if self.nturns is not None and self.nturns >= nturns:
+                return
+
+        self.run(nturns=nturns, quiet=quiet)
+        self.load_from_disk()
 
 
 def turn_of(row: dict) -> int:

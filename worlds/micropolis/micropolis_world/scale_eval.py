@@ -64,30 +64,44 @@ def save_cache(cache: dict) -> None:
 
 
 def report_balance(corpus: list[dict]) -> None:
-    print(f"\nCorpus: {len(corpus)} questions "
-          f"({len(corpus)//2} matched pairs, {len(set(c['scenario_id'] for c in corpus))} scenarios)")
+    print(
+        f"\nCorpus: {len(corpus)} questions "
+        f"({len(corpus) // 2} matched pairs, {len(set(c['scenario_id'] for c in corpus))} scenarios)"
+    )
     for kind in ("unconditional", "conditional"):
         sub = [c for c in corpus if c["kind"] == kind]
         t = sum(c["ground_truth"] for c in sub)
-        print(f"  {kind:14s}: {len(sub):3d} questions, {t} True / {len(sub)-t} False "
-              f"({100*t/len(sub):.0f}% True)")
+        print(
+            f"  {kind:14s}: {len(sub):3d} questions, {t} True / {len(sub) - t} False "
+            f"({100 * t / len(sub):.0f}% True)"
+        )
     pairs = {}
     for c in corpus:
-        pairs.setdefault((c["scenario_id"], c["horizon"]), {})[c["kind"]] = c["ground_truth"]
-    flips = sum(k.get("unconditional") != k.get("conditional")
-                for k in pairs.values() if len(k) == 2)
-    print(f"  intervention flips the answer in {flips}/{len(pairs)} pairs "
-          f"({100*flips/len(pairs):.0f}%)")
+        pairs.setdefault((c["scenario_id"], c["horizon"]), {})[c["kind"]] = c[
+            "ground_truth"
+        ]
+    flips = sum(
+        k.get("unconditional") != k.get("conditional")
+        for k in pairs.values()
+        if len(k) == 2
+    )
+    print(
+        f"  intervention flips the answer in {flips}/{len(pairs)} pairs "
+        f"({100 * flips / len(pairs):.0f}%)"
+    )
 
 
 def make_chart(agg: dict, base_rates: dict) -> None:
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     models = list(agg.keys())
-    labels = [m.replace("Meta-Llama-3.1-", "Llama-3.1-").replace("-Instruct", "")
-              for m in models]
+    labels = [
+        m.replace("Meta-Llama-3.1-", "Llama-3.1-").replace("-Instruct", "")
+        for m in models
+    ]
     x = np.arange(len(models))
     w = 0.38
 
@@ -95,34 +109,64 @@ def make_chart(agg: dict, base_rates: dict) -> None:
 
     uncond = [agg[m]["unconditional"]["brier"] for m in models]
     cond = [agg[m]["conditional"]["brier"] for m in models]
-    b1 = ax1.bar(x - w/2, uncond, w, label="Unconditional", color="#4C72B0")
-    b2 = ax1.bar(x + w/2, cond, w, label="Conditional (given policy)", color="#C44E52")
+    b1 = ax1.bar(x - w / 2, uncond, w, label="Unconditional", color="#4C72B0")
+    b2 = ax1.bar(
+        x + w / 2, cond, w, label="Conditional (given policy)", color="#C44E52"
+    )
     ax1.axhline(0.25, ls="--", c="gray", lw=1, label="Uninformed (0.25)")
     ax1.set_ylabel("Brier score (lower = better)")
     ax1.set_title("Forecast accuracy")
-    ax1.set_xticks(x); ax1.set_xticklabels(labels, rotation=15, ha="right")
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(labels, rotation=15, ha="right")
     ax1.legend(fontsize=8)
     for bars in (b1, b2):
         for b in bars:
-            ax1.annotate(f"{b.get_height():.3f}", (b.get_x() + b.get_width()/2, b.get_height()),
-                         ha="center", va="bottom", fontsize=8)
+            ax1.annotate(
+                f"{b.get_height():.3f}",
+                (b.get_x() + b.get_width() / 2, b.get_height()),
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
 
     mp_u = [agg[m]["unconditional"]["mean_pred"] for m in models]
     mp_c = [agg[m]["conditional"]["mean_pred"] for m in models]
-    ax2.bar(x - w/2, mp_u, w, label="Mean P(yes) unconditional", color="#4C72B0", alpha=0.85)
-    ax2.bar(x + w/2, mp_c, w, label="Mean P(yes) conditional", color="#C44E52", alpha=0.85)
-    ax2.axhline(base_rates["unconditional"], ls="--", c="#1f3a5f", lw=1.5,
-                label=f"True rate uncond ({base_rates['unconditional']:.2f})")
-    ax2.axhline(base_rates["conditional"], ls="--", c="#7a1f25", lw=1.5,
-                label=f"True rate cond ({base_rates['conditional']:.2f})")
+    ax2.bar(
+        x - w / 2,
+        mp_u,
+        w,
+        label="Mean P(yes) unconditional",
+        color="#4C72B0",
+        alpha=0.85,
+    )
+    ax2.bar(
+        x + w / 2, mp_c, w, label="Mean P(yes) conditional", color="#C44E52", alpha=0.85
+    )
+    ax2.axhline(
+        base_rates["unconditional"],
+        ls="--",
+        c="#1f3a5f",
+        lw=1.5,
+        label=f"True rate uncond ({base_rates['unconditional']:.2f})",
+    )
+    ax2.axhline(
+        base_rates["conditional"],
+        ls="--",
+        c="#7a1f25",
+        lw=1.5,
+        label=f"True rate cond ({base_rates['conditional']:.2f})",
+    )
     ax2.set_ylabel("Mean P(yes)")
     ax2.set_title("Does the model lower P(yes) when told about the policy?")
-    ax2.set_xticks(x); ax2.set_xticklabels(labels, rotation=15, ha="right")
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(labels, rotation=15, ha="right")
     ax2.legend(fontsize=7)
 
-    fig.suptitle("Conditional (intervention) reasoning: does the model shift toward "
-                 "the true rate when told about the policy change?",
-                 fontsize=11)
+    fig.suptitle(
+        "Conditional (intervention) reasoning: does the model shift toward "
+        "the true rate when told about the policy change?",
+        fontsize=11,
+    )
     fig.tight_layout()
     fig.savefig(CHART_PATH, dpi=150)
 
@@ -137,9 +181,13 @@ def main() -> None:
     args = ap.parse_args()
 
     print("=" * 70)
-    print("MICROPOLIS WORLD — scaled conditional/unconditional benchmark (on fbsim-core)")
+    print(
+        "MICROPOLIS WORLD — scaled conditional/unconditional benchmark (on fbsim-core)"
+    )
     print("=" * 70)
-    print(f"\nSampling {args.n_scenarios} scenarios (seed={args.seed}); building corpus...")
+    print(
+        f"\nSampling {args.n_scenarios} scenarios (seed={args.seed}); building corpus..."
+    )
     scenarios = sample_scenarios(args.n_scenarios, args.seed)
     corpus = build_corpus(scenarios)
     report_balance(corpus)
@@ -150,6 +198,7 @@ def main() -> None:
         return
 
     from fbsim_core.evaluation.models import get_models
+
     cache = load_cache()
     agg: dict[str, dict] = {}
 
@@ -165,7 +214,9 @@ def main() -> None:
             if ck in cache:
                 p = cache[ck]
             else:
-                raw = model.get_response(build_prompt(c["context"], c["question_text"]), max_tokens=16000)
+                raw = model.get_response(
+                    build_prompt(c["context"], c["question_text"]), max_tokens=16000
+                )
                 p = parse_prob(raw)
                 cache[ck] = p
                 n_new += 1
@@ -177,23 +228,37 @@ def main() -> None:
             outs[c["kind"]].append(c["ground_truth"])
         save_cache(cache)
         agg[short] = {
-            k: {"brier": compute_brier_score(preds[k], outs[k]) if preds[k] else None,
+            k: {
+                "brier": compute_brier_score(preds[k], outs[k]) if preds[k] else None,
                 "n": len(preds[k]),
-                "mean_pred": float(np.mean(preds[k])) if preds[k] else None}
+                "mean_pred": float(np.mean(preds[k])) if preds[k] else None,
+            }
             for k in ("unconditional", "conditional")
         }
-        print(f"  cached {len(corpus)-n_new}, new {n_new}")
+        print(f"  cached {len(corpus) - n_new}, new {n_new}")
         for k in ("unconditional", "conditional"):
             a = agg[short][k]
             if a["brier"] is not None:
-                print(f"    {k:14s} Brier={a['brier']:.3f}  (n={a['n']}, mean P={a['mean_pred']:.2f})")
+                print(
+                    f"    {k:14s} Brier={a['brier']:.3f}  (n={a['n']}, mean P={a['mean_pred']:.2f})"
+                )
 
-    base_rates = {k: float(np.mean([c["ground_truth"] for c in corpus if c["kind"] == k]))
-                  for k in ("unconditional", "conditional")}
-    RESULTS_PATH.write_text(json.dumps(
-        {"generated_at": datetime.now(timezone.utc).isoformat(),
-         "n_scenarios": args.n_scenarios, "horizons": [40, 60],
-         "base_rates": base_rates, "results": agg}, indent=2))
+    base_rates = {
+        k: float(np.mean([c["ground_truth"] for c in corpus if c["kind"] == k]))
+        for k in ("unconditional", "conditional")
+    }
+    RESULTS_PATH.write_text(
+        json.dumps(
+            {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "n_scenarios": args.n_scenarios,
+                "horizons": [40, 60],
+                "base_rates": base_rates,
+                "results": agg,
+            },
+            indent=2,
+        )
+    )
     print(f"\nResults -> {RESULTS_PATH}")
     make_chart(agg, base_rates)
     print(f"Chart   -> {CHART_PATH}")
