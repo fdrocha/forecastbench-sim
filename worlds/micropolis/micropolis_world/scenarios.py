@@ -14,7 +14,7 @@ from fbsim_core.questions.schema import QuestionInstance, classify_horizon
 from fbsim_core.questions.resolver import QuestionResolver
 
 from .templates import REGISTRY, POPULATION_COMPARATIVE
-from .runner import run_region, to_world
+from .city_sim import run_region, to_world
 from .report import context_blurb
 
 SNAPSHOT_TURN = 20

@@ -1,6 +1,6 @@
 """Model-facing world report (situation report) + prompt builder."""
 
-# TODO: replace with a real constant from runner.py once the sim is implemented
+# TODO: replace with a real constant from city_sim.py once the sim is implemented
 # (e.g. starting population, city size). Kept here only as a report footnote.
 N_REGIONS = 2
 
@@ -9,7 +9,7 @@ def context_blurb(world: dict, region_ids: list[int], names: dict[int, str],
                   snapshot_turn: int, intervention: str | None) -> str:
     """Per-region population/funds trajectory up to the snapshot turn.
 
-    TODO: adjust metric names/formatting once runner.METRICS is finalized.
+    TODO: adjust metric names/formatting once city_sim.METRICS is finalized.
     """
     ts = world["time_series"]
     lines = [f"MICROPOLIS SITUATION REPORT — Turn {snapshot_turn}", ""]

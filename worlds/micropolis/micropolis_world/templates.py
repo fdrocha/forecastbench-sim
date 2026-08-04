@@ -3,7 +3,7 @@
 Registered into a core TemplateRegistry — no global monkey-patching.
 
 TODO: adjust signal_name/question_template/data_path per metric once the
-runner's actual metric set is finalized (see runner.METRICS).
+runner's actual metric set is finalized (see city_sim.METRICS).
 """
 
 from fbsim_core.questions.schema import QuestionTemplate
