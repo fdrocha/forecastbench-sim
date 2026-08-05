@@ -118,13 +118,3 @@ def gen_world_report(sim: CitySimulation, turn: int, history_freq: int) -> str:
         _events_section(sim.events_data, row["tick"]),
     ]
     return "\n\n".join("\n".join(section) for section in sections)
-
-
-def build_prompt(context: str, question_text: str) -> str:
-    return (
-        context
-        + "\n\n"
-        + f"QUESTION: {question_text}\n\n"
-        + "Give your probability that the answer is YES, as a single number "
-        + "between 0 and 1. Respond with ONLY the number (e.g. 0.73)."
-    )

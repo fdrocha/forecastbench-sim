@@ -28,11 +28,9 @@ class CitySimulation:
 
     def get_id_str(self) -> str:
         """Get a unique string identifier for this simulation."""
-        return (
-            f"{self.city_name}-{'-disasters' if self.disasters else ''}-seed{self.seed}"
-        )
+        return f"{self.city_name}_{'disasters' if self.disasters else 'nodisasters'}_seed{self.seed}"
 
-    def decribe(self) -> dict[str, Any]:
+    def describe(self) -> dict[str, Any]:
         return {"name": self.city_name, "seed": self.seed, "disasters": self.disasters}
 
     def run(self, nturns: int, quiet: bool = True) -> None:

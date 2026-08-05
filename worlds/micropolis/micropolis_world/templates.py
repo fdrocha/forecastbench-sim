@@ -1,9 +1,4 @@
 """Micropolis question templates + the world's registry.
-
-Registered into a core TemplateRegistry — no global monkey-patching.
-
-TODO: adjust signal_name/question_template/data_path per metric once the
-runner's actual metric set is finalized (see city_sim.METRICS).
 """
 
 from fbsim_core.questions.registry import TemplateRegistry
@@ -37,6 +32,8 @@ Q_METRICS = [
     #    "landValueAverage",
 ]
 
-ALL_TEMPLATES = [_get_continuous_template(metric) for metric in Q_METRICS]
+ALL_TEMPLATES: list[QuestionTemplate] = [
+    _get_continuous_template(metric) for metric in Q_METRICS
+]
 
 REGISTRY = TemplateRegistry(ALL_TEMPLATES)
