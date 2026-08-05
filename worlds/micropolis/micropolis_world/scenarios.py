@@ -13,14 +13,15 @@ from .templates import ALL_TEMPLATES, REGISTRY
 CITY_CHOICES = [
     #    "bluebird", this is a dead city with no population, nothing happens
     "bruce",
-    "deadwood",
+    #    "deadwood", crashes the engine (WASM "memory access out of bounds")
+    #    partway through a run when disasters are enabled, at every seed tried
     "finnigan",
     "freds",
     "haight",
     "happisle",
     "joffburg",
     "kamakura",
-    "kobe",
+    #    "kobe",
     "kowloon",
     "kyoto",
     "linecity",
@@ -28,8 +29,8 @@ CITY_CHOICES = [
     "southpac",
     "splats",
     "wetcity",
-    "yokohama",
-][:5]  # TODO remove this after testing
+    #    "yokohama",
+]
 
 TURNS_PER_YEAR = 4 * 12  # 4 ticks per month, 12 months per year
 SNAPSHOT_TURN = TURNS_PER_YEAR * 10

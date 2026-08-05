@@ -95,6 +95,8 @@ def gen_world_report(sim: CitySimulation, turn: int, history_freq: int) -> str:
         turn: Index into sim.log_data for the snapshot. Everything after it
             (later log rows, later events) is excluded to avoid leakage.
         history_freq: Sample the metric history every this many turns.
+
+    As a side effect it saves the world report to disk and prints out the path to it.
     """
     if sim.log_data is None or sim.events_data is None:
         raise ValueError("Simulation data not loaded; call sim.load_from_disk() first")
@@ -117,4 +119,11 @@ def gen_world_report(sim: CitySimulation, turn: int, history_freq: int) -> str:
         _history_section(sim.log_data, turn, history_freq),
         _events_section(sim.events_data, row["tick"]),
     ]
-    return "\n\n".join("\n".join(section) for section in sections)
+    report_text = "\n\n".join("\n".join(section) for section in sections)
+
+    report_path = sim.get_data_file_path(f"worldreportT{turn}", ext="txt")
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(report_text)
+    print(f"gen_report: Saved world report to {report_path}")
+    return report_text
