@@ -8,6 +8,7 @@ dependencies = [
     "numpy",
     "matplotlib",
     "python-dotenv>=1.0.1",
+    "tqdm",
 ]
 
 [project.optional-dependencies]
