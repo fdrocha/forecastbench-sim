@@ -5,67 +5,48 @@ from itertools import product
 from fbsim_core.questions.resolver import QuestionResolver
 from fbsim_core.questions.schema import QuestionInstance
 
+from . import module_globals as g
 from .city_sim import CitySimulation, to_world
 from .report import gen_world_report
 from .templates import ALL_TEMPLATES, REGISTRY
-
-# a few chosen Micropolis cities. Not a lot of thought put into the selection: dropped scenarios and a few others
-CITY_CHOICES = [
-    #    "bluebird", this is a dead city with no population, nothing happens
-    "bruce",
-    #    "deadwood", crashes the engine (WASM "memory access out of bounds")
-    #    partway through a run when disasters are enabled, at every seed tried
-    "finnigan",
-    #    "freds",
-    "haight",
-    #    "happisle",
-    #    "joffburg",
-    #    "kamakura",
-    #    #    "kobe",
-    # "kowloon",
-    # "kyoto",
-    # "linecity",
-    # "senri",
-    # "southpac",
-    # "splats",
-    # "wetcity",
-    # #    "yokohama",
-]
-
-TURNS_PER_YEAR = 4 * 12  # 4 ticks per month, 12 months per year
-SNAPSHOT_TURNS = [TURNS_PER_YEAR * y for y in [1, 2, 3, 4, 5]]
-HORIZONS = [TURNS_PER_YEAR * y for y in [1, 5, 10]]
-FREQ = 4  # report contains data every FREQ turns
-# +1 because the furthest question resolves *at* turn SNAPSHOT_TURN + max(HORIZONS),
-# and a run of N turns only covers indices 0..N-1.
-TURNS = max(SNAPSHOT_TURNS) + max(HORIZONS) + 1
 
 # to_world() keys entities by their position in the dict it is passed, so the
 # single city in each scenario is always entity 0.
 CITY_ENTITY_ID = 0
 
 
-def get_single_city_base_scenarios(seed: int) -> list[CitySimulation]:
+def get_single_city_base_scenarios(
+    seed: int, cities: list[str]
+) -> list[CitySimulation]:
     scenarios = []
-    for city, disasters in product(CITY_CHOICES, (True, False)):
+    for city, disasters in product(cities, (True, False)):
         sim = CitySimulation(city_name=city, seed=seed, disasters=disasters)
         scenarios.append(sim)
     return scenarios
 
 
-def build_corpus(scenarios: list[CitySimulation]) -> list[dict]:
+def build_corpus(
+    scenarios: list[CitySimulation],
+    snapshot_turns: list[int],
+    horizons: list[int],
+) -> list[dict]:
     resolver = QuestionResolver(REGISTRY)
     corpus = []
     nscenarios = len(scenarios)
+    # +1 because the furthest question resolves *at* max(snapshot_turns) +
+    # max(horizons), and a run of N turns only covers indices 0..N-1.
+    nturns = max(snapshot_turns) + max(horizons) + 1
     for i, sim in enumerate(scenarios):
-        sim.run_if_needed_and_load(nturns=TURNS, quiet=True)
+        sim.run_if_needed_and_load(nturns=nturns, quiet=True)
 
         world = to_world({"city1": sim})
 
         scenario_id = sim.get_id_str()
-        for SNAPSHOT_TURN in SNAPSHOT_TURNS:
-            report_text = gen_world_report(sim, turn=SNAPSHOT_TURN, history_freq=FREQ)
-            for H in HORIZONS:
+        for SNAPSHOT_TURN in snapshot_turns:
+            report_text = gen_world_report(
+                sim, turn=SNAPSHOT_TURN, history_freq=g.FREQ
+            )
+            for H in horizons:
                 T = SNAPSHOT_TURN + H
                 for template in ALL_TEMPLATES:
                     q_text = template.question_template.format(resolution_turn=T)

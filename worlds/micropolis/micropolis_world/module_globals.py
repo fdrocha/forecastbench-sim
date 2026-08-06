@@ -62,6 +62,41 @@ METRICS = [
 # this is also how an event is placed on the same turn axis.
 TICKS_PER_TURN = 16
 
+TURNS_PER_YEAR = 4 * 12  # 4 ticks per month, 12 months per year
+
+# Defaults for corpus generation and evaluation; override via the --cities,
+# --snapshots and --horizons CLI flags in scripts/.
+#
+# A few chosen Micropolis cities. Not a lot of thought put into the selection:
+# dropped scenarios and a few others.
+DEFAULT_CITIES = [
+    #    "bluebird", this is a dead city with no population, nothing happens
+    "bruce",
+    #    "deadwood", crashes the engine (WASM "memory access out of bounds")
+    #    partway through a run when disasters are enabled, at every seed tried
+    "finnigan",
+    #    "freds",
+    "haight",
+    #    "happisle",
+    #    "joffburg",
+    #    "kamakura",
+    #    #    "kobe",
+    # "kowloon",
+    # "kyoto",
+    # "linecity",
+    # "senri",
+    # "southpac",
+    # "splats",
+    # "wetcity",
+    # #    "yokohama",
+]
+
+DEFAULT_SNAPSHOT_TURNS = [TURNS_PER_YEAR * y for y in [1, 2, 3, 4, 5]]
+DEFAULT_HORIZONS = [TURNS_PER_YEAR * y for y in [1, 5, 10]]
+
+# The world report contains data every FREQ turns.
+FREQ = 4
+
 # cityClass as reported by the engine's evaluation pass, indexed 0..5.
 CITY_CLASSES = ["Village", "Town", "City", "Capital", "Metropolis", "Megalopolis"]
 

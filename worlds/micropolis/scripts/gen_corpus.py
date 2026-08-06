@@ -21,6 +21,14 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument(
+        "--cities", nargs="+", choices=g.CITY_CHOICES, metavar="CITY",
+        default=g.DEFAULT_CITIES,
+    )
+    ap.add_argument(
+        "--snapshots", nargs="+", type=int, default=g.DEFAULT_SNAPSHOT_TURNS
+    )
+    ap.add_argument("--horizons", nargs="+", type=int, default=g.DEFAULT_HORIZONS)
+    ap.add_argument(
         "--out",
         type=Path,
         default=None,
@@ -28,8 +36,8 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    scenarios = get_single_city_base_scenarios(seed=args.seed)
-    corpus = build_corpus(scenarios)
+    scenarios = get_single_city_base_scenarios(seed=args.seed, cities=args.cities)
+    corpus = build_corpus(scenarios, args.snapshots, args.horizons)
 
     out = args.out or g.DATA_DIR / f"corpus-seed{args.seed}.json"
     out.parent.mkdir(parents=True, exist_ok=True)

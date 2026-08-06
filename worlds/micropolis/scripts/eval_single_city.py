@@ -56,6 +56,7 @@ DEFAULT_MODELS = [
 ]
 
 
+
 @dataclass(frozen=True)
 class ResponseId:
     model_id: str
@@ -247,15 +248,39 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--models", nargs="+", default=DEFAULT_MODELS)
+    ap.add_argument(
+        "--cities",
+        nargs="+",
+        choices=g.CITY_CHOICES,
+        metavar="CITY",
+        default=g.DEFAULT_CITIES,
+        help=f"Cities to simulate (default: {' '.join(g.DEFAULT_CITIES)})",
+    )
+    ap.add_argument(
+        "--snapshots",
+        nargs="+",
+        type=int,
+        default=g.DEFAULT_SNAPSHOT_TURNS,
+        help=f"Snapshot turns, in turns (default: {g.DEFAULT_SNAPSHOT_TURNS}; "
+        f"{g.TURNS_PER_YEAR} turns per year)",
+    )
+    ap.add_argument(
+        "--horizons",
+        nargs="+",
+        type=int,
+        default=g.DEFAULT_HORIZONS,
+        help=f"Forecast horizons past each snapshot, in turns "
+        f"(default: {g.DEFAULT_HORIZONS})",
+    )
     args = ap.parse_args()
 
     print("=" * 70)
     print("MICROPOLIS WORLD — single city eval")
     print("=" * 70)
 
-    scenarios = get_single_city_base_scenarios(args.seed)
+    scenarios = get_single_city_base_scenarios(args.seed, args.cities)
     print(f"\nRunning {len(scenarios)} with seed={args.seed}; building corpus...")
-    corpus = build_corpus(scenarios)
+    corpus = build_corpus(scenarios, args.snapshots, args.horizons)
 
     if args.dry_run:
         print("\nDry run. Exiting")
