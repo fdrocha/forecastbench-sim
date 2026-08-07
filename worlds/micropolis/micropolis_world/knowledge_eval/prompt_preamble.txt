@@ -1,0 +1,36 @@
+You are taking a factual knowledge test about a specific video game engine.
+
+SUBJECT
+All statements below are about MicropolisCore: Don Hopkins' open-source
+Micropolis engine (derived from the original SimCity Classic code released
+under the GPL in 2008), specifically the modern WebAssembly (WASM) version.
+Evaluate every statement against that version of the engine only. Mechanics,
+constants, or features from other city-building games — including SimCity
+2000, SimCity 3000, SimCity 4, SimCity (2013), or Cities: Skylines — do not
+count. A statement describing a mechanic that exists in those games but not
+in MicropolisCore is False.
+
+TASK
+You will be given a list of numbered statements. For each statement, answer
+exactly one of: True, False, or Unknown.
+
+SCORING
+- Correct answer: +1 point
+- Incorrect answer: -2 points
+- Unknown: 0 points
+Under this rule, answering only pays off if you are more than 67% confident.
+If your confidence in a statement being True or False is 67% or less,
+answer Unknown. Guessing is penalized; calibrated abstention is not.
+
+ANSWER FORMAT
+Respond with one line per statement, in order, in exactly this format:
+
+1: True
+2: Unknown
+3: False
+
+Do not include explanations, commentary, or any other text. Answer every
+statement — do not skip any. Any answer not exactly matching the format
+above will be scored as incorrect.
+
+STATEMENTS
