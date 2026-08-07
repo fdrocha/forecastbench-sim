@@ -5,7 +5,6 @@ from itertools import product
 from fbsim_core.questions.resolver import QuestionResolver
 from fbsim_core.questions.schema import QuestionInstance
 
-from . import module_globals as g
 from .city_sim import CitySimulation, to_world
 from .report import gen_world_report
 from .templates import ALL_TEMPLATES, REGISTRY
@@ -16,11 +15,11 @@ CITY_ENTITY_ID = 0
 
 
 def get_single_city_base_scenarios(
-    seed: int, cities: list[str]
+    seed: int, cities: list[str], disasters: list[bool]
 ) -> list[CitySimulation]:
     scenarios = []
-    for city, disasters in product(cities, (True, False)):
-        sim = CitySimulation(city_name=city, seed=seed, disasters=disasters)
+    for city, has_disasters in product(cities, disasters):
+        sim = CitySimulation(city_name=city, seed=seed, disasters=has_disasters)
         scenarios.append(sim)
     return scenarios
 
@@ -29,6 +28,7 @@ def build_corpus(
     scenarios: list[CitySimulation],
     snapshot_turns: list[int],
     horizons: list[int],
+    history_freq: int,
 ) -> list[dict]:
     resolver = QuestionResolver(REGISTRY)
     corpus = []
@@ -44,7 +44,7 @@ def build_corpus(
         scenario_id = sim.get_id_str()
         for SNAPSHOT_TURN in snapshot_turns:
             report_text = gen_world_report(
-                sim, turn=SNAPSHOT_TURN, history_freq=g.FREQ
+                sim, turn=SNAPSHOT_TURN, history_freq=history_freq
             )
             for H in horizons:
                 T = SNAPSHOT_TURN + H
@@ -76,6 +76,7 @@ def build_corpus(
                         )
                     entry = {
                         "question_id": q.question_id,
+                        "metric": template.signal_name,
                         "snapshot_turn": SNAPSHOT_TURN,
                         "horizon": H,  # TODO: this should be one of "H0", "H1", ...
                         "scenario_id": scenario_id,

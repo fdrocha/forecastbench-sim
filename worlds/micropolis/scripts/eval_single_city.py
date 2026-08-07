@@ -1,9 +1,13 @@
 #!/usr/bin/env -S uv run python3
 """Single city scenario evaluation script.
 
-Usage
-  TODO
-  scripts/eval_single_city.py
+Builds the question corpus for every (city, disasters) combination in the
+config file, prompts each configured model on it, and plots the forecasts.
+
+Usage:
+    uv run python scripts/eval_single_city.py
+    uv run python scripts/eval_single_city.py my_config.json --seed 7
+    uv run python scripts/eval_single_city.py my_config.json --dry-run
 """
 
 import argparse
@@ -11,11 +15,18 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from math import isnan
+from pathlib import Path
 from tqdm import tqdm
 
 import micropolis_world.module_globals as g
 from fbsim_core.evaluation.models import get_models
 from fbsim_core.metrics import compute_brier_score
+from micropolis_world.city_sim import CitySimulation, turn_of
+from micropolis_world.config import (
+    add_config_args,
+    load_config,
+    main_with_config,
+)
 from micropolis_world.scenarios import (
     build_corpus,
     build_prompt_continuous,
@@ -24,38 +35,16 @@ from micropolis_world.scenarios import (
 
 CACHE_PATH = g.DATA_DIR / "response_cache.json"
 RESULTS_PATH = g.DATA_DIR / "single_city_results.json"
+PLOTS_PATH = g.DATA_DIR / "single_city_plots"
 
-DEFAULT_MODELS = [
-    # ForecastBench models
-    # "anthropic/claude-3-7-sonnet-20250219",
-    # "anthropic/claude-opus-4-1-20250805",
-    # "anthropic/claude-sonnet-4-20250514",
-    # "openai/o3-2025-04-16",
-    # "openai/gpt-4.1-2025-04-14",
-    # "openai/gpt-5-2025-08-07",
-    # "openai/gpt-5-mini-2025-08-07",
-    # "google/gemini-2.5-pro",
-    # "google/gemini-2.5-flash",
-    # # "together/DeepSeek-V3.1",
-    # # "together/Qwen3-235B-A22B-fp8-tput",
-    # # "together/Kimi-K2-Instruct",
-    # # "together/GLM-4.5-Air-FP8",
-    # # "mistral/mistral-large-2411",
-    # # Frontier Models
-    # "anthropic/claude-opus-4-5-20251101",
-    # "anthropic/claude-sonnet-4-5-20250929",
-    # "google/gemini-3-pro-preview",
-    # "openai/gpt-5.1-2025-11-13",
-    # # Pandemic Models
-    # "deepinfra/meta-llama/Meta-Llama-3.1-8B-Instruct",
-    # "deepinfra/meta-llama/Meta-Llama-3.1-70B-Instruct",
-    # "deepinfra/Qwen/Qwen2.5-72B-Instruct",
-    # For testing, currently cheapest recent OpenAI model
-    # "openai/gpt-5.6-luna", # Note this one doesn't support temperature=0
-    "openai/gpt-3.5-turbo-1106",
+# The four metrics charted per figure, in subplot order. Only the metrics that
+# have question templates get forecast points overlaid; the rest are context.
+PLOT_METRICS = [
+    ("cityPop", "Population", "tab:blue"),
+    ("totalFunds", "Funds ($)", "tab:green"),
+    ("crimeAverage", "Crime Average", "tab:red"),
+    ("pollutionAverage", "Pollution Average", "tab:orange"),
 ]
-
-
 
 @dataclass(frozen=True)
 class ResponseId:
@@ -198,7 +187,97 @@ def save_cache(cache: Responses) -> None:
 #     fig.savefig(CHART_PATH, dpi=150)
 
 
-def gather_responses(corpus: list[dict], model_names: list[str]) -> Responses:
+def plot_forecasts(
+    corpus: list[dict],
+    responses: Responses,
+    model_names: list[str],
+    outdir: Path = PLOTS_PATH,
+) -> list[Path]:
+    """One figure per (scenario, horizon): metric trajectories + model forecasts.
+
+    Each figure has the same four metric subplots as scripts/plot_run.py, drawn
+    against turn rather than date so forecasts can be placed at the turn they
+    resolve on (snapshot_turn + horizon). Disaster lines are omitted.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    # One color per model, stable across every figure.
+    palette = plt.get_cmap("tab10")
+    model_colors = {m: palette(i % 10) for i, m in enumerate(model_names)}
+
+    # Group questions by the figure they belong to, then by which subplot.
+    by_figure: dict[tuple[str, int], list[dict]] = {}
+    for c in corpus:
+        by_figure.setdefault((c["scenario_id"], c["horizon"]), []).append(c)
+
+    # A scenario_id maps to exactly one simulation; load each one once.
+    sims: dict[str, CitySimulation] = {}
+    written = []
+
+    for (scenario_id, horizon), entries in sorted(by_figure.items()):
+        if scenario_id not in sims:
+            sc = entries[0]["scenario"]
+            sim = CitySimulation(
+                city_name=sc["name"], seed=sc["seed"], disasters=sc["disasters"]
+            )
+            sim.load_from_disk()
+            sims[scenario_id] = sim
+        sim = sims[scenario_id]
+        rows = sim.log_data or []
+        turns = [turn_of(r) for r in rows]
+
+        fig, axes = plt.subplots(2, 2, figsize=(11, 7.5), sharex=True)
+        for ax, (metric, title, color) in zip(axes.flat, PLOT_METRICS):
+            ax.plot(turns, [r[metric] for r in rows], color=color, label="actual")
+            ax.set_title(title)
+            ax.grid(True, alpha=0.3)
+
+            # Overlay each model's forecasts for this metric at the turn they
+            # resolve on. Unparseable answers came back as nan; skip them.
+            for model_id in model_names:
+                xs, ys = [], []
+                for c in entries:
+                    if c["metric"] != metric:
+                        continue
+                    r = responses.get(ResponseId(model_id, c["question_id"]))
+                    if r is None or isnan(r.predicted):
+                        continue
+                    xs.append(c["snapshot_turn"] + horizon)
+                    ys.append(r.predicted)
+                if xs:
+                    ax.scatter(
+                        xs, ys, s=45, zorder=5, alpha=0.85,
+                        color=model_colors[model_id],
+                        edgecolors="black", linewidths=0.5,
+                        label=model_id.split("/")[-1],
+                    )
+
+        for ax in axes[1]:
+            ax.set_xlabel("Turn")
+
+        # One shared legend; every subplot has the same series.
+        handles, labels = axes[0][0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc="lower center", ncol=max(2, len(labels)),
+                   fontsize="small")
+        fig.suptitle(f"{scenario_id} — forecasts at horizon {horizon}")
+        fig.tight_layout()
+        fig.subplots_adjust(bottom=0.13)
+
+        out = outdir / f"forecasts_{scenario_id}_{horizon}.png"
+        fig.savefig(out, dpi=150)
+        plt.close(fig)
+        written.append(out)
+
+    return written
+
+
+def gather_responses(
+    corpus: list[dict], model_names: list[str], max_tokens: int
+) -> Responses:
     """Prompt each model on each corpus question, reusing cached responses.
 
     The whole cache is loaded and saved back, so responses for other corpora and
@@ -219,7 +298,7 @@ def gather_responses(corpus: list[dict], model_names: list[str]) -> Responses:
             else:
                 raw = model.get_response(
                     build_prompt_continuous(c["context"], c["question_text"]),
-                    max_tokens=4000,  # TOD increase this when I go to other modles
+                    max_tokens=max_tokens,
                 )
                 ans_value = parse_answer(raw)
                 if isnan(ans_value):
@@ -243,52 +322,44 @@ def gather_responses(corpus: list[dict], model_names: list[str]) -> Responses:
     return responses
 
 
+@main_with_config
 def main() -> None:
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(description=__doc__)
+    add_config_args(ap)
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--models", nargs="+", default=DEFAULT_MODELS)
-    ap.add_argument(
-        "--cities",
-        nargs="+",
-        choices=g.CITY_CHOICES,
-        metavar="CITY",
-        default=g.DEFAULT_CITIES,
-        help=f"Cities to simulate (default: {' '.join(g.DEFAULT_CITIES)})",
-    )
-    ap.add_argument(
-        "--snapshots",
-        nargs="+",
-        type=int,
-        default=g.DEFAULT_SNAPSHOT_TURNS,
-        help=f"Snapshot turns, in turns (default: {g.DEFAULT_SNAPSHOT_TURNS}; "
-        f"{g.TURNS_PER_YEAR} turns per year)",
-    )
-    ap.add_argument(
-        "--horizons",
-        nargs="+",
-        type=int,
-        default=g.DEFAULT_HORIZONS,
-        help=f"Forecast horizons past each snapshot, in turns "
-        f"(default: {g.DEFAULT_HORIZONS})",
-    )
     args = ap.parse_args()
+
+    cfg = load_config(args)
+    seed = cfg.get_seed(args.seed)
+    models = cfg.get_str_list("models")
 
     print("=" * 70)
     print("MICROPOLIS WORLD — single city eval")
     print("=" * 70)
+    print(f"config: {cfg.path}")
 
-    scenarios = get_single_city_base_scenarios(args.seed, args.cities)
-    print(f"\nRunning {len(scenarios)} with seed={args.seed}; building corpus...")
-    corpus = build_corpus(scenarios, args.snapshots, args.horizons)
+    scenarios = get_single_city_base_scenarios(
+        seed=seed, cities=cfg.get_cities(), disasters=cfg.get_bool_list("disasters")
+    )
+    print(f"\nRunning {len(scenarios)} with seed={seed}; building corpus...")
+    corpus = build_corpus(
+        scenarios,
+        cfg.get_int_list("snapshot_turns"),
+        cfg.get_int_list("horizons"),
+        cfg.get_int("history_freq"),
+    )
 
     if args.dry_run:
         print("\nDry run. Exiting")
         return
 
     print("\nGathering model responses...")
-    cache = gather_responses(corpus, args.models)
+    responses = gather_responses(corpus, models, cfg.get_int("max_tokens"))
     print("Done gathering")
+
+    print("\nPlotting forecasts...")
+    written = plot_forecasts(corpus, responses, models)
+    print(f"Wrote {len(written)} plots -> {PLOTS_PATH}")
     print("=" * 70)
 
     # TODO

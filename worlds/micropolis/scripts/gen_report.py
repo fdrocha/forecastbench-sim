@@ -1,51 +1,60 @@
 #!/usr/bin/env -S uv run python3
-"""Print the model-facing world report for an already-run Micropolis simulation.
+"""Print the model-facing world report for already-run Micropolis simulations.
 
-Loads the sim's log/events files from disk (does not run the sim).
+Loads each sim's log/events files from disk (does not run the sim), for every
+(city, disasters) combination in the config file.
 
 Usage:
     uv run python scripts/gen_report.py
-    uv run python scripts/gen_report.py --city haight --seed 1 --disasters --turn 500
+    uv run python scripts/gen_report.py my_config.json --seed 7
 """
 
 import argparse
 import sys
 
-import micropolis_world.module_globals as g
 from micropolis_world.city_sim import CitySimulation
+from micropolis_world.config import (
+    add_config_args,
+    load_config,
+    main_with_config,
+    scenarios_from,
+)
 from micropolis_world.report import gen_world_report
 
 
+@main_with_config
 def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--city", choices=g.CITY_CHOICES, default="haight")
-    ap.add_argument("--seed", type=int, default=1)
-    ap.add_argument("--disasters", action="store_true", default=True)
-    ap.add_argument("--no-disasters", dest="disasters", action="store_false")
-    ap.add_argument(
-        "--turn",
-        type=int,
-        default=-1,
-        help="Snapshot turn; negative counts back from the last logged turn",
-    )
-    ap.add_argument("--history-freq", type=int, default=100)
+    ap = argparse.ArgumentParser(description=__doc__)
+    add_config_args(ap)
     args = ap.parse_args()
 
-    sim = CitySimulation(city_name=args.city, seed=args.seed, disasters=args.disasters)
-    try:
-        sim.load_from_disk()
-    except FileNotFoundError as e:
-        print(
-            f"[error] {e}\nDid you run the simulation first? "
-            f"e.g. uv run python scripts/run_sim.py --city {args.city} --seed {args.seed}"
-            f"{' --disasters' if args.disasters else ''}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    cfg = load_config(args)
+    seed = cfg.get_seed(args.seed)
+    report_turn = cfg.get_int("report_turn")
+    history_freq = cfg.get_int("history_freq")
+    scenarios = scenarios_from(cfg)
 
-    assert sim.log_data is not None
-    turn = args.turn if args.turn >= 0 else len(sim.log_data) + args.turn
-    print(gen_world_report(sim, turn=turn, history_freq=args.history_freq))
+    for city, disasters in scenarios:
+        sim = CitySimulation(city_name=city, seed=seed, disasters=disasters)
+        try:
+            sim.load_from_disk()
+        except FileNotFoundError as e:
+            print(
+                f"[error] {e}\nDid you run the simulation first? "
+                f"e.g. uv run python scripts/run_sim.py {args.config or ''}".rstrip(),
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        assert sim.log_data is not None
+        # A negative report_turn counts back from the last logged turn.
+        turn = report_turn if report_turn >= 0 else len(sim.log_data) + report_turn
+
+        print("=" * 70)
+        print(f"{sim.get_id_str()} — turn {turn}")
+        print("=" * 70)
+        print(gen_world_report(sim, turn=turn, history_freq=history_freq))
+        print()
 
 
 if __name__ == "__main__":

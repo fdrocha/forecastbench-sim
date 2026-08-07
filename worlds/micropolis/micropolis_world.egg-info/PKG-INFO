@@ -4,6 +4,7 @@ Version: 0.1.0
 Summary: Micropolis (city simulation) world for ForecastBench-Sim. Plugs into fbsim-core.
 Requires-Python: >=3.11
 Requires-Dist: fbsim-core
+Requires-Dist: json5
 Requires-Dist: numpy
 Requires-Dist: matplotlib
 Requires-Dist: python-dotenv>=1.0.1

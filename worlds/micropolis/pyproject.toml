@@ -5,6 +5,7 @@ description = "Micropolis (city simulation) world for ForecastBench-Sim. Plugs i
 requires-python = ">=3.11"
 dependencies = [
     "fbsim-core",
+    "json5",
     "numpy",
     "matplotlib",
     "python-dotenv>=1.0.1",

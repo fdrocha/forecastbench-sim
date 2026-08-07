@@ -7,9 +7,13 @@ vertical line for every disaster event found in the events log, color-coded
 by disaster type, with a legend listing only the disaster types that
 actually occurred in this run.
 
+Plots every (city, disasters) combination in the config file, writing each one
+to a PNG alongside that run's log/events files.
+
 Usage:
-    uv run python scripts/plot_run.py --city haight --seed 1
-    uv run python scripts/plot_run.py --city haight --seed 1 --disasters --output haight.png
+    uv run python scripts/plot_run.py
+    uv run python scripts/plot_run.py my_config.json --seed 7
+    uv run python scripts/plot_run.py my_config.json --show
 """
 
 import argparse
@@ -18,8 +22,13 @@ import sys
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
-import micropolis_world.module_globals as g
 from micropolis_world.city_sim import CitySimulation
+from micropolis_world.config import (
+    add_config_args,
+    load_config,
+    main_with_config,
+    scenarios_from,
+)
 
 # sendMessage messageNum -> (label, color) for messages that represent a
 # disaster actually being triggered (see packages/micropolis-engine/src/
@@ -184,29 +193,36 @@ def plot_run(sim: CitySimulation, output: str | None = None) -> None:
         plt.show()
 
 
+@main_with_config
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--city", choices=g.CITY_CHOICES, default="haight")
-    ap.add_argument("--seed", type=int, default=1)
-    ap.add_argument("--disasters", action="store_true")
+    add_config_args(ap)
     ap.add_argument(
-        "-o",
-        "--output",
-        help="Save the plot to this PNG file instead of showing it interactively",
+        "--show",
+        action="store_true",
+        help="Show each plot interactively instead of saving it to its PNG path",
     )
     args = ap.parse_args()
 
-    sim = CitySimulation(city_name=args.city, seed=args.seed, disasters=args.disasters)
-    try:
-        plot_run(sim, output=args.output)
-    except FileNotFoundError as e:
-        print(
-            f"[error] {e}\nDid you run the simulation first? "
-            f"e.g. uv run python scripts/run_sim.py --city {args.city} --seed {args.seed}"
-            f"{' --disasters' if args.disasters else ''}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    cfg = load_config(args)
+    seed = cfg.get_seed(args.seed)
+    scenarios = scenarios_from(cfg)
+
+    for city, disasters in scenarios:
+        sim = CitySimulation(city_name=city, seed=seed, disasters=disasters)
+        out = None
+        if not args.show:
+            out = sim.get_plot_path()
+            out.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            plot_run(sim, output=str(out) if out else None)
+        except FileNotFoundError as e:
+            print(
+                f"[error] {e}\nDid you run the simulation first? "
+                f"e.g. uv run python scripts/run_sim.py {args.config or ''}".rstrip(),
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
 
 if __name__ == "__main__":

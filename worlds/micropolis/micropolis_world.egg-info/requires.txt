@@ -1,4 +1,5 @@
 fbsim-core
+json5
 numpy
 matplotlib
 python-dotenv>=1.0.1

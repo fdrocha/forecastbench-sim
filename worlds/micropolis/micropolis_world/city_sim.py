@@ -69,6 +69,10 @@ class CitySimulation:
         filename = f"{prefix}-seed{self.seed}-{disasters_str}.{ext}"
         return g.DATA_DIR / self.city_name / filename
 
+    def get_plot_path(self, prefix: str = "plot") -> Path:
+        """Where this run's plot is written, alongside its log/events files."""
+        return self.get_data_file_path(prefix, ext="png")
+
     def load_from_disk(self) -> None:
         """Load the simulation data from disk and return it in the core schema."""
         log_path = self.get_data_file_path("log")
