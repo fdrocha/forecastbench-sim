@@ -10,15 +10,19 @@ Usage:
     uv run python scripts/run_knowledge_eval.py
     uv run python scripts/run_knowledge_eval.py my_config.json5
     uv run python scripts/run_knowledge_eval.py --models openai/gpt-4o xai/grok-4-0709
+    uv run python scripts/run_knowledge_eval.py --cached
 
---models overrides the config's list; see data/micropolis/available_models.md
-for what each provider offers.
+Without a config argument this uses configs/knowledge_eval.json5. --models
+overrides the config's list; see data/micropolis/available_models.md for what
+each provider offers. --cached scores whatever responses are already stored
+without prompting anything.
 """
 
 import argparse
 
 import micropolis_world.module_globals as g
 from micropolis_world.config import (
+    CONFIG_DIR,
     add_config_args,
     load_config,
     main_with_config,
@@ -26,9 +30,12 @@ from micropolis_world.config import (
 from micropolis_world.knowledge_eval.runner import (
     Answer,
     OUT_DIR,
+    get_cached_answers,
     get_model_answers,
     statements,
 )
+
+DEFAULT_CONFIG = CONFIG_DIR / "knowledge_eval.json5"
 
 # Points per answer, from the SCORING block of the prompt preamble. An
 # unparseable answer is scored as incorrect, as the preamble warns.
@@ -106,20 +113,36 @@ def main() -> None:
         help="Model ids to prompt, overriding the config's 'models' list. "
         "Ids are in provider/name form; see data/micropolis/available_models.md",
     )
+    ap.add_argument(
+        "--cached",
+        action="store_true",
+        help="Score every stored response for the current prompt and exit, "
+        "without prompting any model. Ignores the config's 'models' list.",
+    )
     args = ap.parse_args()
-
-    cfg = load_config(args)
-    models = args.models if args.models else cfg.get_str_list("models")
-    max_tokens = cfg.get_int("max_tokens")
 
     print("=" * 70)
     print("MICROPOLIS WORLD — domain knowledge eval")
     print("=" * 70)
-    print(f"config: {cfg.path}")
-    print(f"{len(statements)} statements, {len(models)} model(s)\n")
 
-    g.ensure_api_keys()
-    answers = get_model_answers(models, max_tokens)
+    if args.cached:
+        # Nothing is prompted, so neither the config nor the API keys are read.
+        print(f"{len(statements)} statements, scoring cached responses only\n")
+        answers = get_cached_answers()
+        models = sorted(answers)
+    else:
+        # The config argument is optional; fall back to this script's own.
+        if args.config is None:
+            args.config = DEFAULT_CONFIG
+        cfg = load_config(args)
+        models = args.models if args.models else cfg.get_str_list("models")
+        max_tokens = cfg.get_int("max_tokens")
+
+        print(f"config: {cfg.path}")
+        print(f"{len(statements)} statements, {len(models)} model(s)\n")
+
+        g.ensure_api_keys()
+        answers = get_model_answers(models, max_tokens)
 
     print(f"\n{'=' * 70}")
     print("RESULTS (scoring: correct +1, wrong -2, unknown 0)")

@@ -6,11 +6,9 @@ shuffles it with a fixed seed, and appends the numbered result to the preamble.
 
 import base64
 import hashlib
-import json
 import random
 import re
 from collections import Counter
-from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from dataclasses import dataclass
@@ -30,7 +28,6 @@ HERE = Path(__file__).parent
 PREAMBLE_PATH = HERE / "prompt_preamble.txt"
 
 OUT_DIR = g.DATA_DIR / "knowledge_eval"
-CACHE_PATH = OUT_DIR / "response_cache.json"
 
 
 class Answer(Enum):
@@ -101,35 +98,53 @@ def build_prompt() -> tuple[str, str]:
     return prompt, phash
 
 
-def load_cache() -> dict[str, dict]:
-    """Load the whole model_id -> cache entry mapping.
+def model_slug(model_id: str) -> str:
+    """Model id flattened into a single filename component.
 
-    Each entry carries the parsed answers plus the hash of the prompt they were
-    gathered under and when it was run. The raw response text is not cached; it
-    lives in the response-<MODEL>-<HASH>.txt file written alongside.
+    Model ids contain slashes ("anthropic/claude-opus-4"), which can't appear in
+    a filename.
     """
-    if not CACHE_PATH.exists():
-        return {}
-    data = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
-    return {entry["model_id"]: entry for entry in data}
-
-
-def save_cache(cache: dict[str, dict]) -> None:
-    """Write the whole cache back, preserving entries for other models."""
-    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    data = [entry for _, entry in sorted(cache.items())]
-    CACHE_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", model_id).strip("_")
 
 
 def response_path(model_id: str, phash: str) -> Path:
-    """Path for a model's saved response text under a given prompt hash.
+    """Path of a model's saved response under a given prompt hash.
 
-    Model ids contain slashes ("anthropic/claude-opus-4"), so flatten them into
-    a single filename component. Including the hash keeps responses from
-    different prompt revisions side by side rather than overwriting.
+    These files are the cache: a response present here is reused rather than
+    re-fetched. Including the hash keeps responses from different prompt
+    revisions side by side rather than overwriting, and means a changed
+    statement set simply misses the cache instead of silently reusing answers
+    to different questions.
     """
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", model_id).strip("_")
-    return OUT_DIR / f"response-{safe}-{phash}.txt"
+    return OUT_DIR / f"response-{model_slug(model_id)}-{phash}.txt"
+
+
+def cached_response(model_id: str, phash: str) -> str | None:
+    """The saved response for this model and prompt, or None if not cached.
+
+    A file that is empty or all whitespace is treated as absent: a blank reply
+    is never cached, but one could be left behind by an interrupted run.
+    """
+    path = response_path(model_id, phash)
+    if not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8")
+    return text if text.strip() else None
+
+
+def cached_models(phash: str) -> list[str]:
+    """Model slugs with a stored response for the given prompt hash.
+
+    Recovered from the response filenames, so this reports what is on disk
+    rather than what some separate index claims. Slugs are returned, not the
+    original ids: the "/" separator is not recoverable from a filename.
+    """
+    prefix, suffix = "response-", f"-{phash}.txt"
+    return sorted(
+        p.name[len(prefix) : -len(suffix)]
+        for p in OUT_DIR.glob(f"{prefix}*{suffix}")
+        if p.read_text(encoding="utf-8").strip()
+    )
 
 
 def parse_response(text: str | None) -> list[Answer]:
@@ -178,17 +193,16 @@ def get_model_answers(
 ) -> dict[str, list[Answer]]:
     """Administer the statement test to each model and parse the replies.
 
-    A cached response is reused only when it was gathered under the current
-    prompt; one recorded against a different prompt hash is stale — the
-    statements changed since — so it is reported and re-gathered. The whole
-    cache is loaded and saved back, so responses for models outside `models`
-    are preserved, but only the requested models are returned.
+    The response-<MODEL>-<HASH>.txt files in OUT_DIR are the cache and the
+    source of truth: a model with a stored response for the current prompt is
+    re-read and re-parsed rather than prompted again. Because the filename
+    carries the prompt hash, editing the statements simply misses the cache
+    instead of reusing answers to different questions.
 
-    On a miss the raw response is written to response-<MODEL>-<HASH>.txt in
-    OUT_DIR and its parsed answers are cached; the cache holds the answers
-    rather than the text, which the .txt file already keeps. Returns a dict of
-    model id -> answers, one per entry of the global `statements`, in the same
-    order.
+    Returns a dict of model id -> answers, one per entry of the global
+    `statements`, in the same order. A model whose request fails, or which
+    replies with nothing but whitespace, is warned about and left out of both
+    the result and the cache.
 
     max_tokens must leave room for one answer line per statement; a cap that
     truncates the reply shows up as UNPARSEABLE answers for the tail.
@@ -196,21 +210,11 @@ def get_model_answers(
     prompt, phash = build_prompt()
     print(f"prompt hash {phash} ({OUT_DIR / f'prompt-{phash}.txt'})")
 
-    cache = load_cache()
-    n_new = 0
     data = {}
     for model_name, model in zip(models, get_models(models)):
-        entry = cache.get(model_name)
-        if entry is not None and entry.get("prompt_hash") != phash:
-            print(
-                f"{model_name}: cached answers were for prompt "
-                f"{entry.get('prompt_hash')}, not {phash} — re-prompting"
-            )
-            entry = None
-
-        if entry is not None:
-            answers = [Answer(v) for v in entry["answers"]]
-            print(f"{model_name}: using cached answers")
+        raw = cached_response(model_name, phash)
+        if raw is not None:
+            print(f"{model_name}: re-parsing cached response")
         else:
             print(f"{model_name}: prompting...")
             try:
@@ -219,20 +223,15 @@ def get_model_answers(
                 print(f"  request failed for {model_name}: {e}")
                 continue
 
+            if raw is None or not raw.strip():
+                print(f"  [warning] {model_name} returned a blank response; not caching")
+                continue
+
             out_path = response_path(model_name, phash)
-            out_path.write_text(raw or "", encoding="utf-8")
+            out_path.write_text(raw, encoding="utf-8")
             print(f"  saved response to {out_path}")
 
-            answers = parse_response(raw)
-            cache[model_name] = {
-                "model_id": model_name,
-                "prompt_hash": phash,
-                "run_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "answers": [a.value for a in answers],
-            }
-            n_new += 1
-            save_cache(cache)
-
+        answers = parse_response(raw)
         counts = Counter(answers)
         print(
             "  answered "
@@ -241,6 +240,19 @@ def get_model_answers(
         )
         data[model_name] = answers
 
-    if n_new:
-        save_cache(cache)
     return data
+
+
+def get_cached_answers() -> dict[str, list[Answer]]:
+    """Answers for every model with a stored response for the current prompt.
+
+    Reads and parses the response files without prompting anything, so it works
+    offline and costs nothing. Keys are filename slugs rather than the original
+    provider/name ids, which a filename does not preserve.
+    """
+    _, phash = build_prompt()
+    answers = {}
+    for slug in cached_models(phash):
+        path = OUT_DIR / f"response-{slug}-{phash}.txt"
+        answers[slug] = parse_response(path.read_text(encoding="utf-8"))
+    return answers

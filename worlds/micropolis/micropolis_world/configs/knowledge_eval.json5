@@ -10,13 +10,29 @@
 // Only "models" and "max_tokens" are read by run_knowledge_eval.py; the rest of
 // the keys are here so this file also works with the other micropolis scripts.
 {
-  // The freeciv default model set.
   "models": [
-    "openai/gpt-4.1-2025-04-14",
-    "anthropic/claude-sonnet-4-5-20250929",
+    // "openai/gpt-3.5-turbo-16k", NOTE: only up to 4096 completion tokens
+    // "openai/gpt-4.1-2025-04-14", NOTE: only up to 4096 completion tokens
+    "openai/gpt-4o-2024-05-13",
     "openai/gpt-5-2025-08-07",
-    "google/gemini-3-pro-preview",
-    "anthropic/claude-opus-4-6",
+    // "openai/gpt-5.6-luna", NOTE: gpt-5 models (including gpt-5-codex) don't support temperature=0.0. Only temperature=1 is supported. For gpt-5.1, temperature is supported when reasoning_effort='none' (or not specified, as it defaults to 'none'). To drop unsupported params set `litellm.drop_params = True`
+    // "openai/gpt-5.6-terra", NOTE: gpt-5 models (including gpt-5-codex) don't support temperature=0.0. Only temperature=1 is supported. For gpt-5.1, temperature is supported when reasoning_effort='none' (or not specified, as it defaults to 'none'). To drop unsupported params set `litellm.drop_params = True`
+    // "openai/gpt-5.6-sol", NOTE: gpt-5 models (including gpt-5-codex) don't support temperature=0.0. Only temperature=1 is supported. For gpt-5.1, temperature is supported when reasoning_effort='none' (or not specified, as it defaults to 'none'). To drop unsupported params set `litellm.drop_params = True`
+
+    // Anthropic API key is dead, skipping these for now
+    // "anthropic/claude-sonnet-4-5-20250929",
+    // "anthropic/claude-opus-4-6",
+    // "google/gemini-3-pro-preview", Note: no longer supported by API
+    "google/gemini-2.5-pro",
+    "google/gemini-3.1-pro-preview",
+
+    "mistral/mistral-small-2603",
+    "mistral/mistral-medium-2604",
+    "mistral/mistral-large-2512",
+
+    "xai/grok-4.20-0309-non-reasoning",
+    "xai/grok-4.20-0309-reasoning",
+    "xai/grok-4.5",
   ],
 
   // The test asks for one answer line per statement (219 of them), so the cap
