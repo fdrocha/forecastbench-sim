@@ -2,12 +2,13 @@
 """Single city scenario evaluation script.
 
 Builds the question corpus for every (city, disasters) combination in the
-config file, prompts each configured model on it, and plots the forecasts.
+config file and prompts each configured model on it.
 
 Usage:
-    uv run python scripts/eval_single_city.py
-    uv run python scripts/eval_single_city.py my_config.json --seed 7
-    uv run python scripts/eval_single_city.py my_config.json --dry-run
+    uv run python scripts/run_single_city_eval.py
+    uv run python scripts/run_single_city_eval.py my_config.json --seed 7
+    uv run python scripts/run_single_city_eval.py my_config.json --dry-run
+    uv run python scripts/run_single_city_eval.py --scenario-plots
 """
 
 import argparse
@@ -16,11 +17,9 @@ import re
 from dataclasses import asdict, dataclass
 from math import isnan
 from pathlib import Path
-from tqdm import tqdm
 
 import micropolis_world.module_globals as g
 from fbsim_core.evaluation.models import get_models
-from fbsim_core.metrics import compute_brier_score
 from micropolis_world.city_sim import CitySimulation, turn_of
 from micropolis_world.config import (
     add_config_args,
@@ -32,6 +31,7 @@ from micropolis_world.scenarios import (
     build_prompt_continuous,
     get_single_city_base_scenarios,
 )
+from tqdm import tqdm
 
 CACHE_PATH = g.DATA_DIR / "response_cache.json"
 RESULTS_PATH = g.DATA_DIR / "single_city_results.json"
@@ -45,6 +45,7 @@ PLOT_METRICS = [
     ("crimeAverage", "Crime Average", "tab:red"),
     ("pollutionAverage", "Pollution Average", "tab:orange"),
 ]
+
 
 @dataclass(frozen=True)
 class ResponseId:
@@ -250,9 +251,14 @@ def plot_forecasts(
                     ys.append(r.predicted)
                 if xs:
                     ax.scatter(
-                        xs, ys, s=45, zorder=5, alpha=0.85,
+                        xs,
+                        ys,
+                        s=45,
+                        zorder=5,
+                        alpha=0.85,
                         color=model_colors[model_id],
-                        edgecolors="black", linewidths=0.5,
+                        edgecolors="black",
+                        linewidths=0.5,
                         label=model_id.split("/")[-1],
                     )
 
@@ -261,8 +267,13 @@ def plot_forecasts(
 
         # One shared legend; every subplot has the same series.
         handles, labels = axes[0][0].get_legend_handles_labels()
-        fig.legend(handles, labels, loc="lower center", ncol=max(2, len(labels)),
-                   fontsize="small")
+        fig.legend(
+            handles,
+            labels,
+            loc="lower center",
+            ncol=max(2, len(labels)),
+            fontsize="small",
+        )
         fig.suptitle(f"{scenario_id} — forecasts at horizon {horizon}")
         fig.tight_layout()
         fig.subplots_adjust(bottom=0.13)
@@ -327,6 +338,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     add_config_args(ap)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument(
+        "--scenario-plots",
+        action="store_true",
+        help="also plot metric trajectories with forecasts overlaid, one figure "
+        "per (scenario, horizon)",
+    )
     args = ap.parse_args()
 
     cfg = load_config(args)
@@ -358,9 +375,10 @@ def main() -> None:
     responses = gather_responses(corpus, models, cfg.get_int("max_tokens"))
     print("Done gathering")
 
-    print("\nPlotting forecasts...")
-    written = plot_forecasts(corpus, responses, models)
-    print(f"Wrote {len(written)} plots -> {PLOTS_PATH}")
+    if args.scenario_plots:
+        print("\nPlotting forecasts...")
+        written = plot_forecasts(corpus, responses, models)
+        print(f"Wrote {len(written)} plots -> {PLOTS_PATH}")
     print("=" * 70)
 
     # TODO

@@ -4,9 +4,9 @@ Every script in `worlds/micropolis/scripts/` takes an optional config file as
 its first positional argument and reads all of its parameters from there:
 
 ```
-uv run python scripts/eval_single_city.py                        # default_config.json5
-uv run python scripts/eval_single_city.py my_config.json5        # a custom config
-uv run python scripts/eval_single_city.py my_config.json5 --seed 7   # seed override
+uv run python scripts/run_single_city_eval.py                        # default_config.json5
+uv run python scripts/run_single_city_eval.py my_config.json5        # a custom config
+uv run python scripts/run_single_city_eval.py my_config.json5 --seed 7   # seed override
 ```
 
 A missing parameter is a hard error naming the key and the file. Extra
@@ -44,12 +44,12 @@ are derived automatically from the run parameters and are not configurable.
 | `cities` | list[str] | all | Micropolis cities to run. Must be names from `module_globals.CITY_CHOICES`. |
 | `disasters` | list[bool] | all | Disaster settings to run each city under. `[false, true]` runs both variants; `[false]` runs only one. Combined with `cities` as a cross product. |
 | `turns` | int | `run_sim.py` | How many turns to simulate. The corpus scripts ignore this and derive their own length from `snapshot_turns` + `horizons`. |
-| `snapshot_turns` | list[int] | `gen_corpus.py`, `eval_single_city.py` | Turns at which a world report is generated and questions are asked. 48 turns per year. |
-| `horizons` | list[int] | `gen_corpus.py`, `eval_single_city.py` | Forecast horizons past each snapshot, in turns. |
+| `snapshot_turns` | list[int] | `gen_corpus.py`, `run_single_city_eval.py` | Turns at which a world report is generated and questions are asked. 48 turns per year. |
+| `horizons` | list[int] | `gen_corpus.py`, `run_single_city_eval.py` | Forecast horizons past each snapshot, in turns. |
 | `report_turn` | int | `gen_report.py` | Turn to print the report for; negative counts back from the last logged turn. |
 | `history_freq` | int | `gen_report.py` | The report includes data every this many turns. |
-| `models` | list[str] | `eval_single_city.py` | Model ids to prompt, in `provider/name` form. |
-| `max_tokens` | int | `eval_single_city.py` | Response token cap per model call. |
+| `models` | list[str] | `run_single_city_eval.py` | Model ids to prompt, in `provider/name` form. |
+| `max_tokens` | int | `run_single_city_eval.py` | Response token cap per model call. |
 
 ## Model ids
 
