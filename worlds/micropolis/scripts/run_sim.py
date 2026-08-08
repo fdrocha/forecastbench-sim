@@ -2,7 +2,7 @@
 """Run Micropolis city simulations via CitySimulation.run.
 
 Runs every (city, disasters) combination in the config file, writing a plot of
-each run to data/micropolis/<city>/ alongside its log/events files.
+each run to data/micropolis/runs/<city>/ alongside its log/events files.
 
 Usage:
     uv run python scripts/run_sim.py

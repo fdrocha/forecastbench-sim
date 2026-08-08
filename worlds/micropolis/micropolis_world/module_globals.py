@@ -8,6 +8,10 @@ from dotenv import load_dotenv
 PKG_DIR = Path(__file__).resolve().parent.parent  # forecastbench-sim/worlds/micropolis
 FBS_DIR = PKG_DIR.parent.parent  # forecastbench-sim
 DATA_DIR = FBS_DIR / "data" / "micropolis"
+# Per-run simulation output (log/events/report/plot files), one directory per
+# city. The engine's run_sim.js appends the city name to the base dir it's
+# given, so this is passed to it as --output-base-dir verbatim.
+RUNS_DIR = DATA_DIR / "runs"
 
 load_dotenv(PKG_DIR / ".env")
 MICROPOLIS_APP_PATH = Path(os.environ["MICROPOLIS_CORE_PATH"]) / "apps" / "micropolis"

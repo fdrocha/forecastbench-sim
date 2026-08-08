@@ -179,7 +179,7 @@ def plot_run(sim: CitySimulation, output: str | None = None) -> None:
 
 
 def save_run_plot(sim: CitySimulation) -> str:
-    """Plot `sim` into data/micropolis/<city>/, returning the path written."""
+    """Plot `sim` into data/micropolis/runs/<city>/, returning the path written."""
     out = sim.get_plot_path()
     out.parent.mkdir(parents=True, exist_ok=True)
     plot_run(sim, output=str(out))

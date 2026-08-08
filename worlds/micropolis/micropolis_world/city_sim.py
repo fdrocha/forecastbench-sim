@@ -43,7 +43,7 @@ class CitySimulation:
             "--turns",
             str(nturns),
             "--output-base-dir",
-            g.DATA_DIR,
+            g.RUNS_DIR,
         ]
         if self.disasters:
             args.append("--disasters")
@@ -67,7 +67,7 @@ class CitySimulation:
         Common prefixes are "log", "events", and "worldreportT{TURN}"""
         disasters_str = "disasters" if self.disasters else "nodisasters"
         filename = f"{prefix}-seed{self.seed}-{disasters_str}.{ext}"
-        return g.DATA_DIR / self.city_name / filename
+        return g.RUNS_DIR / self.city_name / filename
 
     def get_plot_path(self, prefix: str = "plot") -> Path:
         """Where this run's plot is written, alongside its log/events files."""
