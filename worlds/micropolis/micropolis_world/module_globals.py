@@ -12,6 +12,29 @@ DATA_DIR = FBS_DIR / "data" / "micropolis"
 load_dotenv(PKG_DIR / ".env")
 MICROPOLIS_APP_PATH = Path(os.environ["MICROPOLIS_CORE_PATH"]) / "apps" / "micropolis"
 
+_keys_loaded = False
+
+
+def ensure_api_keys() -> None:
+    """Fill in any unset provider API keys from GCP Secret Manager.
+
+    Call this before prompting models. Keys already set — by the shell or by
+    .env — take precedence and are left alone, so only the providers missing
+    locally are fetched. Requires GOOGLE_CLOUD_PROJECT and gcloud application
+    default credentials; see docs/notes/evaluation_setup.md.
+
+    Loading is lazy and done once per process: it makes a network call per
+    missing key, and the scripts that never prompt a model shouldn't pay for it.
+    """
+    global _keys_loaded
+    if _keys_loaded:
+        return
+    # Imported here so the simulation-only scripts don't pull in litellm.
+    from fbsim_core.evaluation.models import load_api_keys_from_gcp
+
+    load_api_keys_from_gcp()
+    _keys_loaded = True
+
 CITY_CHOICES = [
     "about",
     "badnews",

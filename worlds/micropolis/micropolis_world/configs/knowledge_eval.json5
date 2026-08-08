@@ -1,0 +1,41 @@
+// Config for scripts/run_knowledge_eval.py — the Micropolis domain-knowledge
+// test (True/False/Unknown statements, scored per model).
+//
+// The "models" list is the default set used across the freeciv world: the same
+// five models appear verbatim in run_bin_condition.py, run_combined_condition.py,
+// run_generate_scenario.py, run_scenario_enumeration.py, run_scenario_weighting.py,
+// run_structured_mixture.py, run_trajectory_condition.py and
+// run_tutorial_conditions.py.
+//
+// Only "models" and "max_tokens" are read by run_knowledge_eval.py; the rest of
+// the keys are here so this file also works with the other micropolis scripts.
+{
+  // The freeciv default model set.
+  "models": [
+    "openai/gpt-4.1-2025-04-14",
+    "anthropic/claude-sonnet-4-5-20250929",
+    "openai/gpt-5-2025-08-07",
+    "google/gemini-3-pro-preview",
+    "anthropic/claude-opus-4-6",
+  ],
+
+  // The test asks for one answer line per statement (219 of them), so the cap
+  // must clear roughly 2k tokens of answers plus any preamble the model adds.
+  // Note gpt-3.5-turbo-1106 rejects anything above 4096.
+  "max_tokens": 8000,
+
+  // ---- Unused by run_knowledge_eval.py; present so the other scripts can
+  // ---- share this file. Mirrors default_config.json5.
+  "seed": 42,
+  "cities": [
+    "bruce",
+    "finnigan",
+    "haight",
+  ],
+  "disasters": [false, true],
+  "turns": 100,
+  "snapshot_turns": [48, 96, 144, 192, 240],
+  "horizons": [48, 240, 480],
+  "report_turn": -1,
+  "history_freq": 4,
+}

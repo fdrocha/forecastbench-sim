@@ -354,6 +354,7 @@ def main() -> None:
         return
 
     print("\nGathering model responses...")
+    g.ensure_api_keys()
     responses = gather_responses(corpus, models, cfg.get_int("max_tokens"))
     print("Done gathering")
 
