@@ -195,7 +195,7 @@ def plot_forecasts(
 ) -> list[Path]:
     """One figure per (scenario, horizon): metric trajectories + model forecasts.
 
-    Each figure has the same four metric subplots as scripts/plot_run.py, drawn
+    Each figure has the same four metric subplots as micropolis_world.plot_sim, drawn
     against turn rather than date so forecasts can be placed at the turn they
     resolve on (snapshot_turn + horizon). Disaster lines are omitted.
     """

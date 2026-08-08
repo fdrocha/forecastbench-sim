@@ -1,12 +1,13 @@
 #!/usr/bin/env -S uv run python3
 """Run Micropolis city simulations via CitySimulation.run.
 
-Runs every (city, disasters) combination in the config file.
+Runs every (city, disasters) combination in the config file, writing a plot of
+each run to data/micropolis/<city>/ alongside its log/events files.
 
 Usage:
     uv run python scripts/run_sim.py
-    uv run python scripts/run_sim.py my_config.json --plot
-    uv run python scripts/run_sim.py my_config.json --seed 7 --quiet
+    uv run python scripts/run_sim.py my_config.json
+    uv run python scripts/run_sim.py my_config.json --seed 7 --quiet --no-plot
 """
 
 import argparse
@@ -18,7 +19,7 @@ from micropolis_world.config import (
     main_with_config,
     scenarios_from,
 )
-from plot_run import plot_run
+from micropolis_world.plot_sim import save_run_plot
 
 
 @main_with_config
@@ -27,7 +28,10 @@ def main() -> None:
     add_config_args(ap)
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument(
-        "--plot", action="store_true", help="Plot the simulation results after running"
+        "--no-plot",
+        dest="plot",
+        action="store_false",
+        help="Skip plotting the simulation results after running",
     )
     args = ap.parse_args()
 
@@ -42,9 +46,7 @@ def main() -> None:
         sim.run(nturns=turns, quiet=args.quiet)
 
         if args.plot:
-            out = sim.get_plot_path()
-            out.parent.mkdir(parents=True, exist_ok=True)
-            plot_run(sim, output=str(out))
+            save_run_plot(sim)
 
 
 if __name__ == "__main__":

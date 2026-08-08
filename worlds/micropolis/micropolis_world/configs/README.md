@@ -33,8 +33,8 @@ models in place rather than deleting them.
 ```
 
 Only behavior toggles stay on the command line: `--dry-run`, `--quiet`,
-`--plot`, and `--seed` (which overrides the config's `seed`). Output paths are
-derived automatically from the run parameters and are not configurable.
+`--no-plot`, and `--seed` (which overrides the config's `seed`). Output paths
+are derived automatically from the run parameters and are not configurable.
 
 ## Parameters
 
