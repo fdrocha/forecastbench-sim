@@ -6,8 +6,13 @@ data/micropolis/single_city/data.json, written by
 scripts/run_single_city_eval.py, and the simulation logs the questions came
 from; prompts no models.
 
+The config selects which slice of the dataset to draw — its models, cities,
+disasters, snapshot_turns and horizons — so one gathered dataset can be plotted
+many ways. Naming anything the dataset lacks is an error, not a smaller figure.
+
 Usage:
     uv run python scripts/plot_forecasts.py
+    uv run python scripts/plot_forecasts.py subset.json5
     uv run python scripts/plot_forecasts.py --outdir /tmp/plots
     uv run python scripts/plot_forecasts.py --data other/data.json
 """
@@ -17,12 +22,19 @@ import sys
 from pathlib import Path
 
 from micropolis_world.city_sim import CitySimulation, turn_of
+from micropolis_world.config import (
+    add_config_args,
+    load_config,
+    main_with_config,
+)
 from micropolis_world.single_city import (
     DATA_PATH,
     PLOTS_PATH,
+    DatasetError,
     Responses,
     ResponseId,
     load_dataset,
+    select_for_config,
 )
 
 # The four metrics charted per figure, in subplot order. Only the metrics that
@@ -144,8 +156,10 @@ def plot_forecasts(
     return written
 
 
+@main_with_config
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
+    add_config_args(ap)
     ap.add_argument(
         "--data",
         type=Path,
@@ -160,17 +174,24 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    # A missing dataset means the gathering step hasn't run — user error with an
-    # obvious fix, so say it plainly rather than with a traceback.
+    cfg = load_config(args)
+
+    # Both failures are user error with an obvious fix — the gathering step
+    # hasn't run, or hasn't run for this config — so say so plainly rather than
+    # with a traceback.
     try:
         corpus, responses, models = load_dataset(args.data)
-    except FileNotFoundError as e:
-        sys.exit(str(e))
+        corpus, responses, models = select_for_config(
+            corpus, responses, models, cfg, cfg.get_seed(args.seed)
+        )
+    except (FileNotFoundError, DatasetError) as e:
+        sys.exit(f"[error] {e}")
 
     print("=" * 70)
     print("MICROPOLIS WORLD — single city forecast plots")
     print("=" * 70)
-    print(f"data: {args.data}")
+    print(f"data:   {args.data}")
+    print(f"config: {cfg.path}")
 
     written = plot_forecasts(corpus, responses, models, outdir=args.outdir)
     print(f"Wrote {len(written)} plots -> {args.outdir}")

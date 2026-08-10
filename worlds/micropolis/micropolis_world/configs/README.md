@@ -1,7 +1,7 @@
 # Micropolis run configs
 
-Scripts that run simulations or prompt models take an optional config file as
-their first positional argument and read all of their parameters from there:
+Every script in `worlds/micropolis/scripts/` takes an optional config file as
+its first positional argument and reads all of its parameters from there:
 
 ```
 uv run python scripts/run_single_city_eval.py                        # default.json5
@@ -12,9 +12,24 @@ uv run python scripts/run_single_city_eval.py my_config.json5 --seed 7   # seed 
 A missing parameter is a hard error naming the key and the file. Extra
 parameters are ignored, so one config file can serve every script.
 
-`analyze_single_city.py` and `plot_forecasts.py` take no config: they read the
-dataset `run_single_city_eval.py` writes, which already records the models and
-questions the run used. Point them at a different file with `--data`.
+## Reporting on a slice of a run
+
+`analyze_single_city.py` and `plot_forecasts.py` read the dataset
+`run_single_city_eval.py` wrote, and their config says which slice of it to
+report on. So one expensive gathering run can be viewed many ways — fewer
+models for a readable figure, one city, the near horizons only — without
+prompting anything again:
+
+```
+uv run python scripts/run_single_city_eval.py                  # gather everything, once
+uv run python scripts/analyze_single_city.py three_models.json5
+uv run python scripts/plot_forecasts.py one_city.json5
+```
+
+Naming something the dataset doesn't have — a model that wasn't prompted, a
+city that wasn't simulated, a horizon that wasn't asked — is an error listing
+what is missing and what the dataset holds, rather than a quietly smaller
+table. Use `--data` to point at a dataset other than the default.
 
 ## Format
 
@@ -37,23 +52,27 @@ models in place rather than deleting them.
 ```
 
 Only behavior toggles stay on the command line: `--dry-run`, `--quiet`,
-`--no-plot`, and `--seed` (which overrides the config's `seed`). Output paths
-are derived automatically from the run parameters and are not configurable.
+`--seed` (which overrides the config's `seed`), and the reporting scripts'
+`--data` and `--outdir`. Everything else comes from the config.
+
+In the table below, "reporting" means `analyze_single_city.py` and
+`plot_forecasts.py`, which use these keys to pick a slice of an existing
+dataset rather than to run anything.
 
 ## Parameters
 
 | Key | Type | Used by | Meaning |
 | --- | --- | --- | --- |
-| `seed` | int | all | RNG seed for the simulations. Overridable with `--seed`. |
-| `cities` | list[str] | all | Micropolis cities to run. Must be names from `module_globals.CITY_CHOICES`. |
-| `disasters` | list[bool] | all | Disaster settings to run each city under. `[false, true]` runs both variants; `[false]` runs only one. Combined with `cities` as a cross product. |
+| `seed` | int | all | RNG seed for the simulations. Overridable with `--seed`. Part of a scenario's identity, so reporting on a seed that wasn't gathered is an error. |
+| `cities` | list[str] | all | Micropolis cities to run. Must be names from `module_globals.CITY_CHOICES`. Reporting selects on them. |
+| `disasters` | list[bool] | all | Disaster settings to run each city under. `[false, true]` runs both variants; `[false]` runs only one. Combined with `cities` as a cross product. Reporting selects on them. |
 | `turns` | int | `run_sim.py` | How many turns to simulate. The corpus scripts ignore this and derive their own length from `snapshot_turns` + `horizons`. |
-| `snapshot_turns` | list[int] | `gen_corpus.py`, `run_single_city_eval.py` | Turns at which a world report is generated and questions are asked. 48 turns per year. |
-| `horizons` | list[int] | `gen_corpus.py`, `run_single_city_eval.py` | Forecast horizons past each snapshot, in turns. |
+| `snapshot_turns` | list[int] | `gen_corpus.py`, `run_single_city_eval.py`, reporting | Turns at which a world report is generated and questions are asked. 48 turns per year. |
+| `horizons` | list[int] | `gen_corpus.py`, `run_single_city_eval.py`, reporting | Forecast horizons past each snapshot, in turns. |
 | `report_turn` | int | `gen_report.py` | Turn to print the report for; negative counts back from the last logged turn. |
 | `history_freq` | int | `gen_report.py` | The report includes data every this many turns. |
-| `models` | list[str] | `run_single_city_eval.py` | Model ids to prompt, in `provider/name` form. |
-| `max_tokens` | int | `run_single_city_eval.py` | Response token cap per model call. |
+| `models` | list[str] | `run_single_city_eval.py`, reporting | Model ids to prompt, in `provider/name` form. Reporting selects on them, so trimming this list is how you get a readable figure from a large run. |
+| `max_tokens` | int | `run_single_city_eval.py` | Response token cap per model call. For a reasoning model this covers thinking as well as the answer, so too low a cap yields an empty reply; the script warns when one is hit. |
 
 ## Model ids
 

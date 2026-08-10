@@ -14,6 +14,8 @@ from pathlib import Path
 from fbsim_core.metrics import compute_crps
 
 from . import module_globals as g
+from .city_sim import CitySimulation
+from .config import Config, scenarios_from
 from .scenarios import PERCENTILE_KEYS, parse_percentiles
 
 # Everything the eval writes. The response cache is keyed by (model, question)
@@ -159,6 +161,100 @@ def load_dataset(path: Path = DATA_PATH) -> tuple[list[dict], Responses, list[st
         for f in data["forecasts"]
     }
     return corpus, responses, data["models"]
+
+
+class DatasetError(Exception):
+    """The dataset on disk doesn't cover what the config asked for."""
+
+
+def scenario_ids_from(cfg: Config, seed: int) -> list[str]:
+    """The scenario ids a config's cities x disasters cross product names.
+
+    Built through CitySimulation so the ids match the ones build_corpus wrote;
+    constructing one runs nothing, it only holds the parameters.
+    """
+    return [
+        CitySimulation(city_name=city, seed=seed, disasters=disasters).get_id_str()
+        for city, disasters in scenarios_from(cfg)
+    ]
+
+
+def select_for_config(
+    corpus: list[dict],
+    responses: Responses,
+    model_names: list[str],
+    cfg: Config,
+    seed: int,
+) -> tuple[list[dict], Responses, list[str]]:
+    """Narrow a dataset to what `cfg` asks for, or fail saying what is missing.
+
+    Lets one gathered dataset serve many views — a subset of models, cities or
+    horizons — without re-prompting. Anything the config names that the dataset
+    lacks is an error rather than a silently smaller table, since a missing
+    model or city would otherwise look like a legitimately empty result.
+    """
+    wanted_models = cfg.get_str_list("models")
+    wanted_scenarios = scenario_ids_from(cfg, seed)
+    wanted_snapshots = cfg.get_int_list("snapshot_turns")
+    wanted_horizons = cfg.get_int_list("horizons")
+
+    missing = []
+    for name, wanted, present in [
+        ("models", wanted_models, set(model_names)),
+        ("cities/disasters", wanted_scenarios, {c["scenario_id"] for c in corpus}),
+        ("snapshot_turns", wanted_snapshots, {c["snapshot_turn"] for c in corpus}),
+        ("horizons", wanted_horizons, {c["horizon"] for c in corpus}),
+    ]:
+        absent = [w for w in wanted if w not in present]
+        if absent:
+            missing.append(
+                f"  {name}: {', '.join(str(a) for a in absent)}\n"
+                f"    dataset has: {', '.join(str(p) for p in sorted(present, key=str))}"
+            )
+    if missing:
+        raise DatasetError(
+            "the dataset does not cover this config:\n"
+            + "\n".join(missing)
+            + "\n  re-run scripts/run_single_city_eval.py with this config to gather it"
+        )
+
+    selected_scenarios = set(wanted_scenarios)
+    selected_snapshots = set(wanted_snapshots)
+    selected_horizons = set(wanted_horizons)
+    selected_corpus = [
+        c
+        for c in corpus
+        if c["scenario_id"] in selected_scenarios
+        and c["snapshot_turn"] in selected_snapshots
+        and c["horizon"] in selected_horizons
+    ]
+
+    # Every selected question needs a row for every selected model. A model that
+    # answered unusably still has a row, with null percentiles, so a genuinely
+    # absent row means that pair was never gathered.
+    ungathered = [
+        (model_id, c["question_id"])
+        for c in selected_corpus
+        for model_id in wanted_models
+        if ResponseId(model_id, c["question_id"]) not in responses
+    ]
+    if ungathered:
+        shown = ", ".join(f"{m} / {q}" for m, q in ungathered[:3])
+        more = f" (+{len(ungathered) - 3} more)" if len(ungathered) > 3 else ""
+        raise DatasetError(
+            f"the dataset is missing {len(ungathered)} forecast(s) the config asks "
+            f"for: {shown}{more}\n"
+            "  re-run scripts/run_single_city_eval.py with this config to gather them"
+        )
+
+    selected_responses = {
+        ResponseId(model_id, c["question_id"]): responses[
+            ResponseId(model_id, c["question_id"])
+        ]
+        for c in selected_corpus
+        for model_id in wanted_models
+    }
+    return selected_corpus, selected_responses, wanted_models
 
 
 def score_forecasts(
