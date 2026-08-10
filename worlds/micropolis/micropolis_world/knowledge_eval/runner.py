@@ -13,11 +13,10 @@ from enum import Enum
 from pathlib import Path
 from dataclasses import dataclass
 
-from litellm import completion
-
 from fbsim_core.evaluation.models import get_models
 
 from .. import module_globals as g
+from ..module_globals import prompt_model, warn_if_truncated
 from .statements import false_statements, honeypot_statements, true_statements
 
 SHUFFLE_SEED = 20260807
@@ -190,32 +189,6 @@ def parse_response(text: str | None) -> list[Answer]:
     return answers
 
 
-def prompt_model(model, prompt: str, max_tokens: int) -> tuple[str | None, str | None]:
-    """Send `prompt` to `model`, returning its text and the finish reason.
-
-    LiteLLMModel.get_response() returns only the text, but the finish reason is
-    what explains an empty reply: a reasoning model can spend the whole token
-    budget thinking and stop at "length" with nothing written, which is a
-    successful call the caller would otherwise see as a silent blank.
-
-    Mirrors get_response()'s handling of the parameters some models reject.
-    """
-    kwargs = {
-        "model": model._litellm_model_id,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-    }
-    if model.supports_temperature:
-        kwargs["temperature"] = 0.0
-    else:
-        # Left at the provider default, so this model's answers are sampled
-        # rather than greedy and will vary between runs.
-        print(f"  [warning] {model.id} does not support temperature; omitting it")
-
-    choice = completion(**kwargs).choices[0]
-    return choice.message.content, choice.finish_reason
-
-
 def get_model_answers(
     models: list[str], max_tokens: int = MAX_TOKENS
 ) -> dict[str, list[Answer]]:
@@ -252,13 +225,7 @@ def get_model_answers(
                 continue
 
             print(f"  finish_reason: {finish_reason}")
-            if finish_reason == "length":
-                print(
-                    f"  [warning] {model_name} hit the {max_tokens}-token cap before "
-                    "finishing. Raise max_tokens; for a reasoning model the cap "
-                    "covers thinking as well as the answer, so it can be spent "
-                    "before any answer is written."
-                )
+            warn_if_truncated(model_name, finish_reason, max_tokens)
 
             if raw is None or not raw.strip():
                 print(f"  [warning] {model_name} returned a blank response; not caching")

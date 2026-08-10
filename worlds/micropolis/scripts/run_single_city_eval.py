@@ -324,10 +324,15 @@ def gather_responses(
             if response_id in cache:
                 response = cache[response_id]
             else:
-                raw = model.get_response(
+                # prompt_model rather than model.get_response, because the
+                # finish reason is what distinguishes a model that answered
+                # badly from one that never got to answer at all.
+                raw, finish_reason = g.prompt_model(
+                    model,
                     build_prompt_continuous(c["context"], c["question_text"]),
-                    max_tokens=max_tokens,
+                    max_tokens,
                 )
+                g.warn_if_truncated(model_name, finish_reason, max_tokens)
                 # parse_percentiles reports its own reason for rejecting a
                 # response, so only the question id needs adding here.
                 percentiles = parse_percentiles(raw, label=response_id.question_id)

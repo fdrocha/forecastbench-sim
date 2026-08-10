@@ -39,6 +39,52 @@ def ensure_api_keys() -> None:
     load_api_keys_from_gcp()
     _keys_loaded = True
 
+
+def prompt_model(model, prompt: str, max_tokens: int) -> tuple[str | None, str | None]:
+    """Send `prompt` to `model`, returning its text and the finish reason.
+
+    LiteLLMModel.get_response() returns only the text, but the finish reason is
+    what explains an empty reply: a reasoning model can spend the whole token
+    budget thinking and stop at "length" with nothing written, which is a
+    successful call the caller would otherwise see as a silent blank.
+
+    Mirrors get_response()'s handling of the parameters some models reject.
+    """
+    # Imported here so the simulation-only scripts don't pull in litellm.
+    from litellm import completion
+
+    kwargs = {
+        "model": model._litellm_model_id,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+    }
+    if model.supports_temperature:
+        kwargs["temperature"] = 0.0
+    else:
+        # Left at the provider default, so this model's answers are sampled
+        # rather than greedy and will vary between runs.
+        print(f"  [warning] {model.id} does not support temperature; omitting it")
+
+    choice = completion(**kwargs).choices[0]
+    return choice.message.content, choice.finish_reason
+
+
+def warn_if_truncated(model_id: str, finish_reason: str | None, max_tokens: int) -> None:
+    """Warn when a reply stopped because it ran out of tokens.
+
+    Worth saying explicitly: for a reasoning model the cap covers thinking as
+    well as the answer, so the reply can come back empty rather than merely cut
+    short, which looks like an unparseable answer instead of a budget problem.
+    """
+    if finish_reason == "length":
+        print(
+            f"  [warning] {model_id} hit the {max_tokens}-token cap before "
+            "finishing. Raise max_tokens; for a reasoning model the cap "
+            "covers thinking as well as the answer, so it can be spent "
+            "before any answer is written."
+        )
+
+
 CITY_CHOICES = [
     "about",
     "badnews",

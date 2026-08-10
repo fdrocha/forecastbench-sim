@@ -147,7 +147,7 @@ def _validate_monotonic(
 
 
 def parse_percentiles(
-    response: str, label: str = "response", quiet: bool = False
+    response: str | None, label: str = "response", quiet: bool = False
 ) -> dict[str, float] | None:
     """Extract one p10/p25/p50/p75/p90 set from a model response.
 
