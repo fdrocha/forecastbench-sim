@@ -1,7 +1,7 @@
 # Micropolis run configs
 
-Every script in `worlds/micropolis/scripts/` takes an optional config file as
-its first positional argument and reads all of its parameters from there:
+Scripts that run simulations or prompt models take an optional config file as
+their first positional argument and read all of their parameters from there:
 
 ```
 uv run python scripts/run_single_city_eval.py                        # default.json5
@@ -11,6 +11,10 @@ uv run python scripts/run_single_city_eval.py my_config.json5 --seed 7   # seed 
 
 A missing parameter is a hard error naming the key and the file. Extra
 parameters are ignored, so one config file can serve every script.
+
+`analyze_single_city.py` and `plot_forecasts.py` take no config: they read the
+dataset `run_single_city_eval.py` writes, which already records the models and
+questions the run used. Point them at a different file with `--data`.
 
 ## Format
 
