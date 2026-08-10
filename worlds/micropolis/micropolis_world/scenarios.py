@@ -128,7 +128,7 @@ Replace the example values with your actual percentile estimates.
 
 
 def _validate_monotonic(
-    percentiles: dict[str, float], label: str
+    percentiles: dict[str, float], label: str, quiet: bool
 ) -> dict[str, float] | None:
     """Return the percentiles if non-decreasing, else warn and return None.
 
@@ -139,13 +139,16 @@ def _validate_monotonic(
     """
     values = [percentiles[k] for k in PERCENTILE_KEYS]
     if any(a > b for a, b in zip(values, values[1:])):
-        pairs = ", ".join(f"{k}={percentiles[k]:g}" for k in PERCENTILE_KEYS)
-        print(f"  {label}: percentiles not in increasing order, discarding: {pairs}")
+        if not quiet:
+            pairs = ", ".join(f"{k}={percentiles[k]:g}" for k in PERCENTILE_KEYS)
+            print(f"  {label}: percentiles not in increasing order, discarding: {pairs}")
         return None
     return percentiles
 
 
-def parse_percentiles(response: str, label: str = "response") -> dict[str, float] | None:
+def parse_percentiles(
+    response: str, label: str = "response", quiet: bool = False
+) -> dict[str, float] | None:
     """Extract one p10/p25/p50/p75/p90 set from a model response.
 
     Mirrors FreeCiv's parse_batch_percentiles for the single-question case, and
@@ -155,10 +158,13 @@ def parse_percentiles(response: str, label: str = "response") -> dict[str, float
 
     Returns None if no complete set of five percentiles could be read, or if the
     five aren't in non-decreasing order. A partial set is never returned, since
-    CRPS needs all five. Either rejection prints a warning naming `label`.
+    CRPS needs all five. Either rejection prints a warning naming `label`, unless
+    `quiet` is set — used when re-parsing cached responses, whose rejections have
+    been reported already.
     """
     if not response:
-        print(f"  {label}: empty model response")
+        if not quiet:
+            print(f"  {label}: empty model response")
         return None
 
     # The delimited block is the requested format and the most reliable, so
@@ -175,7 +181,7 @@ def parse_percentiles(response: str, label: str = "response") -> dict[str, float
             val = json.loads(json_match.group())
             result = {k: float(val[k]) for k in PERCENTILE_KEYS if k in val}
             if len(result) == len(PERCENTILE_KEYS):
-                return _validate_monotonic(result, label)
+                return _validate_monotonic(result, label, quiet)
         except (json.JSONDecodeError, ValueError, TypeError):
             pass
 
@@ -196,7 +202,7 @@ def parse_percentiles(response: str, label: str = "response") -> dict[str, float
                 except ValueError:
                     pass
         if len(result) == len(PERCENTILE_KEYS):
-            return _validate_monotonic(result, label)
+            return _validate_monotonic(result, label, quiet)
 
     # Last resort: five bare numbers on one line, in ascending percentile order.
     for line in content.strip().split("\n"):
@@ -206,7 +212,8 @@ def parse_percentiles(response: str, label: str = "response") -> dict[str, float
                 result = {k: float(n) for k, n in zip(PERCENTILE_KEYS, numbers)}
             except ValueError:
                 continue
-            return _validate_monotonic(result, label)
+            return _validate_monotonic(result, label, quiet)
 
-    print(f"  {label}: unable to parse percentiles from model response: {response!r}")
+    if not quiet:
+        print(f"  {label}: unable to parse percentiles from model response: {response!r}")
     return None

@@ -9,6 +9,7 @@ Usage:
     uv run python scripts/run_single_city_eval.py my_config.json --seed 7
     uv run python scripts/run_single_city_eval.py my_config.json --dry-run
     uv run python scripts/run_single_city_eval.py --scenario-plots
+    uv run python scripts/run_single_city_eval.py --verbose-reparse
 """
 
 import argparse
@@ -64,24 +65,47 @@ class Response:
 Responses = dict[ResponseId, Response]
 
 
-def load_cache() -> Responses:
+def load_cache(verbose_reparse: bool = False) -> Responses:
+    """Load cached responses, re-parsing the percentiles from the raw text.
+
+    response_text is the source of truth, as it is in the knowledge eval: the
+    stored percentiles are a convenience, so an improved parse_percentiles takes
+    effect on the next run instead of needing the whole cache re-queried. An
+    entry that has no response_text — nothing left to re-parse — keeps whatever
+    percentiles it was stored with.
+
+    Re-parsing is quiet by default: a response that was rejected when first
+    fetched would otherwise reprint its warning on every subsequent run, and
+    callers report the total instead. Set verbose_reparse to get the full
+    per-question warning back, which is what you want when investigating why a
+    particular cached response yields no forecast.
+    """
     r: Responses = {}
     data = json.loads(CACHE_PATH.read_text()) if CACHE_PATH.exists() else {}
     for entry in data:
-        percentiles = entry.get("percentiles")
+        stored = entry.get("percentiles")
+        stored = (
+            {k: float(stored[k]) for k in PERCENTILE_KEYS}
+            if stored is not None
+            else None
+        )
+        raw = entry.get("response_text", None)
         response_id = ResponseId(
             model_id=entry["model_id"], question_id=entry["question_id"]
         )
-        response = Response(
-            actual=entry["actual"],
-            percentiles=(
-                {k: float(percentiles[k]) for k in PERCENTILE_KEYS}
-                if percentiles is not None
-                else None
-            ),
-            response_text=entry.get("response_text", None),
+        # The same question_id appears once per model, so name both.
+        label = f"{response_id.model_id} {response_id.question_id}"
+        percentiles = (
+            parse_percentiles(raw, label=label, quiet=not verbose_reparse)
+            if raw is not None
+            else stored
         )
-        r[response_id] = response
+
+        r[response_id] = Response(
+            actual=entry["actual"],
+            percentiles=percentiles,
+            response_text=raw,
+        )
     return r
 
 
@@ -265,16 +289,31 @@ def print_crps_table(
 
 
 def gather_responses(
-    corpus: list[dict], model_names: list[str], max_tokens: int
+    corpus: list[dict],
+    model_names: list[str],
+    max_tokens: int,
+    verbose_reparse: bool = False,
 ) -> Responses:
     """Prompt each model on each corpus question, reusing cached responses.
 
     The whole cache is loaded and saved back, so responses for other corpora and
     models are preserved, but only the responses for this call's corpus and
     model_names are returned.
+
+    verbose_reparse is passed to load_cache, printing why each cached response
+    that no longer parses was rejected instead of just how many.
     """
     n_new = 0
-    cache = load_cache()
+    cache = load_cache(verbose_reparse=verbose_reparse)
+    # Re-parsing is quiet unless asked otherwise, so say how many stored
+    # responses have no usable forecast rather than letting them vanish.
+    n_bad_cached = sum(1 for r in cache.values() if r.percentiles is None)
+    if n_bad_cached:
+        hint = "" if verbose_reparse else "; --verbose-reparse to see why"
+        print(
+            f"{n_bad_cached} of {len(cache)} cached responses have no usable "
+            f"percentiles (re-parsed from the stored text{hint})"
+        )
     responses: Responses = {}
     models = get_models(model_names)
     nmodels = len(models)
@@ -320,6 +359,12 @@ def main() -> None:
         help="also plot metric trajectories with forecasts overlaid, one figure "
         "per (scenario, horizon)",
     )
+    ap.add_argument(
+        "--verbose-reparse",
+        action="store_true",
+        help="print the full warning for every cached response whose percentiles "
+        "no longer parse, rather than only the count",
+    )
     args = ap.parse_args()
 
     cfg = load_config(args)
@@ -348,7 +393,12 @@ def main() -> None:
 
     print("\nGathering model responses...")
     g.ensure_api_keys()
-    responses = gather_responses(corpus, models, cfg.get_int("max_tokens"))
+    responses = gather_responses(
+        corpus,
+        models,
+        cfg.get_int("max_tokens"),
+        verbose_reparse=args.verbose_reparse,
+    )
     print("Done gathering")
 
     if args.scenario_plots:
