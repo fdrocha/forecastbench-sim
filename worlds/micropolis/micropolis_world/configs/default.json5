@@ -1,0 +1,73 @@
+// Default parameters for the scripts in worlds/micropolis/scripts/.
+//
+// Parsed as JSON5, so comments and trailing commas are allowed. Any script run
+// without a config file argument uses this one. See README.md for which script
+// reads which key; unused keys are ignored, so one config can serve them all.
+{
+  // RNG seed for the simulations. Override per-run with --seed.
+  "seed": 42,
+
+  // Cities to run. Names come from module_globals.CITY_CHOICES.
+  "cities": [
+    "bruce",
+    "haight",
+    "freds",
+    "happisle",
+    "joffburg",
+    "kamakura",
+//    "kobe",
+//    "kowloon",
+//    "kyoto",
+//    "linecity",
+//    "senri",
+//   "southpac",
+//    "wetcity",
+//    "yokohama",
+
+    // The following cities start with 0 population and nothing happens
+    // "finnigan",
+    // "bluebird",
+    //  "splats",
+
+    // "deadwood",  // crashes the engine (WASM "memory access out of bounds")
+    //              // partway through a run when disasters are enabled, at
+    //              // every seed tried
+
+  ],
+
+  // Disaster settings to run each city under; crossed with "cities".
+  // [false, true] runs both variants of every city.
+  "disasters": [false],
+
+  // How many turns run_sim.py simulates. The corpus scripts ignore this and
+  // derive their own length from snapshot_turns + horizons.
+  "turns": 1000,
+
+  // Turns at which a world report is generated and questions are asked,
+  // and the forecast horizons past each snapshot. 48 turns per year.
+  "snapshot_turns": [240],  // years 5
+  "horizons": [48, 96, 240],                 // 1, 2 and 5 out
+
+  // gen_report.py: turn to print the report for (negative counts back from the
+  // last logged turn), and how often the report includes historical data.
+  "report_turn": -1,
+  "history_freq": 4,
+
+  // Models to prompt, in provider/name form, and the response token cap.
+  // See README.md for the ForecastBench, frontier and pandemic model sets.
+  "models": [
+    "openai/gpt-5-2025-08-07",
+
+    "google/gemini-2.5-pro",
+    "google/gemini-3.1-pro-preview",
+
+    "mistral/mistral-small-2603",
+    "mistral/mistral-medium-2604",
+    "mistral/mistral-large-2512",
+
+    "xai/grok-4.20-0309-non-reasoning",
+    "xai/grok-4.20-0309-reasoning",
+    "xai/grok-4.5",
+  ],
+  "max_tokens": 20000,
+}

@@ -42,7 +42,7 @@
   "max_tokens": 60000,
 
   // ---- Unused by run_knowledge_eval.py; present so the other scripts can
-  // ---- share this file. Mirrors default_config.json5.
+  // ---- share this file.
   "seed": 42,
   "cities": [
     "bruce",

@@ -3,7 +3,7 @@
 Every script takes an optional config file path as its first positional argument
 and reads all of its non-flag parameters from there; behavior toggles
 (--dry-run, --quiet, --plot) stay on the command line. Omitting the path falls
-back to configs/default_config.json5.
+back to configs/default.json5.
 
 A script asks for the keys it needs via Config.get* and errors out if one is
 missing, so a single config file can carry the union of every script's
@@ -26,7 +26,7 @@ from . import module_globals as g
 CONFIG_DIR = Path(__file__).resolve().parent / "configs"
 # .json5 rather than .json so editors don't flag the comments as syntax errors.
 # Either extension loads; the parser is the same.
-DEFAULT_CONFIG_PATH = CONFIG_DIR / "default_config.json5"
+DEFAULT_CONFIG_PATH = CONFIG_DIR / "default.json5"
 
 
 class ConfigError(Exception):

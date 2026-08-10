@@ -4,7 +4,7 @@ Every script in `worlds/micropolis/scripts/` takes an optional config file as
 its first positional argument and reads all of its parameters from there:
 
 ```
-uv run python scripts/run_single_city_eval.py                        # default_config.json5
+uv run python scripts/run_single_city_eval.py                        # default.json5
 uv run python scripts/run_single_city_eval.py my_config.json5        # a custom config
 uv run python scripts/run_single_city_eval.py my_config.json5 --seed 7   # seed override
 ```
