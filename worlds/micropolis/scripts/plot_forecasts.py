@@ -11,10 +11,8 @@ disasters, snapshot_turns and horizons — so one gathered dataset can be plotte
 many ways. Naming anything the dataset lacks is an error, not a smaller figure.
 
 Usage:
-    uv run python scripts/plot_forecasts.py
-    uv run python scripts/plot_forecasts.py subset.json5
-    uv run python scripts/plot_forecasts.py --outdir /tmp/plots
-    uv run python scripts/plot_forecasts.py --data other/data.json
+    scripts/plot_forecasts.py
+    scripts/plot_forecasts.py subset.json5
 """
 
 import argparse
@@ -160,18 +158,6 @@ def plot_forecasts(
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     add_config_args(ap)
-    ap.add_argument(
-        "--data",
-        type=Path,
-        default=DATA_PATH,
-        help=f"dataset written by run_single_city_eval.py (default: {DATA_PATH})",
-    )
-    ap.add_argument(
-        "--outdir",
-        type=Path,
-        default=PLOTS_PATH,
-        help=f"where to write the figures (default: {PLOTS_PATH})",
-    )
     args = ap.parse_args()
 
     cfg = load_config(args)
@@ -180,7 +166,7 @@ def main() -> None:
     # hasn't run, or hasn't run for this config — so say so plainly rather than
     # with a traceback.
     try:
-        corpus, responses, models = load_dataset(args.data)
+        corpus, responses, models = load_dataset()
         corpus, responses, models = select_for_config(
             corpus, responses, models, cfg, cfg.get_seed(args.seed)
         )
@@ -190,11 +176,11 @@ def main() -> None:
     print("=" * 70)
     print("MICROPOLIS WORLD — single city forecast plots")
     print("=" * 70)
-    print(f"data:   {args.data}")
+    print(f"data:   {DATA_PATH}")
     print(f"config: {cfg.path}")
 
-    written = plot_forecasts(corpus, responses, models, outdir=args.outdir)
-    print(f"Wrote {len(written)} plots -> {args.outdir}")
+    written = plot_forecasts(corpus, responses, models)
+    print(f"Wrote {len(written)} plots -> {PLOTS_PATH}")
 
 
 if __name__ == "__main__":

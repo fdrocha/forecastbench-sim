@@ -10,10 +10,10 @@ Scoring and plotting read that file:
     scripts/plot_forecasts.py        trajectories with forecasts overlaid
 
 Usage:
-    uv run python scripts/run_single_city_eval.py
-    uv run python scripts/run_single_city_eval.py my_config.json --seed 7
-    uv run python scripts/run_single_city_eval.py my_config.json --dry-run
-    uv run python scripts/run_single_city_eval.py --verbose-reparse
+    scripts/run_single_city_eval.py
+    scripts/run_single_city_eval.py my_config.json --seed 7
+    scripts/run_single_city_eval.py my_config.json --dry-run
+    scripts/run_single_city_eval.py --verbose-reparse
 """
 
 import argparse

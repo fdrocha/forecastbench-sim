@@ -5,9 +5,9 @@ Runs every (city, disasters) combination in the config file, writing a plot of
 each run to data/micropolis/runs/<city>/ alongside its log/events files.
 
 Usage:
-    uv run python scripts/run_sim.py
-    uv run python scripts/run_sim.py my_config.json
-    uv run python scripts/run_sim.py my_config.json --seed 7 --quiet --no-plot
+    scripts/run_sim.py
+    scripts/run_sim.py my_config.json
+    scripts/run_sim.py my_config.json --seed 7 --quiet --no-plot
 """
 
 import argparse

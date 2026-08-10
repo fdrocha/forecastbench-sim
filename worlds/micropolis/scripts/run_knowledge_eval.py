@@ -7,10 +7,10 @@ unparseable. Responses are cached, so re-running only prompts models that have
 not answered yet.
 
 Usage:
-    uv run python scripts/run_knowledge_eval.py
-    uv run python scripts/run_knowledge_eval.py my_config.json5
-    uv run python scripts/run_knowledge_eval.py --models openai/gpt-4o xai/grok-4-0709
-    uv run python scripts/run_knowledge_eval.py --cached
+    scripts/run_knowledge_eval.py
+    scripts/run_knowledge_eval.py my_config.json5
+    scripts/run_knowledge_eval.py --models openai/gpt-4o xai/grok-4-0709
+    scripts/run_knowledge_eval.py --cached
 
 Without a config argument this uses configs/knowledge_eval.json5. --models
 overrides the config's list; see data/micropolis/available_models.md for what

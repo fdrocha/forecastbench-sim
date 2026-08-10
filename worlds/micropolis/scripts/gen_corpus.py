@@ -5,8 +5,8 @@ Runs (or reuses cached) simulations for every base scenario, then resolves
 each question template at every horizon.
 
 Usage:
-    uv run python scripts/gen_corpus.py
-    uv run python scripts/gen_corpus.py my_config.json --seed 7
+    scripts/gen_corpus.py
+    scripts/gen_corpus.py my_config.json --seed 7
 """
 
 import argparse

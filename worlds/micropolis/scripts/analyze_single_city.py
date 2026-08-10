@@ -10,14 +10,12 @@ disasters, snapshot_turns and horizons — so one gathered dataset can be viewed
 many ways. Naming anything the dataset lacks is an error, not a smaller table.
 
 Usage:
-    uv run python scripts/analyze_single_city.py
-    uv run python scripts/analyze_single_city.py subset.json5
-    uv run python scripts/analyze_single_city.py --data other/data.json
+    scripts/analyze_single_city.py
+    scripts/analyze_single_city.py subset.json5
 """
 
 import argparse
 import sys
-from pathlib import Path
 
 import micropolis_world.module_globals as g
 from micropolis_world.config import (
@@ -214,12 +212,6 @@ def print_normalized_horizon_table(
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     add_config_args(ap)
-    ap.add_argument(
-        "--data",
-        type=Path,
-        default=DATA_PATH,
-        help=f"dataset written by run_single_city_eval.py (default: {DATA_PATH})",
-    )
     args = ap.parse_args()
 
     cfg = load_config(args)
@@ -228,7 +220,7 @@ def main() -> None:
     # hasn't run, or hasn't run for this config — so say so plainly rather than
     # with a traceback.
     try:
-        corpus, responses, models = load_dataset(args.data)
+        corpus, responses, models = load_dataset()
         corpus, responses, models = select_for_config(
             corpus, responses, models, cfg, cfg.get_seed(args.seed)
         )
@@ -238,7 +230,7 @@ def main() -> None:
     print("=" * 70)
     print("MICROPOLIS WORLD — single city eval scores")
     print("=" * 70)
-    print(f"data:   {args.data}")
+    print(f"data:   {DATA_PATH}")
     print(f"config: {cfg.path}")
     print(f"{len(corpus)} questions x {len(models)} models")
 

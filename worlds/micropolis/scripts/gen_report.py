@@ -5,8 +5,8 @@ Loads each sim's log/events files from disk (does not run the sim), for every
 (city, disasters) combination in the config file.
 
 Usage:
-    uv run python scripts/gen_report.py
-    uv run python scripts/gen_report.py my_config.json --seed 7
+    scripts/gen_report.py
+    scripts/gen_report.py my_config.json --seed 7
 """
 
 import argparse
@@ -41,7 +41,7 @@ def main() -> None:
         except FileNotFoundError as e:
             print(
                 f"[error] {e}\nDid you run the simulation first? "
-                f"e.g. uv run python scripts/run_sim.py {args.config or ''}".rstrip(),
+                f"e.g. scripts/run_sim.py {args.config or ''}".rstrip(),
                 file=sys.stderr,
             )
             sys.exit(1)

@@ -1,12 +1,14 @@
 # Micropolis run configs
 
 Every script in `worlds/micropolis/scripts/` takes an optional config file as
-its first positional argument and reads all of its parameters from there:
+its first positional argument and reads all of its parameters from there. Their
+shebang runs them under `uv`, so run them directly, from the `worlds/micropolis`
+directory:
 
 ```
-uv run python scripts/run_single_city_eval.py                        # default.json5
-uv run python scripts/run_single_city_eval.py my_config.json5        # a custom config
-uv run python scripts/run_single_city_eval.py my_config.json5 --seed 7   # seed override
+scripts/run_single_city_eval.py                        # default.json5
+scripts/run_single_city_eval.py my_config.json5        # a custom config
+scripts/run_single_city_eval.py my_config.json5 --seed 7   # seed override
 ```
 
 A missing parameter is a hard error naming the key and the file. Extra
@@ -21,15 +23,17 @@ models for a readable figure, one city, the near horizons only — without
 prompting anything again:
 
 ```
-uv run python scripts/run_single_city_eval.py                  # gather everything, once
-uv run python scripts/analyze_single_city.py three_models.json5
-uv run python scripts/plot_forecasts.py one_city.json5
+scripts/run_single_city_eval.py                  # gather everything, once
+scripts/analyze_single_city.py three_models.json5
+scripts/plot_forecasts.py one_city.json5
 ```
 
 Naming something the dataset doesn't have — a model that wasn't prompted, a
 city that wasn't simulated, a horizon that wasn't asked — is an error listing
 what is missing and what the dataset holds, rather than a quietly smaller
-table. Use `--data` to point at a dataset other than the default.
+table. Neither the dataset they read nor the directory the figures go to is
+selectable: there is one of each, fixed, so a table and a plot always describe
+the same run.
 
 ## Format
 
@@ -51,9 +55,9 @@ models in place rather than deleting them.
 }
 ```
 
-Only behavior toggles stay on the command line: `--dry-run`, `--quiet`,
-`--seed` (which overrides the config's `seed`), and the reporting scripts'
-`--data` and `--outdir`. Everything else comes from the config.
+Only behavior toggles stay on the command line: `--dry-run`, `--quiet`, and
+`--seed` (which overrides the config's `seed`). Everything else comes from the
+config.
 
 In the table below, "reporting" means `analyze_single_city.py` and
 `plot_forecasts.py`, which use these keys to pick a slice of an existing
