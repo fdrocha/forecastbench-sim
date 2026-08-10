@@ -1,5 +1,7 @@
 """Scenario sampler + corpus builder."""
 
+import json
+import re
 from itertools import product
 
 from fbsim_core.questions.resolver import QuestionResolver
@@ -8,6 +10,9 @@ from fbsim_core.questions.schema import QuestionInstance
 from .city_sim import CitySimulation, to_world
 from .report import gen_world_report
 from .templates import ALL_TEMPLATES, REGISTRY
+
+# The quantiles elicited for every continuous question, matching FreeCiv.
+PERCENTILE_KEYS = ["p10", "p25", "p50", "p75", "p90"]
 
 # to_world() keys entities by their position in the dict it is passed, so the
 # single city in each scenario is always entity 0.
@@ -96,9 +101,112 @@ def build_corpus(
 
 
 def build_prompt_continuous(context: str, question_text: str) -> str:
+    """Ask for a p10/p25/p50/p75/p90 quantile forecast.
+
+    The instruction wording and the delimited answer block match FreeCiv's
+    build_continuous_batch_prompt (single-question variant), so responses from
+    the two worlds are parsed the same way and scored on the same CRPS.
+    """
     return (
         context
         + "\n\n"
         + f"QUESTION: {question_text}\n\n"
-        + "Your response should be a single number representing your best estimate of the answer, with no other preamble."
+        + """You MUST provide percentile estimates UNDER ALL CIRCUMSTANCES. If for some reason you can't answer, provide reasonable mid-range estimates, but always return numeric percentile values.
+
+You may analyze the data, but you MUST end your response with your percentile estimates in this exact format:
+<<<PERCENTILES>>>
+p10=5, p25=10, p50=15, p75=20, p90=25
+<<<END>>>
+
+Replace the example values with your actual percentile estimates.
+- p10 means you estimate there's a 10% chance the true value is below this number
+- p25 means you estimate there's a 25% chance the true value is below this number
+- p50 (median) means you estimate there's a 50% chance the true value is below this number
+- p75 means you estimate there's a 75% chance the true value is below this number
+- p90 means you estimate there's a 90% chance the true value is below this number"""
     )
+
+
+def _validate_monotonic(
+    percentiles: dict[str, float], label: str
+) -> dict[str, float] | None:
+    """Return the percentiles if non-decreasing, else warn and return None.
+
+    A quantile function cannot decrease, so p10 > p25 (etc.) means the model
+    returned something that isn't a distribution. Scoring it anyway would pass
+    CRPS a nonsensical forecast and quietly reward or punish the model for it,
+    so the forecast is dropped the same way an unparseable one is.
+    """
+    values = [percentiles[k] for k in PERCENTILE_KEYS]
+    if any(a > b for a, b in zip(values, values[1:])):
+        pairs = ", ".join(f"{k}={percentiles[k]:g}" for k in PERCENTILE_KEYS)
+        print(f"  {label}: percentiles not in increasing order, discarding: {pairs}")
+        return None
+    return percentiles
+
+
+def parse_percentiles(response: str, label: str = "response") -> dict[str, float] | None:
+    """Extract one p10/p25/p50/p75/p90 set from a model response.
+
+    Mirrors FreeCiv's parse_batch_percentiles for the single-question case, and
+    accepts the same range of formats: the delimited <<<PERCENTILES>>> block, a
+    JSON object/array, "p10=..., p25=..." on a line, or — only as a last resort
+    — the first five bare numbers on a line.
+
+    Returns None if no complete set of five percentiles could be read, or if the
+    five aren't in non-decreasing order. A partial set is never returned, since
+    CRPS needs all five. Either rejection prints a warning naming `label`.
+    """
+    if not response:
+        print(f"  {label}: empty model response")
+        return None
+
+    # The delimited block is the requested format and the most reliable, so
+    # prefer its contents; fall back to scanning the whole response.
+    delimiter_match = re.search(
+        r"<<<PERCENTILES?>>>(.*?)<<<END>>>", response, re.DOTALL | re.IGNORECASE
+    )
+    content = delimiter_match.group(1).strip() if delimiter_match else response
+
+    # JSON object, or the first object inside a JSON array.
+    json_match = re.search(r"\{.*?\}", content, re.DOTALL)
+    if json_match:
+        try:
+            val = json.loads(json_match.group())
+            result = {k: float(val[k]) for k in PERCENTILE_KEYS if k in val}
+            if len(result) == len(PERCENTILE_KEYS):
+                return _validate_monotonic(result, label)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            pass
+
+    # "p10=5, p25=10, ..." on a single line. The leading (?:^|[^a-zA-Z]) keeps
+    # the "p" from matching inside a word such as "pop10".
+    for line in content.strip().split("\n"):
+        matches = re.findall(
+            r"(?:^|[^a-zA-Z])p(\d+)\s*[=:]\s*(-?[\d,]*\.?\d+)", line, re.IGNORECASE
+        )
+        if not matches:
+            continue
+        result = {}
+        for key_digits, value in matches:
+            key = f"p{key_digits}"
+            if key in PERCENTILE_KEYS:
+                try:
+                    result[key] = float(value.replace(",", ""))
+                except ValueError:
+                    pass
+        if len(result) == len(PERCENTILE_KEYS):
+            return _validate_monotonic(result, label)
+
+    # Last resort: five bare numbers on one line, in ascending percentile order.
+    for line in content.strip().split("\n"):
+        numbers = re.findall(r"-?\d+\.?\d*", line)
+        if len(numbers) >= len(PERCENTILE_KEYS):
+            try:
+                result = {k: float(n) for k, n in zip(PERCENTILE_KEYS, numbers)}
+            except ValueError:
+                continue
+            return _validate_monotonic(result, label)
+
+    print(f"  {label}: unable to parse percentiles from model response: {response!r}")
+    return None

@@ -13,13 +13,12 @@ Usage:
 
 import argparse
 import json
-import re
 from dataclasses import asdict, dataclass
-from math import isnan
 from pathlib import Path
 
 import micropolis_world.module_globals as g
 from fbsim_core.evaluation.models import get_models
+from fbsim_core.metrics import compute_crps
 from micropolis_world.city_sim import CitySimulation, turn_of
 from micropolis_world.config import (
     add_config_args,
@@ -27,9 +26,11 @@ from micropolis_world.config import (
     main_with_config,
 )
 from micropolis_world.scenarios import (
+    PERCENTILE_KEYS,
     build_corpus,
     build_prompt_continuous,
     get_single_city_base_scenarios,
+    parse_percentiles,
 )
 from tqdm import tqdm
 
@@ -56,46 +57,28 @@ class ResponseId:
 @dataclass(frozen=True)
 class Response:
     actual: float
-    predicted: float
+    percentiles: dict[str, float] | None
     response_text: str | None = None
 
 
 Responses = dict[ResponseId, Response]
-fnan = float("nan")
-
-
-def parse_answer(text: str) -> float:
-    """Extract the model's numeric estimate: the last number in the response.
-
-    Last match wins because verbose models put the answer at the end, after a
-    preamble full of incidental numbers (turn numbers, figures from the report).
-
-    Thousands separators are accepted only in strict 3-digit groups ("161,000"),
-    so a comma-separated list like "1,2,3" still reads as three numbers.
-
-    Returns nan if unable to parse
-    """
-    if text is None:
-        return fnan
-    matches = re.findall(
-        r"[-+]?(?:\d{1,3}(?:,\d{3})+(?!\d)|\d+)(?:\.\d*)?(?:[eE][-+]?\d+)?|[-+]?\.\d+(?:[eE][-+]?\d+)?",
-        text,
-    )
-    if not matches:
-        return fnan
-    return float(matches[-1].replace(",", ""))
 
 
 def load_cache() -> Responses:
     r: Responses = {}
     data = json.loads(CACHE_PATH.read_text()) if CACHE_PATH.exists() else {}
     for entry in data:
+        percentiles = entry.get("percentiles")
         response_id = ResponseId(
             model_id=entry["model_id"], question_id=entry["question_id"]
         )
         response = Response(
             actual=entry["actual"],
-            predicted=entry["predicted"],
+            percentiles=(
+                {k: float(percentiles[k]) for k in PERCENTILE_KEYS}
+                if percentiles is not None
+                else None
+            ),
             response_text=entry.get("response_text", None),
         )
         r[response_id] = response
@@ -105,87 +88,6 @@ def load_cache() -> Responses:
 def save_cache(cache: Responses) -> None:
     data = [asdict(k) | asdict(v) for k, v in cache.items()]
     CACHE_PATH.write_text(json.dumps(data, indent=2))
-
-
-# TODO
-# def make_chart(agg: dict, base_rates: dict) -> None:
-#     import matplotlib
-
-#     matplotlib.use("Agg")
-#     import matplotlib.pyplot as plt
-
-#     models = list(agg.keys())
-#     labels = [
-#         m.replace("Meta-Llama-3.1-", "Llama-3.1-").replace("-Instruct", "")
-#         for m in models
-#     ]
-#     x = np.arange(len(models))
-#     w = 0.38
-
-#     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(max(11, 2.6 * len(models)), 5))
-
-#     uncond = [agg[m]["unconditional"]["brier"] for m in models]
-#     cond = [agg[m]["conditional"]["brier"] for m in models]
-#     b1 = ax1.bar(x - w / 2, uncond, w, label="Unconditional", color="#4C72B0")
-#     b2 = ax1.bar(
-#         x + w / 2, cond, w, label="Conditional (given policy)", color="#C44E52"
-#     )
-#     ax1.axhline(0.25, ls="--", c="gray", lw=1, label="Uninformed (0.25)")
-#     ax1.set_ylabel("Brier score (lower = better)")
-#     ax1.set_title("Forecast accuracy")
-#     ax1.set_xticks(x)
-#     ax1.set_xticklabels(labels, rotation=15, ha="right")
-#     ax1.legend(fontsize=8)
-#     for bars in (b1, b2):
-#         for b in bars:
-#             ax1.annotate(
-#                 f"{b.get_height():.3f}",
-#                 (b.get_x() + b.get_width() / 2, b.get_height()),
-#                 ha="center",
-#                 va="bottom",
-#                 fontsize=8,
-#             )
-
-#     mp_u = [agg[m]["unconditional"]["mean_pred"] for m in models]
-#     mp_c = [agg[m]["conditional"]["mean_pred"] for m in models]
-#     ax2.bar(
-#         x - w / 2,
-#         mp_u,
-#         w,
-#         label="Mean P(yes) unconditional",
-#         color="#4C72B0",
-#         alpha=0.85,
-#     )
-#     ax2.bar(
-#         x + w / 2, mp_c, w, label="Mean P(yes) conditional", color="#C44E52", alpha=0.85
-#     )
-#     ax2.axhline(
-#         base_rates["unconditional"],
-#         ls="--",
-#         c="#1f3a5f",
-#         lw=1.5,
-#         label=f"True rate uncond ({base_rates['unconditional']:.2f})",
-#     )
-#     ax2.axhline(
-#         base_rates["conditional"],
-#         ls="--",
-#         c="#7a1f25",
-#         lw=1.5,
-#         label=f"True rate cond ({base_rates['conditional']:.2f})",
-#     )
-#     ax2.set_ylabel("Mean P(yes)")
-#     ax2.set_title("Does the model lower P(yes) when told about the policy?")
-#     ax2.set_xticks(x)
-#     ax2.set_xticklabels(labels, rotation=15, ha="right")
-#     ax2.legend(fontsize=7)
-
-#     fig.suptitle(
-#         "Conditional (intervention) reasoning: does the model shift toward "
-#         "the true rate when told about the policy change?",
-#         fontsize=11,
-#     )
-#     fig.tight_layout()
-#     fig.savefig(CHART_PATH, dpi=150)
 
 
 def plot_forecasts(
@@ -238,27 +140,38 @@ def plot_forecasts(
             ax.grid(True, alpha=0.3)
 
             # Overlay each model's forecasts for this metric at the turn they
-            # resolve on. Unparseable answers came back as nan; skip them.
+            # resolve on: the median as a marker, p10-p90 as an error bar.
+            # Unparseable answers have no percentiles; skip them.
             for model_id in model_names:
-                xs, ys = [], []
+                xs, medians, lo, hi = [], [], [], []
                 for c in entries:
                     if c["metric"] != metric:
                         continue
                     r = responses.get(ResponseId(model_id, c["question_id"]))
-                    if r is None or isnan(r.predicted):
+                    if r is None or r.percentiles is None:
                         continue
+                    p = r.percentiles
                     xs.append(c["snapshot_turn"] + horizon)
-                    ys.append(r.predicted)
+                    medians.append(p["p50"])
+                    # errorbar wants distances from the median, not absolute
+                    # positions. Both are non-negative because parse_percentiles
+                    # rejects any set that isn't in increasing order.
+                    lo.append(p["p50"] - p["p10"])
+                    hi.append(p["p90"] - p["p50"])
                 if xs:
-                    ax.scatter(
+                    ax.errorbar(
                         xs,
-                        ys,
-                        s=45,
+                        medians,
+                        yerr=[lo, hi],
+                        fmt="o",
+                        markersize=6,
                         zorder=5,
                         alpha=0.85,
                         color=model_colors[model_id],
-                        edgecolors="black",
-                        linewidths=0.5,
+                        markeredgecolor="black",
+                        markeredgewidth=0.5,
+                        elinewidth=1.2,
+                        capsize=3,
                         label=model_id.split("/")[-1],
                     )
 
@@ -286,6 +199,71 @@ def plot_forecasts(
     return written
 
 
+def crps_by_model_and_metric(
+    corpus: list[dict], responses: Responses, model_names: list[str]
+) -> tuple[dict[tuple[str, str], float], dict[tuple[str, str], int], list[str]]:
+    """Mean CRPS per (model, metric), plus how many questions each cell covers.
+
+    Returns (means, counts, metrics), where metrics is in corpus order. Cells
+    with no parseable forecast are absent from both dicts.
+    """
+    metrics = list(dict.fromkeys(c["metric"] for c in corpus))
+    scores: dict[tuple[str, str], list[float]] = {}
+    for c in corpus:
+        for model_id in model_names:
+            r = responses.get(ResponseId(model_id, c["question_id"]))
+            if r is None or r.percentiles is None:
+                continue
+            crps = compute_crps(r.percentiles, c["value"])
+            scores.setdefault((model_id, c["metric"]), []).append(crps)
+
+    means = {k: sum(v) / len(v) for k, v in scores.items()}
+    counts = {k: len(v) for k, v in scores.items()}
+    return means, counts, metrics
+
+
+def print_crps_table(
+    corpus: list[dict], responses: Responses, model_names: list[str]
+) -> None:
+    """Print models x metrics, each cell the mean CRPS over that model's forecasts.
+
+    CRPS is in each metric's own units, so it compares models down a column but
+    never across columns.
+    """
+    means, counts, metrics = crps_by_model_and_metric(corpus, responses, model_names)
+
+    labels = {m: g.METRIC_LABELS.get(m, m) for m in metrics}
+    model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in model_names])
+    widths = {m: max(len(labels[m]), 12) for m in metrics}
+
+    print("\nMean CRPS by model and metric (lower is better)")
+    header = f"{'Model':<{model_col}}  " + "  ".join(
+        f"{labels[m]:>{widths[m]}}" for m in metrics
+    )
+    print(header)
+    print("-" * len(header))
+
+    for model_id in model_names:
+        row = [f"{model_id.split('/')[-1]:<{model_col}}"]
+        for m in metrics:
+            mean = means.get((model_id, m))
+            cell = "n/a" if mean is None else f"{mean:,.1f}"
+            row.append(f"{cell:>{widths[m]}}")
+        print("  ".join(row))
+
+    # A cell averaging fewer questions than the corpus holds means some
+    # responses failed to parse; say so rather than let the means look complete.
+    expected = {m: sum(1 for c in corpus if c["metric"] == m) for m in metrics}
+    missing = [
+        f"{model_id.split('/')[-1]}/{labels[m]}: {expected[m] - counts.get((model_id, m), 0)}"
+        for model_id in model_names
+        for m in metrics
+        if counts.get((model_id, m), 0) < expected[m]
+    ]
+    if missing:
+        print(f"\nUnparseable forecasts excluded — {', '.join(missing)}")
+
+
 def gather_responses(
     corpus: list[dict], model_names: list[str], max_tokens: int
 ) -> Responses:
@@ -311,15 +289,13 @@ def gather_responses(
                     build_prompt_continuous(c["context"], c["question_text"]),
                     max_tokens=max_tokens,
                 )
-                ans_value = parse_answer(raw)
-                if isnan(ans_value):
-                    print(
-                        f"  {response_id.question_id}: unable to parse numeric answer from model response: {raw}"
-                    )
+                # parse_percentiles reports its own reason for rejecting a
+                # response, so only the question id needs adding here.
+                percentiles = parse_percentiles(raw, label=response_id.question_id)
                 response = Response(
                     response_text=raw,
                     actual=c["value"],
-                    predicted=ans_value,
+                    percentiles=percentiles,
                 )
                 cache[response_id] = response
 
@@ -381,10 +357,7 @@ def main() -> None:
         print(f"Wrote {len(written)} plots -> {PLOTS_PATH}")
     print("=" * 70)
 
-    # TODO
-    # - compute crps, maybe with different aggregations
-    # - chart of crps per horizon?
-    # - chart of
+    print_crps_table(corpus, responses, models)
 
 
 if __name__ == "__main__":
