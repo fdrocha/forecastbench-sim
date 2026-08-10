@@ -168,10 +168,12 @@ def parse_percentiles(
         return None
 
     # The delimited block is the requested format and the most reliable, so
-    # prefer its contents; fall back to scanning the whole response.
+    # prefer its contents. Models sometimes emit only the closing tag, having
+    # written the percentiles as ordinary prose above it, so fall back to
+    # everything before a lone <<<END>>> and finally to the whole response.
     delimiter_match = re.search(
         r"<<<PERCENTILES?>>>(.*?)<<<END>>>", response, re.DOTALL | re.IGNORECASE
-    )
+    ) or re.search(r"(.*?)<<<END>>>", response, re.DOTALL | re.IGNORECASE)
     content = delimiter_match.group(1).strip() if delimiter_match else response
 
     # JSON object, or the first object inside a JSON array.
@@ -185,34 +187,38 @@ def parse_percentiles(
         except (json.JSONDecodeError, ValueError, TypeError):
             pass
 
-    # "p10=5, p25=10, ..." on a single line. The leading (?:^|[^a-zA-Z]) keeps
-    # the "p" from matching inside a word such as "pop10".
-    for line in content.strip().split("\n"):
-        matches = re.findall(
-            r"(?:^|[^a-zA-Z])p(\d+)\s*[=:]\s*(-?[\d,]*\.?\d+)", line, re.IGNORECASE
-        )
-        if not matches:
-            continue
-        result = {}
-        for key_digits, value in matches:
-            key = f"p{key_digits}"
-            if key in PERCENTILE_KEYS:
-                try:
-                    result[key] = float(value.replace(",", ""))
-                except ValueError:
-                    pass
-        if len(result) == len(PERCENTILE_KEYS):
-            return _validate_monotonic(result, label, quiet)
+    # Labeled percentiles: "p10=5, p25=10, ..." all on one line, or one per line
+    # ("p10=0\np25=0\n..."), or bulleted ("- p10=35"). Scanning the whole content
+    # rather than line by line covers all three, since models split the block
+    # however they like. The leading (?:^|[^a-zA-Z]) keeps the "p" from matching
+    # inside a word such as "pop10".
+    result = {}
+    for key_digits, value in re.findall(
+        r"(?:^|[^a-zA-Z])p(\d+)\s*[=:]\s*(-?[\d,]*\.?\d+)", content, re.IGNORECASE
+    ):
+        key = f"p{key_digits}"
+        if key in PERCENTILE_KEYS:
+            try:
+                # Last write wins: a model that discusses "p50" in its reasoning
+                # before stating it in the final block should be read from the
+                # block, which comes last.
+                result[key] = float(value.replace(",", ""))
+            except ValueError:
+                pass
+    if len(result) == len(PERCENTILE_KEYS):
+        return _validate_monotonic(result, label, quiet)
 
     # Last resort: five bare numbers on one line, in ascending percentile order.
+    # A separate dict from the labeled scan above, whose partial results must not
+    # leak into this one.
     for line in content.strip().split("\n"):
         numbers = re.findall(r"-?\d+\.?\d*", line)
         if len(numbers) >= len(PERCENTILE_KEYS):
             try:
-                result = {k: float(n) for k, n in zip(PERCENTILE_KEYS, numbers)}
+                bare = {k: float(n) for k, n in zip(PERCENTILE_KEYS, numbers)}
             except ValueError:
                 continue
-            return _validate_monotonic(result, label, quiet)
+            return _validate_monotonic(bare, label, quiet)
 
     if not quiet:
         print(f"  {label}: unable to parse percentiles from model response: {response!r}")
