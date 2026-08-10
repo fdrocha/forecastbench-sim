@@ -56,6 +56,9 @@
   // Models to prompt, in provider/name form, and the response token cap.
   // See README.md for the ForecastBench, frontier and pandemic model sets.
   "models": [
+    "openai/gpt-3.5-turbo-16k",
+    "openai/gpt-4.1-2025-04-14",
+    "openai/gpt-4o-2024-05-13",
     "openai/gpt-5-2025-08-07",
 
     "google/gemini-2.5-pro",
