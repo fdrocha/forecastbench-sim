@@ -12,11 +12,11 @@
     "bruce",
     "haight",
     "freds",
-    "happisle",
+//    "happisle",
     "joffburg",
-    "kamakura",
+//    "kamakura",
     "kobe",
-    "kowloon",
+//    "kowloon",
     "kyoto",
 //    "linecity",
 //    "senri",
@@ -46,7 +46,7 @@
   // Turns at which a world report is generated and questions are asked,
   // and the forecast horizons past each snapshot. 48 turns per year.
   "snapshot_turns": [240, 480],    // years 5
-  "horizons": [48, 96, 144, 240],  // 1, 2, 3 and 5 out
+  "horizons": [48, 96, 240],  // 1, 2, 3 and 5 out
 
   // gen_report.py: turn to print the report for (negative counts back from the
   // last logged turn), and how often the report includes historical data.
