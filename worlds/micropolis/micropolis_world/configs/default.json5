@@ -15,9 +15,9 @@
     "happisle",
     "joffburg",
     "kamakura",
-//    "kobe",
-//    "kowloon",
-//    "kyoto",
+    "kobe",
+    "kowloon",
+    "kyoto",
 //    "linecity",
 //    "senri",
 //   "southpac",
@@ -45,8 +45,8 @@
 
   // Turns at which a world report is generated and questions are asked,
   // and the forecast horizons past each snapshot. 48 turns per year.
-  "snapshot_turns": [240],  // years 5
-  "horizons": [48, 96, 240],                 // 1, 2 and 5 out
+  "snapshot_turns": [240, 480],    // years 5
+  "horizons": [48, 96, 144, 240],  // 1, 2, 3 and 5 out
 
   // gen_report.py: turn to print the report for (negative counts back from the
   // last logged turn), and how often the report includes historical data.
@@ -56,21 +56,34 @@
   // Models to prompt, in provider/name form, and the response token cap.
   // See README.md for the ForecastBench, frontier and pandemic model sets.
   "models": [
-    "openai/gpt-3.5-turbo-16k",
+    // "openai/gpt-3.5-turbo-16k", //  NOTE: only up to 4096 completion tokens
+    // "openai/gpt-4.1-2025-04-14", // NOTE: only up to 4096 completion tokens
+    // "openai/gpt-4o-2024-05-13", // NOTE: only up to 4096 completion tokens
     "openai/gpt-4.1-2025-04-14",
     "openai/gpt-4o-2024-05-13",
     "openai/gpt-5-2025-08-07",
+    "openai/gpt-5.6-luna",
+    "openai/gpt-5.6-terra",
+    "openai/gpt-5.6-sol",
 
+    "google/gemini-2.5-flash",
     "google/gemini-2.5-pro",
     "google/gemini-3.1-pro-preview",
+    "google/gemini-3.7-flash",
+
 
     "mistral/mistral-small-2603",
     "mistral/mistral-medium-2604",
     "mistral/mistral-large-2512",
 
+    "anthropic/claude-haiku-4-5-20251001",
+    "anthropic/claude-sonnet-4-5-20250929",
+    "anthropic/claude-opus-4-5-20251101",
+
     "xai/grok-4.20-0309-non-reasoning",
     "xai/grok-4.20-0309-reasoning",
     "xai/grok-4.5",
+    "xai/grok-4.6",
   ],
-  "max_tokens": 20000,
+  "max_tokens": 60000,
 }

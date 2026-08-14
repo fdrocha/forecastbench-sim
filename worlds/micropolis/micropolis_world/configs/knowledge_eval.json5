@@ -11,20 +11,26 @@
 // the keys are here so this file also works with the other micropolis scripts.
 {
   "models": [
-    // "openai/gpt-3.5-turbo-16k", NOTE: only up to 4096 completion tokens
-    // "openai/gpt-4.1-2025-04-14", NOTE: only up to 4096 completion tokens
-    // "openai/gpt-4o-2024-05-13", NOTE: only up to 4096 completion tokens
-    "openai/gpt-5-2025-08-07",
-    // "openai/gpt-5.6-luna", NOTE: gpt-5 models (including gpt-5-codex) don't support temperature=0.0. Only temperature=1 is supported. For gpt-5.1, temperature is supported when reasoning_effort='none' (or not specified, as it defaults to 'none'). To drop unsupported params set `litellm.drop_params = True`
-    // "openai/gpt-5.6-terra", NOTE: gpt-5 models (including gpt-5-codex) don't support temperature=0.0. Only temperature=1 is supported. For gpt-5.1, temperature is supported when reasoning_effort='none' (or not specified, as it defaults to 'none'). To drop unsupported params set `litellm.drop_params = True`
-    // "openai/gpt-5.6-sol", NOTE: gpt-5 models (including gpt-5-codex) don't support temperature=0.0. Only temperature=1 is supported. For gpt-5.1, temperature is supported when reasoning_effort='none' (or not specified, as it defaults to 'none'). To drop unsupported params set `litellm.drop_params = True`
+    "openai/gpt-3.5-turbo-16k", //  NOTE: only up to 4096 completion tokens
+    "openai/gpt-4.1-2025-04-14", // NOTE: only up to 4096 completion tokens
+    "openai/gpt-4o-2024-05-13", // NOTE: only up to 4096 completion tokens
+    //"openai/gpt-5-2025-08-07",
 
-    // Anthropic API key is dead, skipping these for now
-    // "anthropic/claude-sonnet-4-5-20250929",
-    // "anthropic/claude-opus-4-6",
-    // "google/gemini-3-pro-preview", Note: no longer supported by API
+    "openai/gpt-5.6-luna", // NOTE: gpt-5 models (including gpt-5-codex) don't support temperature=0.0. Only temperature=1 is supported. For gpt-5.1, temperature is supported when reasoning_effort='none' (or not specified, as it defaults to 'none'). To drop unsupported params set `litellm.drop_params = True`
+    "openai/gpt-5.6-terra", // NOTE: gpt-5 models (including gpt-5-codex) don't support temperature=0.0. Only temperature=1 is supported. For gpt-5.1, temperature is supported when reasoning_effort='none' (or not specified, as it defaults to 'none'). To drop unsupported params set `litellm.drop_params = True`
+    "openai/gpt-5.6-sol", // NOTE: gpt-5 models (including gpt-5-codex) don't support temperature=0.0. Only temperature=1 is supported. For gpt-5.1, temperature is supported when reasoning_effort='none' (or not specified, as it defaults to 'none'). To drop unsupported params set `litellm.drop_params = True`
+
+    "anthropic/claude-haiku-4-5-20251001",
+    "anthropic/claude-sonnet-4-5-20250929",
+    "anthropic/claude-opus-4-5-20251101",
+//    "anthropic/claude-sonnet-5", // Note: doesn't support temperature
+//    "anthropic/claude-opus-5",
+//    "anthropic/claude-fable-5",
+
+    "google/gemini-2.5-flash",
     "google/gemini-2.5-pro",
     "google/gemini-3.1-pro-preview",
+    "google/gemini-3.7-flash",
 
     "mistral/mistral-small-2603",
     "mistral/mistral-medium-2604",
@@ -33,11 +39,12 @@
     "xai/grok-4.20-0309-non-reasoning",
     "xai/grok-4.20-0309-reasoning",
     "xai/grok-4.5",
+    "xai/grok-4.6",
   ],
 
   // The test asks for one answer line per statement (219 of them), so the cap
   // must clear roughly 2k tokens of answers plus any preamble the model adds.
-  // Some of the reasoning models need a lot of tokens to produce an non-blank response, that's why it is so hight
+  // Some of the reasoning models need a lot of tokens to produce an non-blank response, that's why it is so high
   // Note gpt-3.5-turbo-1106 rejects anything above 4096.
   "max_tokens": 60000,
 
