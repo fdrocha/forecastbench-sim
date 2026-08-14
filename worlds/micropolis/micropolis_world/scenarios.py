@@ -20,10 +20,12 @@ CITY_ENTITY_ID = 0
 
 PROMPT_PREAMBLE = """You are an expert superforecaster, familiar with the work of Tetlock and others. Your task is to forecast the evolution of a city in Micropolis, the open-source release of the original SimCity Classic simulation engine.
 
-The city below is running with no mayor: nothing is built, demolished, or rezoned, no tax or funding rates are changed, and no disasters are triggered manually — the simulation engine simply advances on its own from the state
-described.
+The city below is running with no mayor: nothing is built, demolished, or rezoned, no tax or funding rates are changed, and no disasters are triggered manually — the simulation engine simply advances on its own from the state described. Disasters can be enabled or disabled and this will be stated in the game report.
 Base your forecasts primarily on the trends, events, and current state given in the game report, using your knowledge of the game's mechanics only to interpret and extrapolate what the report shows. Give calibrated
-percentiles that honestly reflect your uncertainty, remembering that an unmanaged city may continue on its current trajectory, plateau, or decline, and that random disasters can shift the trajectory abruptly."""
+percentiles that honestly reflect your uncertainty, remembering that an unmanaged city may continue on its current trajectory, plateau, or decline.
+Remember that if disasters are enabled, their random occurrence can shift the trajectory abruptly.
+
+"""
 
 
 def get_single_city_base_scenarios(

@@ -17,7 +17,6 @@ import argparse
 import functools
 import sys
 from pathlib import Path
-from typing import Any, Callable
 
 import json5
 
