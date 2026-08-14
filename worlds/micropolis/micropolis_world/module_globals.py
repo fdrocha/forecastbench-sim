@@ -51,7 +51,12 @@ def prompt_model(model, prompt: str, max_tokens: int) -> tuple[str | None, str |
     Mirrors get_response()'s handling of the parameters some models reject.
     """
     # Imported here so the simulation-only scripts don't pull in litellm.
+    import litellm
     from litellm import completion
+
+    # We need this so we can use models that don't support temperature
+    # It still sets T=0 for models that do support it, but drops it silently for ones that don't
+    litellm.drop_params = True
 
     kwargs = {
         "model": model._litellm_model_id,
@@ -69,7 +74,9 @@ def prompt_model(model, prompt: str, max_tokens: int) -> tuple[str | None, str |
     return choice.message.content, choice.finish_reason
 
 
-def warn_if_truncated(model_id: str, finish_reason: str | None, max_tokens: int) -> None:
+def warn_if_truncated(
+    model_id: str, finish_reason: str | None, max_tokens: int
+) -> None:
     """Warn when a reply stopped because it ran out of tokens.
 
     Worth saying explicitly: for a reasoning model the cap covers thinking as
