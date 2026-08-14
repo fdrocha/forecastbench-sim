@@ -1,5 +1,4 @@
-"""Micropolis question templates + the world's registry.
-"""
+"""Micropolis question templates + the world's registry."""
 
 from fbsim_core.questions.registry import TemplateRegistry
 from fbsim_core.questions.schema import QuestionTemplate

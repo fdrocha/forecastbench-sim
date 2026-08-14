@@ -28,8 +28,8 @@ from micropolis_world.config import (
     main_with_config,
 )
 from micropolis_world.knowledge_eval.runner import (
-    Answer,
     OUT_DIR,
+    Answer,
     get_cached_answers,
     get_model_answers,
     statements,
@@ -85,9 +85,8 @@ def print_table(results: dict[str, dict[str, int]]) -> None:
             ]
         )
 
-    widths = [
-        max(len(h), *(len(r[i]) for r in rows)) for i, h in enumerate(headers)
-    ]
+    widths = [max(len(h), *(len(r[i]) for r in rows)) for i, h in enumerate(headers)]
+
     # Model names left-aligned, counts right-aligned under their headers.
     def fmt(cells: list[str]) -> str:
         return "  ".join(

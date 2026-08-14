@@ -18,6 +18,13 @@ PERCENTILE_KEYS = ["p10", "p25", "p50", "p75", "p90"]
 # single city in each scenario is always entity 0.
 CITY_ENTITY_ID = 0
 
+PROMPT_PREAMBLE = """You are an expert superforecaster, familiar with the work of Tetlock and others. Your task is to forecast the evolution of a city in Micropolis, the open-source release of the original SimCity Classic simulation engine.
+
+The city below is running with no mayor: nothing is built, demolished, or rezoned, no tax or funding rates are changed, and no disasters are triggered manually — the simulation engine simply advances on its own from the state
+described.
+Base your forecasts primarily on the trends, events, and current state given in the game report, using your knowledge of the game's mechanics only to interpret and extrapolate what the report shows. Give calibrated
+percentiles that honestly reflect your uncertainty, remembering that an unmanaged city may continue on its current trajectory, plateau, or decline, and that random disasters can shift the trajectory abruptly."""
+
 
 def get_single_city_base_scenarios(
     seed: int, cities: list[str], disasters: list[bool]
@@ -107,11 +114,15 @@ def build_prompt_continuous(context: str, question_text: str) -> str:
     build_continuous_batch_prompt (single-question variant), so responses from
     the two worlds are parsed the same way and scored on the same CRPS.
     """
-    return (
-        context
-        + "\n\n"
-        + f"QUESTION: {question_text}\n\n"
-        + """You MUST provide percentile estimates UNDER ALL CIRCUMSTANCES. If for some reason you can't answer, provide reasonable mid-range estimates, but always return numeric percentile values.
+    return f"""{PROMPT_PREAMBLE}
+
+## Game report
+{context}
+
+## Question
+{question_text}
+
+You MUST provide percentile estimates UNDER ALL CIRCUMSTANCES. If for some reason you can't answer, provide reasonable mid-range estimates, but always return numeric percentile values.
 
 You may analyze the data, but you MUST end your response with your percentile estimates in this exact format:
 <<<PERCENTILES>>>
@@ -124,7 +135,6 @@ Replace the example values with your actual percentile estimates.
 - p50 (median) means you estimate there's a 50% chance the true value is below this number
 - p75 means you estimate there's a 75% chance the true value is below this number
 - p90 means you estimate there's a 90% chance the true value is below this number"""
-    )
 
 
 def _validate_monotonic(
@@ -141,7 +151,9 @@ def _validate_monotonic(
     if any(a > b for a, b in zip(values, values[1:])):
         if not quiet:
             pairs = ", ".join(f"{k}={percentiles[k]:g}" for k in PERCENTILE_KEYS)
-            print(f"  {label}: percentiles not in increasing order, discarding: {pairs}")
+            print(
+                f"  {label}: percentiles not in increasing order, discarding: {pairs}"
+            )
         return None
     return percentiles
 
@@ -221,5 +233,7 @@ def parse_percentiles(
             return _validate_monotonic(bare, label, quiet)
 
     if not quiet:
-        print(f"  {label}: unable to parse percentiles from model response: {response!r}")
+        print(
+            f"  {label}: unable to parse percentiles from model response: {response!r}"
+        )
     return None

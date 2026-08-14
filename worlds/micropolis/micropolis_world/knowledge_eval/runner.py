@@ -228,7 +228,9 @@ def get_model_answers(
             warn_if_truncated(model_name, finish_reason, max_tokens)
 
             if raw is None or not raw.strip():
-                print(f"  [warning] {model_name} returned a blank response; not caching")
+                print(
+                    f"  [warning] {model_name} returned a blank response; not caching"
+                )
                 continue
 
             out_path = response_path(model_name, phash)
