@@ -5,10 +5,17 @@ from collections import Counter
 from . import module_globals as g
 from .city_sim import CitySimulation, turn_of
 
+_difficulty_labels = {0: "Easy", 1: "Medium", 3: "Hard"}
+
 
 def _snapshot_section(row: dict) -> list[str]:
     """Current-state block from a single log_data row."""
     lines = [f"CURRENT STATE (turn {turn_of(row)})", ""]
+    difficulty = _difficulty_labels[row["gameLevel"]]
+    lines.append(f"  Difficulty: {difficulty}")
+    auto_budget_state = "On" if row["autoBudget"] else "Off"
+    lines.append(f"  Auto budget: {auto_budget_state}")
+
     city_class = row.get("cityClass")
     if city_class is not None and 0 <= city_class < len(g.CITY_CLASSES):
         lines.append(f"  City class: {g.CITY_CLASSES[city_class]}")
@@ -17,10 +24,10 @@ def _snapshot_section(row: dict) -> list[str]:
         lines.append(f"  {label}: {row[metric]}")
     lines.append(f"  Cash flow: {row['cashFlow']}")
     lines.append(f"  Tax rate: {row['cityTax']}%")
+    lines.append(f"  Road funding effectiveness: {row['roadEffect']}")
+    lines.append(f"  Police funding effectiveness: {row['policeEffect']}")
+    lines.append(f"  Fire department funding effectiveness: {row['fireEffect']}")
     lines.append("")
-    # Skipping this for now, it has weird units and is hard to interpret
-    #    lines.append("  Zone population — " + ", ".join(
-    #        f"{label} {row[key]}" for key, label in g.SNAPSHOT_COMPOSITION))
     lines.append(
         "  Infrastructure — "
         + ", ".join(f"{label} {row[key]}" for key, label in g.SNAPSHOT_INFRASTRUCTURE)
@@ -110,10 +117,8 @@ def gen_world_report(sim: CitySimulation, turn: int, history_freq: int) -> str:
     row = sim.log_data[turn]
     sections = [
         [
-            "MICROPOLIS WORLD REPORT",
-            f"City: {sim.city_name} (seed {sim.seed})",
+            f"City: {sim.city_name}",
             f"Disasters: {'enabled' if sim.disasters else 'disabled'}",
-            f"Snapshot: turn {turn} of {len(sim.log_data) - 1}",
         ],
         _snapshot_section(row),
         _history_section(sim.log_data, turn, history_freq),

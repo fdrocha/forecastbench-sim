@@ -198,6 +198,8 @@ SNAPSHOT_INFRASTRUCTURE = [
     ("fireStationPop", "Fire stations"),
     ("seaportPop", "Seaports"),
     ("airportPop", "Airports"),
+    ("hospitalPop", "Hospitals"),
+    ("stadiumPop", "Stadiums"),
     ("coalPowerPop", "Coal plants"),
     ("nuclearPowerPop", "Nuclear plants"),
     ("poweredZoneCount", "Powered zones"),

@@ -12,13 +12,11 @@
     "bruce",
     "haight",
     "freds",
-//    "happisle",
+    "happisle",
     "joffburg",
-//    "kamakura",
-    "kobe",
-//    "kowloon",
-    "kyoto",
-//    "linecity",
+    "kamakura",
+    "kowloon",
+    "linecity",
 //    "senri",
 //   "southpac",
 //    "wetcity",
@@ -32,12 +30,14 @@
     // "deadwood",  // crashes the engine (WASM "memory access out of bounds")
     //              // partway through a run when disasters are enabled, at
     //              // every seed tried
-
+    // more WASM crashes below
+    //    "kobe",
+    // "kyoto",
   ],
 
   // Disaster settings to run each city under; crossed with "cities".
   // [false, true] runs both variants of every city.
-  "disasters": [false],
+  "disasters": [false, true],
 
   // How many turns run_sim.py simulates. The corpus scripts ignore this and
   // derive their own length from snapshot_turns + horizons.
@@ -46,7 +46,7 @@
   // Turns at which a world report is generated and questions are asked,
   // and the forecast horizons past each snapshot. 48 turns per year.
   "snapshot_turns": [240, 480],    // years 5
-  "horizons": [48, 96, 240],  // 1, 2, 3 and 5 out
+  "horizons": [48, 96, 144, 192, 240],  // 1, 2, 3 and 5 out
 
   // gen_report.py: turn to print the report for (negative counts back from the
   // last logged turn), and how often the report includes historical data.
@@ -82,7 +82,7 @@
 
     "xai/grok-4.20-0309-non-reasoning",
     "xai/grok-4.20-0309-reasoning",
-    "xai/grok-4.5",
+//    "xai/grok-4.5",
     "xai/grok-4.6",
   ],
   "max_tokens": 60000,
