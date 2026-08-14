@@ -12,15 +12,15 @@
     "bruce",
     "haight",
     "freds",
-//    "happisle",
-//    "joffburg",
-//    "kamakura",
+    "happisle",
+    "joffburg",
+    "kamakura",
 //    "kobe",
 //    "kowloon",
 //    "kyoto",
 //    "linecity",
 //    "senri",
-//    "southpac",
+//   "southpac",
 //    "wetcity",
 //    "yokohama",
 
@@ -45,7 +45,7 @@
 
   // Turns at which a world report is generated and questions are asked,
   // and the forecast horizons past each snapshot. 48 turns per year.
-  "snapshot_turns": [48, 96, 144, 192, 240, 288, 336],  // years 1-7
+  "snapshot_turns": [240],  // years 5
   "horizons": [48, 96, 240],                 // 1, 2 and 5 out
 
   // gen_report.py: turn to print the report for (negative counts back from the
@@ -56,7 +56,21 @@
   // Models to prompt, in provider/name form, and the response token cap.
   // See README.md for the ForecastBench, frontier and pandemic model sets.
   "models": [
-    "openai/gpt-3.5-turbo-1106",  // cheapest model, for testing
+//    "openai/gpt-3.5-turbo-16k",
+//    "openai/gpt-4.1-2025-04-14",
+    "openai/gpt-4o-2024-05-13",
+    "openai/gpt-5-2025-08-07",
+
+//    "google/gemini-2.5-pro",
+//   "google/gemini-3.1-pro-preview",
+
+    "mistral/mistral-small-2603",
+    "mistral/mistral-medium-2604",
+    "mistral/mistral-large-2512",
+
+//    "xai/grok-4.20-0309-non-reasoning",
+//    "xai/grok-4.20-0309-reasoning",
+//    "xai/grok-4.5",
   ],
-  "max_tokens": 4000,
+  "max_tokens": 20000,
 }

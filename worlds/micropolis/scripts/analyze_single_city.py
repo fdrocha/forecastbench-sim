@@ -39,15 +39,26 @@ def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
 
 
+def metrics_in_order(corpus: list[dict]) -> list[str]:
+    """The corpus's metrics, the ones excluded from normalization last.
+
+    Keeps the metrics the "norm" column averages together on the left, next to
+    that column, and pushes city funds — which no summary column covers — to
+    the far right, where it reads as the aside it is.
+    """
+    metrics = list(dict.fromkeys(c["metric"] for c in corpus))
+    return sorted(metrics, key=lambda m: m in UNNORMALIZED_METRICS)
+
+
 def crps_by_model_and_metric(
     corpus: list[dict], responses: Responses, model_names: list[str]
 ) -> tuple[dict[tuple[str, str], float], dict[tuple[str, str], int], list[str]]:
     """Mean CRPS per (model, metric), plus how many questions each cell covers.
 
-    Returns (means, counts, metrics), where metrics is in corpus order. Cells
-    with no parseable forecast are absent from both dicts.
+    Returns (means, counts, metrics). Cells with no parseable forecast are
+    absent from both dicts.
     """
-    metrics = list(dict.fromkeys(c["metric"] for c in corpus))
+    metrics = metrics_in_order(corpus)
     scores: dict[tuple[str, str], list[float]] = {}
     for row in score_forecasts(corpus, responses, model_names):
         scores.setdefault((row["model_id"], row["metric"]), []).append(row["crps"])
@@ -148,53 +159,47 @@ def print_crps_table(
         print(f"\nUnparseable forecasts excluded — {', '.join(missing)}")
 
 
-def print_normalized_horizon_table(
-    corpus: list[dict], responses: Responses, model_names: list[str]
+def print_horizon_table(
+    scored: list[tuple[str, int, float]],
+    model_names: list[str],
+    horizons: list[int],
+    title: str,
+    subtitle: str,
+    fmt: str,
 ) -> None:
-    """Print models x horizons, each cell the mean normalized CRPS.
+    """Print models x horizons from (model, horizon, score) triples.
 
-    Normalizing by |actual| divides every horizon by that horizon's own actual,
-    not by a per-horizon cohort statistic, so the horizon trend survives: later
-    horizons stay harder rather than being flattened to a common scale.
+    `fmt` is the format spec for a cell, since normalized scores and raw CRPS
+    want different precision. Rows are sorted by the "all" column, so the table
+    reads best-first, and a model with nothing to average sorts last rather
+    than crashing the compare.
     """
-    rows = [
-        r
-        for r in score_forecasts(corpus, responses, model_names)
-        if r["normalized"] is not None
-    ]
-    horizons = sorted({c["horizon"] for c in corpus})
-
     cells = {
-        (model_id, h): _mean(
-            [
-                r["normalized"]
-                for r in rows
-                if r["model_id"] == model_id and r["horizon"] == h
-            ]
-        )
+        (model_id, h): _mean([v for m, hz, v in scored if m == model_id and hz == h])
         for model_id in model_names
         for h in horizons
     }
     overall = {
-        model_id: _mean([r["normalized"] for r in rows if r["model_id"] == model_id])
+        model_id: _mean([v for m, _, v in scored if m == model_id])
         for model_id in model_names
     }
 
+    def cell(value: float | None) -> str:
+        return "n/a" if value is None else format(value, fmt)
+
     model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in model_names])
     h_labels = {h: f"H{h}" for h in horizons}
-    width = 9
+    # Wide enough for the longest number in the table, so a metric in the
+    # hundreds of thousands doesn't push its columns out of alignment.
+    width = max(
+        [9]
+        + [len(cell(v)) for v in cells.values()]
+        + [len(cell(v)) for v in overall.values()]
+    )
     ordered = sorted(model_names, key=lambda m: (overall[m] is None, overall[m] or 0.0))
 
-    normalized_labels = [
-        str(g.METRIC_LABELS.get(m, m))
-        for m in dict.fromkeys(c["metric"] for c in corpus)
-        if m not in UNNORMALIZED_METRICS
-    ]
-    print("\nMean normalized CRPS by model and horizon (lower is better)")
-    print(
-        f"CRPS/|actual| over {', '.join(normalized_labels)};"
-        " horizons are turns past the snapshot"
-    )
+    print(f"\n{title}")
+    print(subtitle)
     header = f"{'Model':<{model_col}}  {'all':>{width}}  " + "  ".join(
         f"{h_labels[h]:>{width}}" for h in horizons
     )
@@ -204,8 +209,68 @@ def print_normalized_horizon_table(
     for model_id in ordered:
         row = [f"{model_id.split('/')[-1]:<{model_col}}"]
         for value in [overall[model_id]] + [cells[(model_id, h)] for h in horizons]:
-            row.append(f"{'n/a' if value is None else f'{value:.3f}':>{width}}")
+            row.append(f"{cell(value):>{width}}")
         print("  ".join(row))
+
+
+def print_normalized_horizon_table(
+    corpus: list[dict], responses: Responses, model_names: list[str]
+) -> None:
+    """Print models x horizons, each cell the mean normalized CRPS.
+
+    Normalizing by |actual| divides every horizon by that horizon's own actual,
+    not by a per-horizon cohort statistic, so the horizon trend survives: later
+    horizons stay harder rather than being flattened to a common scale.
+    """
+    scored = [
+        (r["model_id"], r["horizon"], r["normalized"])
+        for r in score_forecasts(corpus, responses, model_names)
+        if r["normalized"] is not None
+    ]
+    normalized_labels = [
+        str(g.METRIC_LABELS.get(m, m))
+        for m in metrics_in_order(corpus)
+        if m not in UNNORMALIZED_METRICS
+    ]
+    print_horizon_table(
+        scored,
+        model_names,
+        sorted({c["horizon"] for c in corpus}),
+        "Mean normalized CRPS by model and horizon (lower is better)",
+        f"CRPS/|actual| over {', '.join(normalized_labels)};"
+        " horizons are turns past the snapshot",
+        ".3f",
+    )
+
+
+def print_per_metric_horizon_tables(
+    corpus: list[dict], responses: Responses, model_names: list[str]
+) -> None:
+    """One models x horizons table of raw CRPS per metric.
+
+    The normalized table above averages metrics together, which hides how each
+    one behaves; these keep them apart. Each table is in its own metric's units,
+    so it compares models and horizons within itself but never against another
+    table — that is what the normalized one is for.
+    """
+    rows = score_forecasts(corpus, responses, model_names)
+    horizons = sorted({c["horizon"] for c in corpus})
+
+    for metric in metrics_in_order(corpus):
+        label = str(g.METRIC_LABELS.get(metric, metric))
+        scored = [
+            (r["model_id"], r["horizon"], r["crps"])
+            for r in rows
+            if r["metric"] == metric
+        ]
+        print_horizon_table(
+            scored,
+            model_names,
+            horizons,
+            f"Mean CRPS by model and horizon — {label} (lower is better)",
+            f"in {label} units, not normalized; horizons are turns past the snapshot",
+            ",.1f",
+        )
 
 
 @main_with_config
@@ -236,6 +301,7 @@ def main() -> None:
 
     print_crps_table(corpus, responses, models)
     print_normalized_horizon_table(corpus, responses, models)
+    print_per_metric_horizon_tables(corpus, responses, models)
 
 
 if __name__ == "__main__":
