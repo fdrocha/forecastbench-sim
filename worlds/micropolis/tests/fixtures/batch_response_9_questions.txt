@@ -1,0 +1,60 @@
+# Analysis of Bruce City (Seed 42)
+
+## Key Observations
+
+**Population Trajectory:**
+- Turns 0-32: Stagnant at 14,400
+- Turn 36: Jump to 16,780 (+16%)
+- Turn 84: Jump to 19,480 (+16%)
+- Turn 132: Jump to 21,280 (+9%)
+- Turn 228: Jump to 22,920 (+8%)
+- Recent trend (last 12 turns): Stable at 22,920
+
+The growth pattern shows discrete jumps followed by plateaus. Growth rate is decelerating (16% → 16% → 9% → 8%), suggesting the city is approaching saturation.
+
+**Financial State:**
+- City funds have been at 0 since turn 36
+- Cash flow is -536 (negative)
+- Tax rate is 0% (no revenue collection)
+- The city is in permanent financial crisis with no recovery mechanism visible
+
+**Crime Trajectory:**
+- Turns 0-12: 41
+- Turns 16-32: 41-42
+- Turns 36-52: 51-59
+- Turns 56-128: 59-79 (rising trend)
+- Turns 132-240: 79-88 (high plateau with slight increase)
+- Recent: 88 (highest recorded)
+
+Crime has been rising overall and is now at its peak. With zero funds and no police investment possible, crime will likely remain high or increase further.
+
+**Infrastructure Constraints:**
+- 58 powered zones (all zones are powered)
+- No airports or seaports
+- Limited police/fire coverage relative to population
+- High traffic (69) and pollution (65) indicate stress
+
+## Forecasting Logic
+
+**Population (Q1, Q4, Q7):**
+The city appears to be near carrying capacity. The last growth increment was small (+8% over ~96 turns). With zero funds, no new infrastructure can be built. Population will likely stabilize or grow very slowly. I estimate minimal growth or stagnation through turn 480.
+
+**City Funds (Q2, Q5, Q8):**
+With tax rate at 0% and negative cash flow of -536, funds remain at 0. There's no mechanism for recovery without mayoral intervention (which is disabled). Funds will stay at 0.
+
+**Crime (Q3, Q6, Q9):**
+Crime has been rising and is now at 88. With zero funds, no police stations can be added. Crime typically increases with population density and decreases with police presence. Given the negative trajectory and lack of resources, crime will likely continue rising or plateau at high levels (85-95 range).
+
+## Percentile Estimates
+
+<<<PERCENTILES>>>
+Q1: p10=22500, p25=22800, p50=23100, p75=23400, p90=23800
+Q2: p10=0, p25=0, p50=0, p75=0, p90=0
+Q3: p10=85, p25=87, p50=90, p75=93, p90=95
+Q4: p10=22600, p25=23000, p50=23400, p75=23900, p90=24500
+Q5: p10=0, p25=0, p50=0, p75=0, p90=0
+Q6: p10=86, p25=89, p50=92, p75=95, p90=97
+Q7: p10=22800, p25=23200, p50=23800, p75=24500, p90=25300
+Q8: p10=0, p25=0, p50=0, p75=0, p90=0
+Q9: p10=87, p25=90, p50=93, p75=96, p90=98
+<<<END>>>

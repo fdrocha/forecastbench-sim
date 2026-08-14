@@ -107,29 +107,56 @@ def build_corpus(
     return corpus
 
 
-def build_prompt_continuous(context: str, question_text: str) -> str:
-    """Ask for a p10/p25/p50/p75/p90 quantile forecast.
+def build_batch_prompt_continuous(context: str, questions: list[dict]) -> str:
+    """Ask for one p10/p25/p50/p75/p90 quantile forecast per question.
 
-    The instruction wording and the delimited answer block match FreeCiv's
-    build_continuous_batch_prompt (single-question variant), so responses from
-    the two worlds are parsed the same way and scored on the same CRPS.
+    Every question in `questions` shares the game report in `context`, so the
+    report — which dominates the token cost — is included once and the
+    questions are numbered. The instruction wording and the delimited answer
+    block match FreeCiv's build_continuous_batch_prompt, so responses from the
+    two worlds are parsed the same way and scored on the same CRPS.
+    parse_batch_percentiles reads the answers back.
     """
+    n = len(questions)
+    if n == 1:
+        question_section = f"## Question\n{questions[0]['question_text']}"
+        must_answer = "You MUST provide percentile estimates UNDER ALL CIRCUMSTANCES."
+        format_example = "p10=5, p25=10, p50=15, p75=20, p90=25"
+        format_hint = (
+            "Replace the example values with your actual percentile estimates."
+        )
+    else:
+        numbered = "\n".join(
+            f"{i}. {q['question_text']}" for i, q in enumerate(questions, 1)
+        )
+        question_section = f"## Questions\n{numbered}"
+        must_answer = (
+            "You MUST provide percentile estimates for every question "
+            "UNDER ALL CIRCUMSTANCES."
+        )
+        format_example = (
+            "Q1: p10=5, p25=10, p50=15, p75=20, p90=25\n"
+            "Q2: p10=100, p25=200, p50=300, p75=400, p90=500"
+        )
+        format_hint = (
+            f"Provide one such line for each of the {n} questions, in order, "
+            "replacing the example values with your actual percentile estimates."
+        )
     return f"""{PROMPT_PREAMBLE}
 
 ## Game report
 {context}
 
-## Question
-{question_text}
+{question_section}
 
-You MUST provide percentile estimates UNDER ALL CIRCUMSTANCES. If for some reason you can't answer, provide reasonable mid-range estimates, but always return numeric percentile values.
+{must_answer} If for some reason you can't answer, provide reasonable mid-range estimates, but always return numeric percentile values.
 
 You may analyze the data, but you MUST end your response with your percentile estimates in this exact format:
 <<<PERCENTILES>>>
-p10=5, p25=10, p50=15, p75=20, p90=25
+{format_example}
 <<<END>>>
 
-Replace the example values with your actual percentile estimates.
+{format_hint}
 - p10 means you estimate there's a 10% chance the true value is below this number
 - p25 means you estimate there's a 25% chance the true value is below this number
 - p50 (median) means you estimate there's a 50% chance the true value is below this number
@@ -158,6 +185,55 @@ def _validate_monotonic(
     return percentiles
 
 
+def _scan_labeled_percentiles(text: str) -> dict[str, float] | None:
+    """Read one full labeled set ("p10=5, p25=10, ...") out of `text`.
+
+    The labels can be split across lines or bulleted; scanning the whole text
+    covers all of it. The leading (?:^|[^a-zA-Z]) keeps the "p" from matching
+    inside a word such as "pop10". Later occurrences of a key overwrite earlier
+    ones — a model that discusses "p50" in its reasoning before stating it in
+    its final answer should be read from the answer, which comes last. Returns
+    None unless all five keys were found; a partial set is useless to CRPS.
+    """
+    result = {}
+    for key_digits, value in re.findall(
+        r"(?:^|[^a-zA-Z])p(\d+)\s*[=:]\s*(-?[\d,]*\.?\d+)", text, re.IGNORECASE
+    ):
+        key = f"p{key_digits}"
+        if key in PERCENTILE_KEYS:
+            try:
+                result[key] = float(value.replace(",", ""))
+            except ValueError:
+                pass
+    return result if len(result) == len(PERCENTILE_KEYS) else None
+
+
+def _scan_bare_percentiles(text: str) -> dict[str, float] | None:
+    """Read five bare numbers as p10..p90 in order, or None if fewer."""
+    numbers = re.findall(r"-?\d+\.?\d*", text)
+    if len(numbers) < len(PERCENTILE_KEYS):
+        return None
+    try:
+        return {k: float(n) for k, n in zip(PERCENTILE_KEYS, numbers)}
+    except ValueError:
+        return None
+
+
+def _extract_answer_block(response: str) -> str:
+    """The part of a response holding the percentile estimates.
+
+    The delimited <<<PERCENTILES>>> block is the requested format and the most
+    reliable, so prefer its contents. Models sometimes emit only the closing
+    tag, having written the percentiles as ordinary prose above it, so fall
+    back to everything before a lone <<<END>>> and finally to the whole
+    response.
+    """
+    delimiter_match = re.search(
+        r"<<<PERCENTILES?>>>(.*?)<<<END>>>", response, re.DOTALL | re.IGNORECASE
+    ) or re.search(r"(.*?)<<<END>>>", response, re.DOTALL | re.IGNORECASE)
+    return delimiter_match.group(1).strip() if delimiter_match else response
+
+
 def parse_percentiles(
     response: str | None, label: str = "response", quiet: bool = False
 ) -> dict[str, float] | None:
@@ -179,14 +255,7 @@ def parse_percentiles(
             print(f"  {label}: empty model response")
         return None
 
-    # The delimited block is the requested format and the most reliable, so
-    # prefer its contents. Models sometimes emit only the closing tag, having
-    # written the percentiles as ordinary prose above it, so fall back to
-    # everything before a lone <<<END>>> and finally to the whole response.
-    delimiter_match = re.search(
-        r"<<<PERCENTILES?>>>(.*?)<<<END>>>", response, re.DOTALL | re.IGNORECASE
-    ) or re.search(r"(.*?)<<<END>>>", response, re.DOTALL | re.IGNORECASE)
-    content = delimiter_match.group(1).strip() if delimiter_match else response
+    content = _extract_answer_block(response)
 
     # JSON object, or the first object inside a JSON array.
     json_match = re.search(r"\{.*?\}", content, re.DOTALL)
@@ -199,37 +268,14 @@ def parse_percentiles(
         except (json.JSONDecodeError, ValueError, TypeError):
             pass
 
-    # Labeled percentiles: "p10=5, p25=10, ..." all on one line, or one per line
-    # ("p10=0\np25=0\n..."), or bulleted ("- p10=35"). Scanning the whole content
-    # rather than line by line covers all three, since models split the block
-    # however they like. The leading (?:^|[^a-zA-Z]) keeps the "p" from matching
-    # inside a word such as "pop10".
-    result = {}
-    for key_digits, value in re.findall(
-        r"(?:^|[^a-zA-Z])p(\d+)\s*[=:]\s*(-?[\d,]*\.?\d+)", content, re.IGNORECASE
-    ):
-        key = f"p{key_digits}"
-        if key in PERCENTILE_KEYS:
-            try:
-                # Last write wins: a model that discusses "p50" in its reasoning
-                # before stating it in the final block should be read from the
-                # block, which comes last.
-                result[key] = float(value.replace(",", ""))
-            except ValueError:
-                pass
-    if len(result) == len(PERCENTILE_KEYS):
+    result = _scan_labeled_percentiles(content)
+    if result is not None:
         return _validate_monotonic(result, label, quiet)
 
     # Last resort: five bare numbers on one line, in ascending percentile order.
-    # A separate dict from the labeled scan above, whose partial results must not
-    # leak into this one.
     for line in content.strip().split("\n"):
-        numbers = re.findall(r"-?\d+\.?\d*", line)
-        if len(numbers) >= len(PERCENTILE_KEYS):
-            try:
-                bare = {k: float(n) for k, n in zip(PERCENTILE_KEYS, numbers)}
-            except ValueError:
-                continue
+        bare = _scan_bare_percentiles(line)
+        if bare is not None:
             return _validate_monotonic(bare, label, quiet)
 
     if not quiet:
@@ -237,3 +283,87 @@ def parse_percentiles(
             f"  {label}: unable to parse percentiles from model response: {response!r}"
         )
     return None
+
+
+# A line answering one question of a batch, e.g. "Q3: p10=...", "3. p10=...",
+# or "Question 3) ...". Anchored to the line start: a question number mentioned
+# mid-sentence is prose, not an answer.
+_QUESTION_NUMBER_RE = re.compile(
+    r"^\s*(?:question\s*|q)?(\d+)\s*[.:)]\s*", re.IGNORECASE
+)
+
+
+def parse_batch_percentiles(
+    response: str | None, labels: list[str], quiet: bool = False
+) -> list[dict[str, float] | None]:
+    """Extract one p10..p90 set per question from a batched model response.
+
+    `labels` name the questions in warnings — one per question, in prompt
+    order — and their count is the number of answers expected. The requested
+    format is one "Q<n>: p10=..., ..." line per question; those lines are
+    mapped by their stated number, not their position, so a model that skips
+    a question can't shift every answer after it. When no line carries a
+    question number, full percentile sets are assigned positionally in order
+    of appearance instead. Each set is validated by _validate_monotonic like
+    a single-question one, and every question left without a usable set gets
+    a warning naming its label (unless `quiet`).
+    """
+    n = len(labels)
+    # A single-question prompt asks for the unnumbered single-question format,
+    # so read it back with the single-question parser, which also accepts
+    # formats (JSON, whole-block scans) that would be ambiguous in a batch.
+    if n == 1:
+        return [parse_percentiles(response, label=labels[0], quiet=quiet)]
+
+    results: list[dict[str, float] | None] = [None] * n
+    if not response:
+        if not quiet:
+            print(f"  {labels[0]} (+{n - 1} more): empty model response")
+        return results
+
+    lines = [
+        line for line in _extract_answer_block(response).split("\n") if line.strip()
+    ]
+
+    # First pass: numbered answer lines, mapped by their stated number. Later
+    # lines overwrite earlier ones for the same number, so an answer restated
+    # in a final block wins over one mentioned in the reasoning above it.
+    answered = [False] * n
+    for line in lines:
+        m = _QUESTION_NUMBER_RE.match(line)
+        if not m:
+            continue
+        idx = int(m.group(1)) - 1
+        if not 0 <= idx < n:
+            continue
+        rest = line[m.end() :]
+        parsed = _scan_labeled_percentiles(rest)
+        if parsed is None and not re.search(r"[a-zA-Z]", rest):
+            # Bare numbers only count when the line is nothing but numbers
+            # ("Q1: 5, 10, 15, 20, 25") — a numbered prose sentence in the
+            # reasoning can easily contain five figures without being an answer.
+            parsed = _scan_bare_percentiles(rest)
+        if parsed is not None:
+            answered[idx] = True
+            results[idx] = _validate_monotonic(parsed, labels[idx], quiet)
+
+    # Positional fallback, only when nothing was numbered: each line holding a
+    # full labeled set answers the next question in order. Not tried after a
+    # partial numbered parse, where "the next question" would be a guess.
+    if not any(answered):
+        pos = 0
+        for line in lines:
+            if pos >= n:
+                break
+            parsed = _scan_labeled_percentiles(line)
+            if parsed is not None:
+                answered[pos] = True
+                results[pos] = _validate_monotonic(parsed, labels[pos], quiet)
+                pos += 1
+
+    if not quiet:
+        # _validate_monotonic already explained the answered-but-invalid ones.
+        for i in range(n):
+            if not answered[i]:
+                print(f"  {labels[i]}: no percentiles found in batched response")
+    return results

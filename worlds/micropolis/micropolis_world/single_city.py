@@ -8,7 +8,7 @@ re-prompt.
 """
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 
 from fbsim_core.metrics import compute_crps
@@ -16,13 +16,12 @@ from fbsim_core.metrics import compute_crps
 from . import module_globals as g
 from .city_sim import CitySimulation
 from .config import Config, scenarios_from
-from .scenarios import PERCENTILE_KEYS, parse_percentiles
 
-# Everything the eval writes. The response cache is keyed by (model, question)
-# and survives across corpora, so it lives beside the dataset rather than in it.
+# Everything the eval writes. Raw prompts and model responses are cached in one
+# directory per batch (see batch_dir), so they survive across runs and configs;
+# data.json is regenerated from them on every run.
 OUT_DIR = g.DATA_DIR / "single_city"
 DATA_PATH = OUT_DIR / "data.json"
-CACHE_PATH = g.DATA_DIR / "response_cache.json"
 PLOTS_PATH = OUT_DIR / "plots"
 
 # Metrics left out of normalized CRPS. Normalizing by |actual| is undefined
@@ -49,54 +48,32 @@ class Response:
 Responses = dict[ResponseId, Response]
 
 
-def load_cache(verbose_reparse: bool = False) -> Responses:
-    """Load cached responses, re-parsing the percentiles from the raw text.
+def batch_id_for(question: dict) -> str:
+    """The batch a corpus question is prompted in.
 
-    response_text is the source of truth, as it is in the knowledge eval: the
-    stored percentiles are a convenience, so an improved parse_percentiles takes
-    effect on the next run instead of needing the whole cache re-queried. An
-    entry that has no response_text — nothing left to re-parse — keeps whatever
-    percentiles it was stored with.
-
-    Re-parsing is quiet by default: a response that was rejected when first
-    fetched would otherwise reprint its warning on every subsequent run, and
-    callers report the total instead. Set verbose_reparse to get the full
-    per-question warning back, which is what you want when investigating why a
-    particular cached response yields no forecast.
+    Questions sharing a scenario and snapshot turn share a game report — the
+    bulk of the prompt — so they are asked together in one numbered prompt.
     """
-    r: Responses = {}
-    data = json.loads(CACHE_PATH.read_text()) if CACHE_PATH.exists() else []
-    for entry in data:
-        stored = entry.get("percentiles")
-        stored = (
-            {k: float(stored[k]) for k in PERCENTILE_KEYS}
-            if stored is not None
-            else None
-        )
-        raw = entry.get("response_text", None)
-        response_id = ResponseId(
-            model_id=entry["model_id"], question_id=entry["question_id"]
-        )
-        # The same question_id appears once per model, so name both.
-        label = f"{response_id.model_id} {response_id.question_id}"
-        percentiles = (
-            parse_percentiles(raw, label=label, quiet=not verbose_reparse)
-            if raw is not None
-            else stored
-        )
-
-        r[response_id] = Response(
-            actual=entry["actual"],
-            percentiles=percentiles,
-            response_text=raw,
-        )
-    return r
+    return f"{question['scenario_id']}_T{question['snapshot_turn']}"
 
 
-def save_cache(cache: Responses) -> None:
-    data = [asdict(k) | asdict(v) for k, v in cache.items()]
-    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CACHE_PATH.write_text(json.dumps(data, indent=2))
+def batch_dir(batch_id: str) -> Path:
+    """Where a batch's prompt and raw model responses are cached.
+
+    Holds prompt.txt plus one response-{model}.txt per model that has answered
+    it (see prompt_path and response_path). Deleting the directory re-gathers
+    the batch from scratch on the next run.
+    """
+    return OUT_DIR / "cache" / batch_id
+
+
+def prompt_path(batch_id: str) -> Path:
+    return batch_dir(batch_id) / "prompt.txt"
+
+
+def response_path(batch_id: str, model_id: str) -> Path:
+    # Model ids are provider/name; the slash would nest a directory.
+    return batch_dir(batch_id) / f"response-{model_id.replace('/', '_')}.txt"
 
 
 def save_dataset(
