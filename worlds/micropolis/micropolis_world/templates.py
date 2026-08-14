@@ -20,15 +20,14 @@ def _get_continuous_template(metric: str) -> QuestionTemplate:
     )
 
 
-# TODO: think better about which ones to include
 Q_METRICS = [
     #    "cityScore",
     "cityPop",
     "totalFunds",
-    #    "trafficAverage",
-    #    "pollutionAverage",
+    "trafficAverage",
+    "pollutionAverage",
     "crimeAverage",
-    #    "landValueAverage",
+    "landValueAverage",
 ]
 
 ALL_TEMPLATES: list[QuestionTemplate] = [
