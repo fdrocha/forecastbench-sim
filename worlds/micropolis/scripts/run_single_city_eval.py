@@ -13,7 +13,11 @@ Usage:
     scripts/run_single_city_eval.py
     scripts/run_single_city_eval.py my_config.json --seed 7
     scripts/run_single_city_eval.py my_config.json --dry-run
+    scripts/run_single_city_eval.py --models openai/gpt-4o xai/grok-4-0709
     scripts/run_single_city_eval.py --verbose-reparse
+
+--models overrides the config's list; see data/micropolis/available_models.md
+for what each provider offers.
 """
 
 import argparse
@@ -114,6 +118,14 @@ def main() -> None:
     add_config_args(ap)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument(
+        "--models",
+        nargs="+",
+        metavar="MODEL",
+        default=None,
+        help="Model ids to prompt, overriding the config's 'models' list. "
+        "Ids are in provider/name form; see data/micropolis/available_models.md",
+    )
+    ap.add_argument(
         "--verbose-reparse",
         action="store_true",
         help="print the full warning for every cached response whose percentiles "
@@ -123,7 +135,7 @@ def main() -> None:
 
     cfg = load_config(args)
     seed = cfg.get_seed(args.seed)
-    models = cfg.get_str_list("models")
+    models = args.models if args.models else cfg.get_str_list("models")
 
     print("=" * 70)
     print("MICROPOLIS WORLD — single city eval")
