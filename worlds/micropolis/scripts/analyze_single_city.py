@@ -1180,30 +1180,22 @@ def print_tie_warnings(
             )
 
 
-def knowledge_predictors(model_names: list[str]) -> dict[str, dict[str, float]] | None:
-    """Knowledge-eval scores as predictors, over the whole set and the easy tier.
+def knowledge_predictor(model_names: list[str]) -> dict[str, float] | None:
+    """Knowledge-eval score per model, as a predictor of forecast skill.
 
-    Keyed by series label; each value maps bare model name to normalized score.
+    Maps bare model name to normalized score over the whole statement set.
     Returns None when the knowledge eval has no cached responses for the models
     in this dataset, which is the case before its gathering step has run.
 
-    The knowledge scores come from the response cache, so this reads no models
-    and needs no credentials.
+    The scores come from the response cache, so this reads no models and needs no
+    credentials.
     """
-    from micropolis_world.knowledge_eval.runner import statements
     from micropolis_world.knowledge_eval.scoring import scores_by_model_name
 
-    easy = min(s.difficulty for s in statements)
-    predictors = {
-        "Knowledge score": scores_by_model_name(),
-        f"Knowledge score, difficulty {easy} only": scores_by_model_name(
-            [s for s in statements if s.difficulty == easy]
-        ),
-    }
-    bare = {m.split("/", 1)[1] for m in model_names}
-    if not any(bare & set(p) for p in predictors.values()):
+    scores = scores_by_model_name()
+    if not {m.split("/", 1)[1] for m in model_names} & set(scores):
         return None
-    return predictors
+    return scores
 
 
 def plot_predictors_correlation_by_horizon(
@@ -1214,15 +1206,14 @@ def plot_predictors_correlation_by_horizon(
 ) -> Path | None:
     """Compare ECI and knowledge-eval score as predictors of forecast skill.
 
-    Three rho-versus-horizon lines: ECI, the knowledge-eval score over all
-    statements, and the same over the easy tier alone. The question is whether
-    knowing this world's facts predicts forecasting it any better than a general
-    capability index does.
+    Two rho-versus-horizon lines: ECI and the knowledge-eval score. The question
+    is whether knowing this world's facts predicts forecasting it any better than
+    a general capability index does.
 
-    Every line is restricted to the models carrying an ECI score, so the three
-    run over one model set and their coefficients are directly comparable. That
-    makes this figure's ECI line differ from eci_correlation_by_horizon.png,
-    which uses every ECI-scored model whether or not it sat the knowledge eval.
+    Both lines are restricted to the models carrying an ECI score, so they run
+    over one model set and their coefficients are directly comparable. That makes
+    this figure's ECI line differ from eci_correlation_by_horizon.png, which uses
+    every ECI-scored model whether or not it sat the knowledge eval.
 
     Returns None when the model set is too small to correlate, or when the
     knowledge eval has no cached answers for these models.
@@ -1232,8 +1223,8 @@ def plot_predictors_correlation_by_horizon(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    predictors = knowledge_predictors(model_names)
-    if predictors is None:
+    knowledge = knowledge_predictor(model_names)
+    if knowledge is None:
         print(
             "\nPredictor comparison by horizon: no cached knowledge-eval answers"
             " for these models; skipping the plot."
@@ -1242,13 +1233,13 @@ def plot_predictors_correlation_by_horizon(
 
     eci = eci_by_name(model_names)
     # Restricted to the ECI-scored models, and further to those that also sat the
-    # knowledge eval, so all three lines cover the same models. Restricting the
+    # knowledge eval, so both lines cover the same models. Restricting the
     # predictors rather than the y values keeps correlate_by_horizon's
     # present-in-both rule doing the work.
-    shared = set(eci) & set.union(*(set(p) for p in predictors.values()))
-    series_defs = [("ECI", "#3266a8", eci)] + [
-        (label, color, scores)
-        for (label, scores), color in zip(predictors.items(), ["#c2432d", "#e0912c"])
+    shared = set(eci) & set(knowledge)
+    series_defs = [
+        ("ECI", "#3266a8", eci),
+        ("Knowledge score", "#c2432d", knowledge),
     ]
 
     by_horizon = normalized_by_model_and_horizon(corpus, responses, model_names)
@@ -1257,11 +1248,8 @@ def plot_predictors_correlation_by_horizon(
         for label, color, predictor in series_defs
     ]
     series = []
-    for i, (label, color, predictor) in enumerate(restricted):
-        # Banded only for the two predictors compared head to head. A third band
-        # over the same span would obscure both without adding a comparison, and
-        # the easy tier's story is its granularity rather than a fine estimate.
-        results = correlate_by_horizon(predictor, by_horizon, with_ci=i < 2)
+    for label, color, predictor in restricted:
+        results = correlate_by_horizon(predictor, by_horizon, with_ci=True)
         if results:
             series.append((label, color, results))
 
