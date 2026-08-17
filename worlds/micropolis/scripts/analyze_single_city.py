@@ -683,6 +683,151 @@ def plot_eci_vs_normalized(
     return out
 
 
+def plot_eci_correlation_by_horizon(
+    corpus: list[dict],
+    responses: Responses,
+    model_names: list[str],
+    outdir: Path = PLOTS_PATH,
+) -> Path | None:
+    """Plot the ECI x nCRPS Spearman correlation against horizon.
+
+    The single scatter pools every horizon into one coefficient; this asks
+    whether capability predicts forecast skill more or less strongly as the
+    question gets harder. Returns None when too few models carry an ECI score.
+
+    nCRPS is lower-is-better, so points below zero are the pro-g ones. The axis
+    is drawn to include zero either way, so a weakening correlation reads as
+    approaching the line rather than as a bare change in height.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from scipy import stats
+
+    rows = [
+        r
+        for r in score_forecasts(corpus, responses, model_names)
+        if r["normalized"] is not None
+    ]
+    horizons = sorted({c["horizon"] for c in corpus})
+
+    results = []
+    for h in horizons:
+        per_model: dict[str, list[float]] = {}
+        for r in rows:
+            if r["horizon"] == h:
+                per_model.setdefault(r["model_id"], []).append(r["normalized"])
+        points = [
+            (eci_of(m), sum(v) / len(v))
+            for m, v in per_model.items()
+            if eci_of(m) is not None
+        ]
+        # Constant scores would make the coefficient undefined; at H0 many models
+        # are exactly right, so this is a live case rather than a theoretical one.
+        if len(points) < 4 or len({v for _, v in points} ) < 2:
+            continue
+        rho, p = stats.spearmanr([e for e, _ in points], [v for _, v in points])
+        results.append((h, rho, p, len(points)))
+
+    if not results:
+        print(
+            "\nECI x nCRPS by horizon: too few models with an ECI score;"
+            " skipping the plot."
+        )
+        return None
+
+    print("\nECI x nCRPS correlation by horizon (Spearman)")
+    for h, rho, p, n in results:
+        stars = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
+        print(f"  H{h:<4} rho={rho:+.3f}  p={p:.4f} {stars:<4} (n={n})")
+    # The nearest horizon asks about a value the snapshot already shows, so most
+    # models score exactly 0 there; its coefficient is mostly about reading the
+    # report correctly rather than forecasting, and is not comparable to the rest.
+    if results and results[0][0] == 0:
+        exact = [r["normalized"] for r in rows if r["horizon"] == 0]
+        if exact:
+            share = sum(1 for v in exact if v == 0) / len(exact)
+            print(
+                f"  H0 is a read-off, not a forecast ({share:.0%} of its forecasts"
+                " are exactly right); treat its rho apart from the others."
+            )
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(9, 6))
+
+    hs = [h for h, _, _, _ in results]
+    rhos = [rho for _, rho, _, _ in results]
+    # Significant points filled, the rest hollow, so the eye doesn't read a
+    # coefficient that could be noise as a finding.
+    sig = [p < 0.05 for _, _, p, _ in results]
+
+    ax.plot(hs, rhos, color="#3266a8", lw=2, zorder=2)
+    ax.scatter(
+        [h for h, s in zip(hs, sig) if s],
+        [r for r, s in zip(rhos, sig) if s],
+        s=80,
+        color="#3266a8",
+        zorder=3,
+        label="p < 0.05",
+    )
+    ax.scatter(
+        [h for h, s in zip(hs, sig) if not s],
+        [r for r, s in zip(rhos, sig) if not s],
+        s=80,
+        facecolors="none",
+        edgecolors="#3266a8",
+        zorder=3,
+        label="not significant",
+    )
+    ax.axhline(0, color="#666666", lw=1, ls="--", zorder=1)
+
+    ax.set_xlabel("Horizon (turns past the snapshot)")
+    ax.set_ylabel("Spearman ρ of ECI vs. normalized CRPS")
+    n_models = results[0][3]
+    ax.set_title(
+        "Does capability predict forecast skill at every horizon?\n"
+        f"{n_models} models with an ECI score, {len(corpus)} questions"
+    )
+    # H0 asks about a value the snapshot already shows, so its coefficient is
+    # about reading the report rather than forecasting; mark it as not comparable.
+    if 0 in hs:
+        ax.annotate(
+            "read-off,\nnot a forecast",
+            xy=(0, rhos[hs.index(0)]),
+            xytext=(14, 20),
+            textcoords="offset points",
+            fontsize=8,
+            color="#777777",
+            ha="left",
+            arrowprops=dict(arrowstyle="-", color="#aaaaaa", lw=0.8),
+        )
+
+    ax.set_xticks(hs)
+    # Zero included so distance from "no relationship" is visible, and the pro-g
+    # half of the axis labelled, since the sign is the easy thing to misread.
+    low, high = min(rhos + [0.0]), max(rhos + [0.0])
+    pad = (high - low) * 0.18 or 0.1
+    ax.set_ylim(low - pad, high + pad)
+    ax.annotate(
+        "ρ<0: more capable models forecast better (pro-g)",
+        xy=(0.5, 0.03),
+        xycoords="axes fraction",
+        ha="center",
+        fontsize=9,
+        color="#555555",
+    )
+    ax.grid(alpha=0.3, zorder=0)
+    ax.margins(x=0.06)
+    ax.legend(loc="upper right", fontsize=9, framealpha=0.9)
+    fig.tight_layout()
+
+    out = outdir / "eci_correlation_by_horizon.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    return out
+
+
 def plot_horizon_figures(
     corpus: list[dict], responses: Responses, model_names: list[str]
 ) -> list[Path]:
@@ -804,12 +949,18 @@ def main() -> None:
         print("\nPer-metric horizon tables omitted; pass --per-metric for them.")
 
     if args.plot:
-        eci_plot = plot_eci_vs_normalized(corpus, responses, models)
+        # Written after the tables, but the correlations they report print as
+        # they are computed, so run them before the "Wrote" lines.
+        eci_plots = [
+            plot_eci_vs_normalized(corpus, responses, models),
+            plot_eci_correlation_by_horizon(corpus, responses, models),
+        ]
         print()
         for out in plot_horizon_figures(corpus, responses, models):
             print(f"Wrote {out}")
-        if eci_plot is not None:
-            print(f"Wrote {eci_plot}")
+        for out in eci_plots:
+            if out is not None:
+                print(f"Wrote {out}")
 
 
 if __name__ == "__main__":
