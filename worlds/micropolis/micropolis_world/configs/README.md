@@ -35,6 +35,24 @@ table. Neither the dataset they read nor the directory the figures go to is
 selectable: there is one of each, fixed, so a table and a plot always describe
 the same run.
 
+## Checking that a seed reproduces
+
+`check_determinism.py` runs each `(city, disasters)` scenario in the config
+several times at the same seed and compares the log and events files across
+runs, reporting the first turn and field where any two differ:
+
+```
+scripts/check_determinism.py                        # default.json5, 3 repeats
+scripts/check_determinism.py one_city.json5 --repeats 5 --turns 100
+```
+
+It reads only `seed`, `cities`, and `disasters`, and takes its run length from
+`--turns` rather than the config's `turns`, so a check can be much shorter than
+a full run. Because the engine writes each run to a path fixed by
+`(city, seed, disasters)`, the repeats overwrite the cached runs in
+`data/micropolis/runs/`; the originals are saved first and put back afterwards,
+so a check leaves that directory as it found it.
+
 ## Format
 
 Configs are parsed as **JSON5**, which adds `//` and `/* */` comments, trailing
