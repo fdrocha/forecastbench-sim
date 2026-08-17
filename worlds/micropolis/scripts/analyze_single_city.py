@@ -1105,97 +1105,24 @@ def plot_eci_correlation_by_horizon(
     return out
 
 
-def draw_predictor_difference_axes(
-    ax,
-    restricted: list[tuple[str, str, dict[str, float]]],
-    by_horizon: dict[int, dict[str, float]],
-) -> None:
-    """Draw the paired |rho| difference against the first predictor, with CIs.
-
-    This is the panel that answers "which predictor is better": the difference is
-    estimated on the same resampled models for both, so the dependence between
-    the two correlations cancels and the interval is far tighter than either
-    coefficient's own. An interval clearing zero is the claim; the sign of the
-    point alone is not.
-    """
-    from matplotlib.transforms import ScaledTranslation
-
-    base_label, _color, base = restricted[0]
-    offsets = [-6, 6]  # points, so two series at one horizon don't overlap
-    drawn = False
-    bounds: list[float] = []
-    for i, (label, color, predictor) in enumerate(restricted[1:]):
-        rows = compare_predictors_by_horizon(base, predictor, by_horizon)
-        if not rows:
-            continue
-        drawn = True
-        bounds += [r["lo"] for r in rows.values()] + [r["hi"] for r in rows.values()]
-        hs = sorted(rows)
-        diffs = [rows[h]["diff"] for h in hs]
-        lows = [rows[h]["diff"] - rows[h]["lo"] for h in hs]
-        highs = [rows[h]["hi"] - rows[h]["diff"] for h in hs]
-        ax.errorbar(
-            hs,
-            diffs,
-            yerr=[lows, highs],
-            color=color,
-            marker="o",
-            ms=6,
-            lw=1.6,
-            capsize=4,
-            elinewidth=1.2,
-            # Nudged apart along x so the two series' bars stay legible where they
-            # share a horizon; the offset is cosmetic, in points, not data.
-            transform=ax.transData
-            + ScaledTranslation(offsets[i % 2] / 72, 0, ax.figure.dpi_scale_trans),
-            label=f"vs {label}",
-        )
-    if not drawn:
-        ax.set_visible(False)
-        return
-    ax.axhline(0, color="#666666", lw=1, ls="--", zorder=1)
-    # Set explicitly: the error bars are drawn through an offset transform, which
-    # autoscaling does not see, so left alone the axes would frame the markers
-    # and clip the intervals that are the whole point of the panel.
-    low, high = min(bounds + [0.0]), max(bounds + [0.0])
-    pad = (high - low) * 0.12 or 0.1
-    ax.set_ylim(low - pad, high + pad)
-    ax.set_xlabel("Horizon (turns past the snapshot)")
-    ax.set_ylabel(f"|ρ| advantage of {base_label}")
-    ax.set_title(
-        f"Paired difference: how much better {base_label} predicts, with 95% CI",
-        fontsize=10,
-    )
-    ax.annotate(
-        f"above 0: {base_label} is the stronger predictor",
-        xy=(0.5, 0.04),
-        xycoords="axes fraction",
-        ha="center",
-        fontsize=8,
-        color="#555555",
-    )
-    ax.grid(alpha=0.3, zorder=0)
-    ax.legend(loc="upper left", fontsize=8, framealpha=0.9, ncol=2)
-
-
 def print_predictor_comparison(
     restricted: list[tuple[str, str, dict[str, float]]],
     by_horizon: dict[int, dict[str, float]],
 ) -> None:
-    """Report how reliably each predictor beats the first one, per horizon.
+    """Report how much more closely each predictor tracks nCRPS than the first.
 
-    The confidence intervals above are marginal, and at this many models they
-    overlap heavily — which understates what the data can say, because the
-    predictors are strongly correlated with each other and share the nCRPS
-    variable. This paired resampling asks the question the intervals cannot:
-    holding the resampled model set fixed, which predictor tracks skill better?
+    The per-coefficient intervals in the plot are marginal, and at this many
+    models they overlap heavily — which understates what the data can say,
+    because the predictors are strongly correlated with each other and share the
+    nCRPS variable. This paired resampling asks the question those intervals
+    cannot: holding the resampled model set fixed, which predictor tracks skill
+    more closely? Printed rather than plotted, so the figure stays one axes.
     """
     if len(restricted) < 2:
         return
     base_label, _color, base = restricted[0]
     print(
-        f"\n  How much better {base_label} predicts nCRPS: |rho_{base_label}| -"
-        " |rho_other|,"
+        f"\n  Correlation strength vs {base_label}: |rho_{base_label}| - |rho_other|,"
     )
     print(f"  paired bootstrap over models (positive favors {base_label})")
     for label, _color, predictor in restricted[1:]:
@@ -1211,14 +1138,25 @@ def print_predictor_comparison(
                 f"      H{h:<4} diff={r['diff']:+.3f}"
                 f"  95% CI [{r['lo']:+.3f}, {r['hi']:+.3f}] {mark}"
             )
+        # Whether any interval clears zero is read off the rows rather than
+        # assumed: with a larger model set some of them will, and a hardcoded
+        # "none clears zero" would then contradict the stars printed above it.
         signs = [r["diff"] > 0 for r in rows.values() if r["diff"] != 0]
+        cleared = sum(r["lo"] > 0 or r["hi"] < 0 for r in rows.values())
+        n = next(iter(rows.values()))["n"]
         if signs and all(signs):
-            print(
-                f"      {base_label} leads at every horizon; no single interval"
-                " clears zero at n="
-                f"{next(iter(rows.values()))['n']}, so the consistency across"
-                " horizons\n      is the evidence rather than any one horizon."
-            )
+            if cleared:
+                print(
+                    f"      {base_label} leads at every horizon, and {cleared} of"
+                    f" {len(rows)} intervals clear zero (n={n})."
+                )
+            else:
+                print(
+                    f"      {base_label} leads at every horizon, but no interval"
+                    f" clears zero at n={n}, so the consistency"
+                    "\n      across horizons is the evidence rather than any one"
+                    " horizon."
+                )
 
 
 def print_tie_warnings(
@@ -1343,29 +1281,13 @@ def plot_predictors_correlation_by_horizon(
     print_tie_warnings(restricted)
 
     outdir.mkdir(parents=True, exist_ok=True)
-    # Two panels: the coefficients on top, and below them the paired difference
-    # that the comparison actually rests on. The marginal bands above overlap
-    # almost entirely, so on their own they would suggest the predictors are
-    # indistinguishable; the difference panel is where that question is settled,
-    # because the dependence between the two correlations cancels in the pairing.
-    # constrained_layout rather than tight_layout: the difference panel can hide
-    # itself when there is nothing to compare, and tight_layout warns on the
-    # resulting grid instead of laying it out.
-    fig, (ax, ax_diff) = plt.subplots(
-        2,
-        1,
-        figsize=(10, 9),
-        sharex=True,
-        height_ratios=[2, 1],
-        layout="constrained",
-    )
+    fig, ax = plt.subplots(figsize=(10, 6.5))
     draw_horizon_correlation_axes(
         ax,
         series,
         "What predicts forecast skill: general capability or world knowledge?\n"
         f"{len(shared)} models with both scores, {len(corpus)} questions",
     )
-    ax.set_xlabel("")
     annotate_read_off(ax, series[0][2])
     handles, labels = ax.get_legend_handles_labels()
     extra = significance_handles("#666666", plt) + band_handles("#666666", plt)
@@ -1376,7 +1298,7 @@ def plot_predictors_correlation_by_horizon(
         fontsize=9,
         framealpha=0.9,
     )
-    draw_predictor_difference_axes(ax_diff, restricted, by_horizon)
+    fig.tight_layout()
 
     out = outdir / "predictors_correlation_by_horizon.png"
     fig.savefig(out, dpi=150)
