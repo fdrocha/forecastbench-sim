@@ -8,7 +8,7 @@ capability.
 
 Reads only the responses already cached by scripts/run_knowledge_eval.py, so it
 prompts no models and needs no API keys or network. The only thing it writes is
-the scatter plot, which --no-plot suppresses.
+one scatter plot per statement subset, which --no-plot suppresses.
 
 Usage:
     scripts/analyze_knowledge.py
@@ -17,6 +17,7 @@ Usage:
 """
 
 import argparse
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -105,18 +106,43 @@ def load_entries() -> tuple[list[Entry], list[Unscored], list[str]]:
     return entries, skipped, sorted(set(g.ECI_MAP) - joined)
 
 
-def subsets() -> list[tuple[str, list[Statement]]]:
-    """The statement slices to correlate over, each labelled with its size.
+@dataclass(frozen=True)
+class Subset:
+    """A slice of the statement set to score and correlate over."""
+
+    name: str
+    stmts: list[Statement]
+
+    @property
+    def label(self) -> str:
+        """The name with its size, for tables and plot titles."""
+        return f"{self.name} (n={len(self.stmts)})"
+
+    @property
+    def slug(self) -> str:
+        """The name as a filename component, without the volatile count.
+
+        Derived from the name rather than stored, so a renamed subset cannot
+        keep writing to a filename describing the old one. The count is left
+        out so adding statements doesn't orphan the previous run's plots.
+        """
+        return re.sub(r"[^a-z0-9]+", "-", self.name.lower()).strip("-")
+
+
+def subsets() -> list[Subset]:
+    """The statement slices to correlate over.
 
     Difficulty tiers and honeypots are this world's analogue of the horizons
     freeciv's score_bin_condition.py breaks its correlations down by.
     """
-    slices = [("All", statements)]
+    slices = [Subset("All", statements)]
     for d in sorted({s.difficulty for s in statements}):
-        slices.append((f"Difficulty {d}", [s for s in statements if s.difficulty == d]))
-    slices.append(("Honeypot", [s for s in statements if s.is_honeypot]))
-    slices.append(("Non-honeypot", [s for s in statements if not s.is_honeypot]))
-    return [(f"{label} (n={len(stmts)})", stmts) for label, stmts in slices]
+        slices.append(
+            Subset(f"Difficulty {d}", [s for s in statements if s.difficulty == d])
+        )
+    slices.append(Subset("Honeypot", [s for s in statements if s.is_honeypot]))
+    slices.append(Subset("Non-honeypot", [s for s in statements if not s.is_honeypot]))
+    return slices
 
 
 def significance(p: float) -> str:
@@ -221,20 +247,28 @@ def print_scores(entries: list[Entry], skipped: list[Unscored]) -> None:
     )
 
 
-def correlations_by_subset(entries: list[Entry], min_n: int) -> list[tuple[str, dict]]:
+def correlations_by_subset(
+    entries: list[Entry], min_n: int
+) -> list[tuple[Subset, dict | None]]:
     """Correlate ECI against the score on each statement subset.
 
-    One pass, since the Spearman and Pearson tables report on the same fits.
-    A subset whose correlation is undefined carries None.
+    One pass, since the Spearman and Pearson tables and the scatter plots all
+    report on the same fits. A subset whose correlation is undefined carries
+    None.
     """
     ecis = [e.eci for e in entries]
     return [
-        (label, correlate(ecis, [score(tally(e.answers, stmts)) for e in entries], min_n))
-        for label, stmts in subsets()
+        (
+            sub,
+            correlate(
+                ecis, [score(tally(e.answers, sub.stmts)) for e in entries], min_n
+            ),
+        )
+        for sub in subsets()
     ]
 
 
-def print_correlations(results: list[tuple[str, dict]]) -> None:
+def print_correlations(results: list[tuple[Subset, dict | None]]) -> None:
     """ECI against normalized score, as a Spearman table then a Pearson one.
 
     Spearman leads because it asks the question the ECI ranking supports: do
@@ -249,21 +283,79 @@ def print_correlations(results: list[tuple[str, dict]]) -> None:
         print(f"\n{'=' * 70}")
         print(f"ECI × knowledge score by statement subset — {title}")
         print("=" * 70)
-        for label, result in results:
+        for sub, result in results:
             if result is None:
-                print(f"  {label:<22} —  (too few models, or no variation in score)")
+                print(
+                    f"  {sub.label:<22} —  (too few models, or no variation in score)"
+                )
                 continue
             print(
-                f"  {label:<22} {coef}={result[key]:+.3f}  p={result[p_key]:.4f} "
+                f"  {sub.label:<22} {coef}={result[key]:+.3f}  p={result[p_key]:.4f} "
                 f"{significance(result[p_key]):<4} "
                 f"({direction(result[key])}, n={result['n']})"
             )
 
 
+def place_labels(fig, ax, names: list[str], xs: list[float], ys: list[float]) -> None:
+    """Annotate each point with its model name, nudged clear of the others.
+
+    Models frequently share an ECI, and on the smaller subsets they share a
+    score too, so the names collide readily. Overlap is tested against the
+    labels' rendered pixel extents rather than the points' data coordinates:
+    the names are long and their widths vary, so point proximity is a poor
+    proxy for whether the text actually overlaps.
+    """
+    from matplotlib.transforms import Bbox
+
+    renderer = fig.canvas.get_renderer()
+    mid = (min(xs) + max(xs)) / 2
+    step = 11  # points; a little over one line at this font size
+
+    # The markers are obstacles too: a label that clears every other label can
+    # still be printed across a neighboring point.
+    radius = 7
+    placed = [
+        Bbox.from_bounds(px - radius, py - radius, 2 * radius, 2 * radius)
+        for px, py in (ax.transData.transform((x, y)) for x, y in zip(xs, ys))
+    ]
+
+    # Tightest scores first, so the crowded rows are laid out before the
+    # isolated points claim space near them.
+    order = sorted(range(len(names)), key=lambda i: (ys[i], xs[i]))
+    for i in order:
+        # Labels on the right half go to the left of their marker, so the text
+        # stays inside the axes.
+        right = xs[i] > mid
+        # Clears the marker's own box, so a point never blocks its own label.
+        offset, text = (radius + 3) * (-1 if right else 1), None
+        for attempt in range(24):
+            # Alternate above and below the marker, widening each time.
+            dy = (attempt + 1) // 2 * step * (1 if attempt % 2 else -1)
+            if text is not None:
+                text.remove()
+            text = ax.annotate(
+                names[i],
+                (xs[i], ys[i]),
+                xytext=(offset, dy),
+                textcoords="offset points",
+                ha="right" if right else "left",
+                va="center",
+                fontsize=8,
+                color="#333333",
+            )
+            box = text.get_window_extent(renderer=renderer).expanded(1.02, 1.35)
+            if not any(box.overlaps(other) for other in placed):
+                break
+        placed.append(box)
+
+
 def plot_scatter(
-    entries: list[Entry], result: dict | None, outdir: Path = PLOTS_PATH
+    entries: list[Entry],
+    sub: Subset,
+    result: dict | None,
+    outdir: Path = PLOTS_PATH,
 ) -> Path:
-    """Scatter each model's ECI against its knowledge score, with a fit line.
+    """Scatter each model's ECI against its score on one statement subset.
 
     The point of the figure over the correlation coefficient is that it shows
     the shape: whether the trend is carried by the whole range or by a couple
@@ -275,40 +367,12 @@ def plot_scatter(
     import matplotlib.pyplot as plt
 
     ecis = [e.eci for e in entries]
-    scores = [score(tally(e.answers)) for e in entries]
+    scores = [score(tally(e.answers, sub.stmts)) for e in entries]
 
     outdir.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(9, 6.5))
 
     ax.scatter(ecis, scores, s=70, color="#3266a8", zorder=3)
-
-    # Nudge a label vertically when it would otherwise land on top of one
-    # already placed: several models share an ECI, so ties are common and the
-    # names are long enough to collide.
-    placed: list[tuple[float, float]] = []
-    span = (max(scores) - min(scores)) or 1.0
-    for entry, x, y in zip(entries, ecis, scores):
-        # Models on the right half get their label on the left, so the text
-        # stays inside the axes.
-        right_edge = x > (min(ecis) + max(ecis)) / 2
-        dy = 0.0
-        while any(
-            abs(x - px) < (max(ecis) - min(ecis)) * 0.18
-            and abs(y + dy - py) < span * 0.045
-            for px, py in placed
-        ):
-            dy += span * 0.05
-        placed.append((x, y + dy))
-        ax.annotate(
-            entry.name,
-            (x, y),
-            xytext=(-8 if right_edge else 8, dy / span * 130),
-            textcoords="offset points",
-            ha="right" if right_edge else "left",
-            va="center",
-            fontsize=8,
-            color="#333333",
-        )
 
     # Least-squares fit, drawn only when a correlation was reportable at all.
     if result is not None and len(set(ecis)) > 1:
@@ -330,8 +394,8 @@ def plot_scatter(
     ax.set_xlabel("ECI (Epoch capability index)")
     ax.set_ylabel("Normalized knowledge score (1.0 = all correct)")
     ax.set_title(
-        f"Micropolis domain knowledge vs. ECI  (n={len(entries)} models, "
-        f"{len(statements)} statements)"
+        f"Micropolis domain knowledge vs. ECI — {sub.name}\n"
+        f"{len(entries)} models, {len(sub.stmts)} statements"
     )
     # 0.0 is where a model that abstained on everything lands, so it separates
     # knowing something from guessing badly. Only drawn when a model is close
@@ -343,7 +407,12 @@ def plot_scatter(
     ax.margins(x=0.12, y=0.08)
     fig.tight_layout()
 
-    out = outdir / "eci_vs_knowledge_score.png"
+    # After tight_layout, so the labels are measured against the axes the figure
+    # actually ends up with rather than the provisional ones.
+    fig.canvas.draw()
+    place_labels(fig, ax, [e.name for e in entries], ecis, scores)
+
+    out = outdir / f"eci_vs_knowledge_score-{sub.slug}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     return out
@@ -381,7 +450,7 @@ def main() -> None:
     ap.add_argument(
         "--no-plot",
         action="store_true",
-        help="Print the tables without writing the scatter plot",
+        help="Print the tables without writing the scatter plots",
     )
     args = ap.parse_args()
 
@@ -402,9 +471,9 @@ def main() -> None:
     print_caveats(entries)
 
     if not args.no_plot:
-        # The "All" subset comes first, so its fit is the one the scatter shows.
-        out = plot_scatter(entries, results[0][1])
-        print(f"\nWrote {out}")
+        print()
+        for sub, result in results:
+            print(f"Wrote {plot_scatter(entries, sub, result)}")
 
 
 if __name__ == "__main__":

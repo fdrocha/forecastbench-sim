@@ -1,11 +1,27 @@
 """Unit tests for knowledge-eval scoring.
 
-Covers the tally buckets, subset restriction, and the normalized score's scale.
-Nothing here calls a model or touches disk.
+Covers the tally buckets, subset restriction, the normalized score's scale, and
+the statement subsets the analysis breaks its correlations down by. Nothing here
+calls a model or touches disk.
 """
+
+import importlib.util
+from pathlib import Path
 
 from micropolis_world.knowledge_eval.runner import Answer, Statement, statements
 from micropolis_world.knowledge_eval.scoring import score, tally
+
+SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
+
+
+def load_analyze_knowledge():
+    """Import the analysis script, which is not on the package path."""
+    spec = importlib.util.spec_from_file_location(
+        "analyze_knowledge", SCRIPTS_DIR / "analyze_knowledge.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def answers_for(verdict_of) -> list[Answer]:
@@ -84,3 +100,33 @@ def test_score_rejects_empty_tally():
 def test_statement_is_hashable_for_subset_membership():
     # tally() puts the subset in a set, which requires Statement be hashable.
     assert len({Statement("a", True, False, 1), Statement("a", True, False, 1)}) == 1
+
+
+def test_subsets_partition_by_difficulty_and_honeypot():
+    subsets = load_analyze_knowledge().subsets()
+    by_name = {s.name: s for s in subsets}
+
+    assert by_name["All"].stmts == statements
+    # The difficulty tiers partition the whole set.
+    tiers = [s for s in subsets if s.name.startswith("Difficulty")]
+    assert sum(len(s.stmts) for s in tiers) == len(statements)
+    # Honeypot and non-honeypot do too, and are disjoint.
+    hp, non_hp = by_name["Honeypot"], by_name["Non-honeypot"]
+    assert len(hp.stmts) + len(non_hp.stmts) == len(statements)
+    assert not set(hp.stmts) & set(non_hp.stmts)
+    assert all(s.is_honeypot for s in hp.stmts)
+
+
+def test_subset_label_carries_size_and_slug_does_not():
+    module = load_analyze_knowledge()
+    sub = module.Subset("Difficulty 2", [s for s in statements if s.difficulty == 2])
+    assert sub.label == f"Difficulty 2 (n={len(sub.stmts)})"
+    # The slug names the plot file, so it must not churn as statements are added.
+    assert sub.slug == "difficulty-2"
+    assert module.Subset("Non-honeypot", []).slug == "non-honeypot"
+
+
+def test_subset_slugs_are_unique():
+    # Each subset writes its own plot, so a collision would silently overwrite.
+    slugs = [s.slug for s in load_analyze_knowledge().subsets()]
+    assert len(slugs) == len(set(slugs))
