@@ -9,10 +9,14 @@ The config selects which slice of the dataset to score — its models, cities,
 disasters, snapshot_turns and horizons — so one gathered dataset can be viewed
 many ways. Naming anything the dataset lacks is an error, not a smaller table.
 
+Also writes a scatter plot of normalized CRPS against horizon to
+data/micropolis/single_city/plots/; --no-plot skips it.
+
 Usage:
     scripts/analyze_single_city.py
     scripts/analyze_single_city.py subset.json5
     scripts/analyze_single_city.py --per-metric
+    scripts/analyze_single_city.py --no-plot
 
 The per-metric horizon tables are one table per metric and so are the bulk of the
 output; --per-metric opts into them.
@@ -20,6 +24,7 @@ output; --per-metric opts into them.
 
 import argparse
 import sys
+from pathlib import Path
 
 import micropolis_world.module_globals as g
 from micropolis_world.config import (
@@ -29,6 +34,7 @@ from micropolis_world.config import (
 )
 from micropolis_world.single_city import (
     DATA_PATH,
+    PLOTS_PATH,
     UNNORMALIZED_METRICS,
     DatasetError,
     Responses,
@@ -404,6 +410,148 @@ def print_normalized_horizon_table(
     )
 
 
+def plot_normalized_by_horizon(
+    corpus: list[dict],
+    responses: Responses,
+    model_names: list[str],
+    outdir: Path = PLOTS_PATH,
+) -> Path:
+    """Scatter normalized CRPS against horizon, one series per model.
+
+    The horizon table says the same thing, but reading a trend across a row of
+    numbers is work; here the shape is immediate — how steeply accuracy decays
+    with distance, and which models depart from the pack. The mean over models is
+    drawn as a thick line so it reads as the summary rather than as one more
+    model.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    rows = [
+        r
+        for r in score_forecasts(corpus, responses, model_names)
+        if r["normalized"] is not None
+    ]
+    horizons = sorted({c["horizon"] for c in corpus})
+    by_model = {
+        model_id: {
+            h: _mean(
+                [
+                    r["normalized"]
+                    for r in rows
+                    if r["model_id"] == model_id and r["horizon"] == h
+                ]
+            )
+            for h in horizons
+        }
+        for model_id in model_names
+    }
+    # Averaged over the per-model means, so every model counts equally however
+    # many of its forecasts parsed.
+    mean_by_horizon = {
+        h: _mean([v[h] for v in by_model.values() if v[h] is not None])
+        for h in horizons
+    }
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(10, 6.5))
+
+    # One color per model, matching plot_forecasts.py: tab10 reads more clearly
+    # but wraps at 10, so step up once there are more models than that.
+    n_colors = 10 if len(model_names) <= 10 else 20
+    palette = plt.get_cmap(f"tab{n_colors}")
+
+    # Models in the legend best-first, so its order is itself a ranking.
+    overall = {
+        model_id: _mean([v for v in by_model[model_id].values() if v is not None])
+        for model_id in model_names
+    }
+    ordered = sorted(model_names, key=lambda m: (overall[m] is None, overall[m] or 0.0))
+
+    # Models bunch tightly at the short horizons, so spread each one's points
+    # across a slice of the gap between horizons. Without this the leaders
+    # overlap into a single blob and the legend colors can't be matched to
+    # anything. The offset is a fixed function of the model's index, not random,
+    # so a model sits in the same place in every regenerated figure.
+    gap = min((b - a for a, b in zip(horizons, horizons[1:])), default=1)
+    # Held well inside the gap so a point stays visibly attached to its own tick;
+    # with few horizons a wider spread would put a model nearer the next tick
+    # than its own.
+    spread = gap * 0.35
+    offsets = {
+        model_id: (i / max(len(model_names) - 1, 1) - 0.5) * spread
+        for i, model_id in enumerate(model_names)
+    }
+
+    for i, model_id in enumerate(model_names):
+        points = [
+            (h, by_model[model_id][h])
+            for h in horizons
+            if by_model[model_id][h] is not None
+        ]
+        if not points:
+            continue
+        ax.scatter(
+            [h + offsets[model_id] for h, _ in points],
+            [v for _, v in points],
+            color=palette(i % n_colors),
+            s=38,
+            alpha=0.85,
+            zorder=3,
+            label=model_id.split("/")[-1],
+        )
+
+    mean_points = [(h, v) for h, v in mean_by_horizon.items() if v is not None]
+    if mean_points:
+        ax.plot(
+            [h for h, _ in mean_points],
+            [v for _, v in mean_points],
+            color="black",
+            lw=3,
+            marker="o",
+            ms=8,
+            zorder=4,
+            label="mean over models",
+        )
+
+    ax.set_xlabel(
+        "Horizon (turns past the snapshot; model points spread within each tick)"
+    )
+    ax.set_ylabel("Normalized CRPS (CRPS/|actual|, lower is better)")
+    ax.set_title(
+        f"Normalized CRPS by horizon  ({len(model_names)} models, "
+        f"{len(corpus)} questions)"
+    )
+    ax.set_xticks(horizons)
+    ax.grid(alpha=0.3, zorder=0)
+    ax.margins(x=0.04)
+    ax.set_ylim(bottom=0)
+
+    # The legend is as tall as the model list, so it goes beside the axes rather
+    # than over the points. Entries are ordered best-first, so the legend doubles
+    # as a ranking, with the mean on top as the series to find first.
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    legend_order = ["mean over models"] + [m.split("/")[-1] for m in ordered]
+    legend_labels = [lbl for lbl in dict.fromkeys(legend_order) if lbl in by_label]
+    ax.legend(
+        [by_label[lbl] for lbl in legend_labels],
+        legend_labels,
+        loc="center left",
+        bbox_to_anchor=(1.01, 0.5),
+        fontsize=8,
+        framealpha=0.9,
+    )
+    fig.tight_layout()
+
+    out = outdir / "normalized_crps_by_horizon.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    return out
+
+
 def print_per_metric_horizon_tables(
     corpus: list[dict], responses: Responses, model_names: list[str]
 ) -> None:
@@ -444,6 +592,12 @@ def main() -> None:
         help="Also print one CRPS by model and horizon table per metric, in that "
         "metric's own units",
     )
+    ap.add_argument(
+        "--no-plot",
+        dest="plot",
+        action="store_false",
+        help="Skip writing the normalized CRPS by horizon scatter plot",
+    )
     args = ap.parse_args()
 
     cfg = load_config(args)
@@ -473,6 +627,9 @@ def main() -> None:
         print_per_metric_horizon_tables(corpus, responses, models)
     else:
         print("\nPer-metric horizon tables omitted; pass --per-metric for them.")
+
+    if args.plot:
+        print(f"\nWrote {plot_normalized_by_horizon(corpus, responses, models)}")
 
 
 if __name__ == "__main__":
