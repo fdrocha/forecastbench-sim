@@ -34,6 +34,7 @@ from micropolis_world.config import (
     load_config,
     main_with_config,
 )
+from micropolis_world.plot_labels import place_labels
 from micropolis_world.single_city import (
     DATA_PATH,
     PLOTS_PATH,
@@ -562,6 +563,126 @@ def plot_normalized_by_horizon(
     return out
 
 
+def normalized_by_model(
+    corpus: list[dict], responses: Responses, model_names: list[str]
+) -> dict[str, float]:
+    """Mean normalized CRPS per model, over every forecast that normalizes."""
+    scores: dict[str, list[float]] = {}
+    for row in score_forecasts(corpus, responses, model_names):
+        if row["normalized"] is None:
+            continue
+        scores.setdefault(row["model_id"], []).append(row["normalized"])
+    return {m: sum(v) / len(v) for m, v in scores.items()}
+
+
+def eci_of(model_id: str) -> int | None:
+    """ECI score for a provider/name model id, or None if it has none.
+
+    ECI_MAP is keyed on the bare model name, without the provider prefix.
+    """
+    return g.ECI_MAP.get(model_id.split("/", 1)[1])
+
+
+def plot_eci_vs_normalized(
+    corpus: list[dict],
+    responses: Responses,
+    model_names: list[str],
+    outdir: Path = PLOTS_PATH,
+) -> Path | None:
+    """Scatter each model's ECI against its mean normalized CRPS.
+
+    Tests whether forecasting this world tracks general capability. Returns None
+    when too few models carry an ECI score for a correlation to mean anything.
+
+    Note the sign: nCRPS is lower-is-better, so a *negative* correlation is the
+    pro-g one — the more capable models forecast better. That is the opposite of
+    the knowledge eval in scripts/analyze_knowledge.py, whose score is
+    higher-is-better.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from scipy import stats
+
+    scores = normalized_by_model(corpus, responses, model_names)
+    points = sorted(
+        (eci_of(m), scores[m], m.split("/")[-1])
+        for m in model_names
+        if m in scores and eci_of(m) is not None
+    )
+    skipped = sorted(
+        m.split("/")[-1] for m in model_names if m in scores and eci_of(m) is None
+    )
+    if len(points) < 4:
+        print(
+            "\nECI vs normalized CRPS: only "
+            f"{len(points)} model(s) have an ECI score; skipping the plot."
+        )
+        return None
+
+    ecis = [e for e, _, _ in points]
+    values = [v for _, v, _ in points]
+    rho, p_rho = stats.spearmanr(ecis, values)
+    r, p_r = stats.pearsonr(ecis, values)
+
+    def stars(p: float) -> str:
+        return "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
+
+    # Lower nCRPS is better, so ECI going up while error goes down is the
+    # capability-tracking direction.
+    direction = "pro-g" if rho < 0 else "anti-g"
+    print("\nECI vs mean normalized CRPS (Spearman)")
+    print(
+        f"  rho={rho:+.3f}  p={p_rho:.4f} {stars(p_rho):<4} ({direction}, "
+        f"n={len(points)})"
+    )
+    print(f"  Pearson r={r:+.3f}  p={p_r:.4f} {stars(p_r)}")
+    print(
+        "  nCRPS is lower-is-better, so rho<0 means the more capable models\n"
+        "  forecast better (pro-g)."
+    )
+    if skipped:
+        print(f"  no ECI score, excluded: {', '.join(skipped)}")
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(9, 6.5))
+    ax.scatter(ecis, values, s=70, color="#3266a8", zorder=3)
+
+    fit = stats.linregress(ecis, values)
+    xs = [min(ecis), max(ecis)]
+    ax.plot(
+        xs,
+        [fit.intercept + fit.slope * x for x in xs],
+        color="#c2432d",
+        lw=1.5,
+        zorder=2,
+        label=(
+            f"fit: ρ={rho:+.3f} (p={p_rho:.4f}), r={r:+.3f} (p={p_r:.4f})"
+        ),
+    )
+    ax.legend(loc="upper right", fontsize=9, framealpha=0.9)
+
+    ax.set_xlabel("ECI (Epoch capability index)")
+    ax.set_ylabel("Mean normalized CRPS (CRPS/|actual|, lower is better)")
+    ax.set_title(
+        f"Forecast skill vs. ECI  ({len(points)} models, {len(corpus)} questions)"
+    )
+    ax.grid(alpha=0.3, zorder=0)
+    ax.margins(x=0.12, y=0.1)
+    fig.tight_layout()
+
+    # After the axes are final, so the labels are measured and placed against the
+    # limits the figure actually ends up with.
+    fig.canvas.draw()
+    place_labels(fig, ax, [n for _, _, n in points], ecis, values)
+
+    out = outdir / "eci_vs_normalized_crps.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    return out
+
+
 def plot_horizon_figures(
     corpus: list[dict], responses: Responses, model_names: list[str]
 ) -> list[Path]:
@@ -683,9 +804,12 @@ def main() -> None:
         print("\nPer-metric horizon tables omitted; pass --per-metric for them.")
 
     if args.plot:
+        eci_plot = plot_eci_vs_normalized(corpus, responses, models)
         print()
         for out in plot_horizon_figures(corpus, responses, models):
             print(f"Wrote {out}")
+        if eci_plot is not None:
+            print(f"Wrote {eci_plot}")
 
 
 if __name__ == "__main__":
