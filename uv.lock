@@ -1886,6 +1886,7 @@ dependencies = [
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "python-dotenv" },
+    { name = "scipy" },
     { name = "tqdm" },
 ]
 
@@ -1902,6 +1903,7 @@ requires-dist = [
     { name = "numpy" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
+    { name = "scipy" },
     { name = "tqdm" },
 ]
 provides-extras = ["dev"]

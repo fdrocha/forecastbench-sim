@@ -9,6 +9,8 @@
 //
 // Only "models" and "max_tokens" are read by run_knowledge_eval.py; the rest of
 // the keys are here so this file also works with the other micropolis scripts.
+// analyze_knowledge.py also reads "models", to recover the provider/name ids
+// that the cached response filenames have flattened.
 {
   "models": [
     "openai/gpt-3.5-turbo-16k", //  NOTE: only up to 4096 completion tokens

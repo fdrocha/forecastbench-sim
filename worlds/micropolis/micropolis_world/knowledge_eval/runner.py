@@ -13,8 +13,6 @@ from enum import Enum
 from pathlib import Path
 from dataclasses import dataclass
 
-from fbsim_core.evaluation.models import get_models
-
 from .. import module_globals as g
 from ..module_globals import prompt_model, warn_if_truncated
 from .statements import false_statements, honeypot_statements, true_statements
@@ -86,17 +84,23 @@ def prompt_hash(prompt: str) -> str:
 def build_prompt() -> tuple[str, str]:
     """Return the full prompt text and its 8-character hash.
 
-    As a side effect the prompt is written to prompt-<HASH>.txt in OUT_DIR, so
-    every prompt a response was gathered under stays on disk alongside it.
+    Writes nothing: the hash is what identifies a cached response, so the
+    read-only paths need to derive it without touching OUT_DIR. Call
+    save_prompt() to persist the prompt itself.
     """
     preamble = PREAMBLE_PATH.read_text(encoding="utf-8")
     numbered = [f" {i}: {s.text}" for i, s in enumerate(statements, start=1)]
     prompt = preamble + "\n".join(numbered) + "\n"
+    return prompt, prompt_hash(prompt)
 
-    phash = prompt_hash(prompt)
+
+def save_prompt(prompt: str, phash: str) -> None:
+    """Write the prompt to prompt-<HASH>.txt in OUT_DIR.
+
+    Keeps every prompt a response was gathered under on disk alongside it.
+    """
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     (OUT_DIR / f"prompt-{phash}.txt").write_text(prompt, encoding="utf-8")
-    return prompt, phash
 
 
 def model_slug(model_id: str) -> str:
@@ -208,7 +212,11 @@ def get_model_answers(
     max_tokens must leave room for one answer line per statement; a cap that
     truncates the reply shows up as UNPARSEABLE answers for the tail.
     """
+    # Imported here so the scoring-only scripts don't pull in litellm.
+    from fbsim_core.evaluation.models import get_models
+
     prompt, phash = build_prompt()
+    save_prompt(prompt, phash)
     print(f"prompt hash {phash} ({OUT_DIR / f'prompt-{phash}.txt'})")
 
     data = {}
