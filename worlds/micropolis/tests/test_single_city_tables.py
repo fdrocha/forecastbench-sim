@@ -73,3 +73,47 @@ def test_rank_width_counts_the_widest_rank():
     assert rank_width_for({"a": 100}) == 3
     # No ranks at all still needs a width, or the format spec would be empty.
     assert rank_width_for({}) == 1
+
+
+def test_correlate_by_horizon_only_uses_models_in_the_predictor():
+    # The restriction that keeps every series on one model set: a model absent
+    # from the predictor contributes no point, whatever its nCRPS.
+    correlate_by_horizon = load_module().correlate_by_horizon
+    by_horizon = {
+        0: {"p/a": 0.1, "p/b": 0.2, "p/c": 0.3, "p/d": 0.4, "p/e": 0.5},
+    }
+    predictor = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0}
+    (horizon, rho, _p, n) = correlate_by_horizon(predictor, by_horizon)[0]
+    assert (horizon, n) == (0, 4)
+    # a..d rank the same way in both variables, so the correlation is perfect.
+    assert rho == 1.0
+
+
+def test_correlate_by_horizon_skips_horizons_below_min_n():
+    correlate_by_horizon = load_module().correlate_by_horizon
+    by_horizon = {0: {"p/a": 0.1, "p/b": 0.2}, 48: {"p/a": 0.1, "p/b": 0.2}}
+    predictor = {"a": 1.0, "b": 2.0}
+    assert correlate_by_horizon(predictor, by_horizon) == []
+    # Same data, but a threshold this small set of models can meet.
+    assert len(correlate_by_horizon(predictor, by_horizon, min_n=2)) == 2
+
+
+def test_correlate_by_horizon_skips_a_constant_column():
+    # Every model scoring the same leaves the coefficient undefined; scipy would
+    # return nan with a warning rather than raising, so this must be caught here.
+    correlate_by_horizon = load_module().correlate_by_horizon
+    predictor = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0}
+    flat_y = {0: {"p/a": 0.2, "p/b": 0.2, "p/c": 0.2, "p/d": 0.2}}
+    assert correlate_by_horizon(predictor, flat_y) == []
+    # A constant predictor is just as undefined as a constant score.
+    flat_x = {0: {"p/a": 0.1, "p/b": 0.2, "p/c": 0.3, "p/d": 0.4}}
+    assert correlate_by_horizon({k: 1.0 for k in predictor}, flat_x) == []
+
+
+def test_correlate_by_horizon_is_ordered_by_horizon():
+    correlate_by_horizon = load_module().correlate_by_horizon
+    predictor = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0}
+    scores = {"p/a": 0.1, "p/b": 0.2, "p/c": 0.3, "p/d": 0.4}
+    by_horizon = {240: dict(scores), 0: dict(scores), 48: dict(scores)}
+    horizons = [h for h, _, _, _ in correlate_by_horizon(predictor, by_horizon)]
+    assert horizons == [0, 48, 240]

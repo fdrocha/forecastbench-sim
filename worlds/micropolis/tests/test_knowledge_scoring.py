@@ -130,3 +130,40 @@ def test_subset_slugs_are_unique():
     # Each subset writes its own plot, so a collision would silently overwrite.
     slugs = [s.slug for s in load_analyze_knowledge().subsets()]
     assert len(slugs) == len(set(slugs))
+
+
+def test_scores_by_model_name_keys_on_the_bare_name(monkeypatch):
+    """The cache's slugs must reduce to the names ECI_MAP and the other evals use.
+
+    This is the join the cross-eval correlation rests on, and it is only correct
+    because the slug's first "_" stands in for the "/" of the model id.
+    """
+    from micropolis_world.knowledge_eval import scoring
+
+    all_correct = answers_for(lambda s: Answer.TRUE if s.is_true else Answer.FALSE)
+    # Patched on runner, not scoring: scores_by_model_name imports it at call
+    # time, so the name it resolves is runner's.
+    monkeypatch.setattr(
+        "micropolis_world.knowledge_eval.runner.get_cached_answers",
+        lambda: {"openai_gpt-5.6-sol": all_correct},
+    )
+    scores = scoring.scores_by_model_name()
+    assert scores == {"gpt-5.6-sol": 1.0}
+
+
+def test_scores_by_model_name_restricts_to_a_subset(monkeypatch):
+    from micropolis_world.knowledge_eval import scoring
+
+    easy = [s for s in statements if s.difficulty == 0]
+    # Right on the easy tier, wrong everywhere else, so the two calls must differ.
+    answers = answers_for(
+        lambda s: (Answer.TRUE if s.is_true else Answer.FALSE)
+        if s.difficulty == 0
+        else (Answer.FALSE if s.is_true else Answer.TRUE)
+    )
+    monkeypatch.setattr(
+        "micropolis_world.knowledge_eval.runner.get_cached_answers",
+        lambda: {"openai_m": answers},
+    )
+    assert scoring.scores_by_model_name(easy) == {"m": 1.0}
+    assert scoring.scores_by_model_name()["m"] < 0

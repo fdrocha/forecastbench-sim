@@ -52,3 +52,24 @@ def score(counts: dict[str, int]) -> float:
     if n == 0:
         raise ValueError("cannot score an empty tally")
     return sum(POINTS[k] * v for k, v in counts.items()) / n
+
+
+def scores_by_model_name(stmts: list[Statement] | None = None) -> dict[str, float]:
+    """Normalized knowledge score per model, keyed on the bare model name.
+
+    Reads the response cache and scores it; prompts nothing. `stmts` restricts
+    the scoring to a subset, as in tally().
+
+    Keyed on the bare name — "gpt-5.6-sol", not "openai/gpt-5.6-sol" — because
+    that is what ECI_MAP uses, and what the other evals' model ids reduce to
+    once the provider prefix is stripped. The cache's own keys are filename
+    slugs, whose first "_" stands in for the "/" of the original id; that holds
+    for every provider prefix in use, and a provider name containing "_" would
+    be the thing to revisit here.
+    """
+    from .runner import get_cached_answers
+
+    return {
+        slug.split("_", 1)[1]: score(tally(answers, stmts))
+        for slug, answers in get_cached_answers().items()
+    }
