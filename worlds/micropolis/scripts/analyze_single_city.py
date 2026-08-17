@@ -94,7 +94,9 @@ def normalized_by_model_and_metric(
     for row in score_forecasts(corpus, responses, model_names):
         if row["normalized"] is None:
             continue
-        scores.setdefault((row["model_id"], row["metric"]), []).append(row["normalized"])
+        scores.setdefault((row["model_id"], row["metric"]), []).append(
+            row["normalized"]
+        )
     return {k: sum(v) / len(v) for k, v in scores.items()}
 
 
@@ -121,7 +123,9 @@ def ranks_within_column(values: dict[str, float | None]) -> dict[str, int]:
     return ranks
 
 
-def ranked_cell(value: float | None, rank: int | None, fmt: str, rank_width: int) -> str:
+def ranked_cell(
+    value: float | None, rank: int | None, fmt: str, rank_width: int
+) -> str:
     """A score with its rank in parens, the rank right-aligned to rank_width.
 
     Cells are right-aligned as whole strings, so a one-digit rank next to a
@@ -306,9 +310,8 @@ def print_normalized_crps_table(
     )
 
     ordered = sorted(model_names, key=lambda m: (overall[m] is None, overall[m] or 0.0))
-    header = (
-        f"{'Model':<{model_col}}  {norm_col:>{norm_width}}  "
-        + "  ".join(f"{labels[m]:>{widths[m]}}" for m in metrics)
+    header = f"{'Model':<{model_col}}  {norm_col:>{norm_width}}  " + "  ".join(
+        f"{labels[m]:>{widths[m]}}" for m in metrics
     )
     print(header)
     print("-" * len(header))
@@ -365,9 +368,7 @@ def print_horizon_table(
     labels = {"all": "all"} | {h: f"H{h}" for h in horizons}
     # Wide enough for the longest cell in the table, so a metric in the hundreds
     # of thousands doesn't push its columns out of alignment.
-    width = max(
-        [9] + [len(cell(key, mid)) for key in columns for mid in model_names]
-    )
+    width = max([9] + [len(cell(key, mid)) for key in columns for mid in model_names])
     ordered = sorted(model_names, key=lambda m: (overall[m] is None, overall[m] or 0.0))
 
     print(f"\n{title}")
@@ -557,7 +558,9 @@ def plot_normalized_by_horizon(
     )
     fig.tight_layout()
 
-    suffix = f"-{re.sub(r'[^a-z0-9]+', '-', subset.lower()).strip('-')}" if subset else ""
+    suffix = (
+        f"-{re.sub(r'[^a-z0-9]+', '-', subset.lower()).strip('-')}" if subset else ""
+    )
     out = outdir / f"normalized_crps_by_horizon{suffix}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
@@ -658,9 +661,7 @@ def plot_eci_vs_normalized(
         color="#c2432d",
         lw=1.5,
         zorder=2,
-        label=(
-            f"fit: ρ={rho:+.3f} (p={p_rho:.4f}), r={r:+.3f} (p={p_r:.4f})"
-        ),
+        label=(f"fit: ρ={rho:+.3f} (p={p_rho:.4f}), r={r:+.3f} (p={p_r:.4f})"),
     )
     ax.legend(loc="upper right", fontsize=9, framealpha=0.9)
 
@@ -705,11 +706,81 @@ def normalized_by_model_and_horizon(
     }
 
 
+# Resamples behind each confidence interval. At this many the interval is stable
+# to about +/-0.03 across seeds, far finer than the intervals themselves are wide.
+BOOTSTRAP_RESAMPLES = 5000
+
+# Fixed so re-running the analysis doesn't move the error bars. The intervals are
+# a property of the data, and a band that shifted every run would read as though
+# the underlying numbers had changed.
+BOOTSTRAP_SEED = 0
+
+
+def resample_indices(n: int, resamples: int, seed: int):
+    """Bootstrap draws over `n` models, as a (resamples, n) index array."""
+    import numpy as np
+
+    return np.random.default_rng(seed).integers(0, n, (resamples, n))
+
+
+def spearman_over_resamples(x, y, idx):
+    """Spearman rho for every row of `idx`, as an array with nan where undefined.
+
+    Vectorized over resamples rather than looping: ranks are recomputed per row,
+    since a resample repeats models and so introduces ties the full sample does
+    not have. Ranking the full sample once and indexing into it would be wrong.
+
+    nan marks a resample that drew a constant column, whose coefficient is
+    undefined — this is a real case at the nearest horizon, where many models
+    score identically.
+    """
+    import numpy as np
+    from scipy import stats
+
+    rx = stats.rankdata(x[idx], axis=1)
+    ry = stats.rankdata(y[idx], axis=1)
+    rxc = rx - rx.mean(axis=1, keepdims=True)
+    ryc = ry - ry.mean(axis=1, keepdims=True)
+    denominator = np.sqrt((rxc**2).sum(axis=1) * (ryc**2).sum(axis=1))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(denominator > 0, (rxc * ryc).sum(axis=1) / denominator, np.nan)
+
+
+def bootstrap_rho_ci(
+    xs: list[float],
+    ys: list[float],
+    resamples: int = BOOTSTRAP_RESAMPLES,
+    seed: int = BOOTSTRAP_SEED,
+) -> tuple[float, float] | None:
+    """Percentile bootstrap 95% CI for Spearman rho, resampling models.
+
+    The model is the unit of independence here: each model contributes one
+    (predictor, mean nCRPS) pair per horizon, and the many forecasts behind that
+    mean are not independent draws of the thing being estimated — a model's skill
+    is a property of the model. So the resampling is over models, which is what
+    makes the interval an honest statement about generalizing to other models.
+
+    Returns None if too few resamples yield a defined coefficient, which happens
+    when a variable is nearly constant and most resamples come out degenerate.
+    """
+    import numpy as np
+
+    x = np.asarray(xs, dtype=float)
+    y = np.asarray(ys, dtype=float)
+    rhos = spearman_over_resamples(x, y, resample_indices(len(x), resamples, seed))
+    rhos = rhos[~np.isnan(rhos)]
+    if len(rhos) < resamples // 2:
+        return None
+    lo, hi = np.percentile(rhos, [2.5, 97.5])
+    return float(lo), float(hi)
+
+
 def correlate_by_horizon(
     predictor: dict[str, float],
     by_horizon: dict[int, dict[str, float]],
     min_n: int = 4,
-) -> list[tuple[int, float, float, int]]:
+    with_ci: bool = False,
+) -> list[tuple]:
     """Spearman correlation of `predictor` against nCRPS, one row per horizon.
 
     `predictor` is keyed on the bare model name and supplies the x values;
@@ -720,6 +791,9 @@ def correlate_by_horizon(
     too few models or with no spread in either variable — a constant column
     makes the coefficient undefined, which is a live case at the nearest horizon
     where many models are exactly right.
+
+    With `with_ci`, each row gains a fifth element: the bootstrap 95% interval,
+    or None where one could not be computed.
     """
     from scipy import stats
 
@@ -735,20 +809,85 @@ def correlate_by_horizon(
         if len(points) < min_n or len(set(xs)) < 2 or len(set(ys)) < 2:
             continue
         rho, p = stats.spearmanr(xs, ys)
-        results.append((h, rho, p, len(points)))
+        row = (h, rho, p, len(points))
+        if with_ci:
+            row += (bootstrap_rho_ci(xs, ys),)
+        results.append(row)
     return results
+
+
+def compare_predictors_by_horizon(
+    a: dict[str, float],
+    b: dict[str, float],
+    by_horizon: dict[int, dict[str, float]],
+    min_n: int = 4,
+    resamples: int = BOOTSTRAP_RESAMPLES,
+    seed: int = BOOTSTRAP_SEED,
+) -> dict[int, dict[str, float]]:
+    """Per horizon, how much better `a` predicts nCRPS than `b` does.
+
+    Returns {horizon: {diff, lo, hi, share, n}}, where `diff` is
+    |rho_a| - |rho_b| on the full sample (positive means `a` is the stronger
+    predictor), `lo`/`hi` bound it at 95%, and `share` is the fraction of
+    resamples in which `b` came out stronger.
+
+    Both predictors are correlated against the *same* resampled models, which is
+    the point: the two correlations share the model sample and the nCRPS
+    variable, and are strongly dependent, so the difference is estimated far more
+    tightly than either coefficient. Comparing the two marginal intervals instead
+    would be the wrong test — they can overlap almost entirely while the
+    difference is consistently signed.
+
+    Read `lo`/`hi` as the result, not `share`: the share is a one-sided tail
+    fraction and is not a significance test, so a share of 0.05 alongside an
+    interval spanning zero means "leans this way, not established".
+    """
+    import numpy as np
+
+    out: dict[int, dict[str, float]] = {}
+    for h in sorted(by_horizon):
+        scores = {m.split("/", 1)[1]: v for m, v in by_horizon[h].items()}
+        names = [n for n in scores if n in a and n in b]
+        if len(names) < min_n:
+            continue
+        xa = np.array([a[n] for n in names], dtype=float)
+        xb = np.array([b[n] for n in names], dtype=float)
+        y = np.array([scores[n] for n in names], dtype=float)
+        # One index array for both predictors: the same resampled models are
+        # scored by each, which is what makes the comparison paired.
+        idx = resample_indices(len(names), resamples, seed)
+        ra = spearman_over_resamples(xa, y, idx)
+        rb = spearman_over_resamples(xb, y, idx)
+        usable = ~np.isnan(ra) & ~np.isnan(rb)
+        if usable.sum() < resamples // 2:
+            continue
+        diffs = np.abs(ra[usable]) - np.abs(rb[usable])
+        lo, hi = np.percentile(diffs, [2.5, 97.5])
+        full_a = spearman_over_resamples(xa, y, np.arange(len(names))[None, :])[0]
+        full_b = spearman_over_resamples(xb, y, np.arange(len(names))[None, :])[0]
+        out[h] = {
+            "diff": float(abs(full_a) - abs(full_b)),
+            "lo": float(lo),
+            "hi": float(hi),
+            "share": float((diffs < 0).sum() / len(diffs)),
+            "n": len(names),
+        }
+    return out
 
 
 def stars_for(p: float) -> str:
     return "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
 
 
-def print_horizon_correlations(
-    results: list[tuple[int, float, float, int]], indent: str = "  "
-) -> None:
-    """Print one rho/p line per horizon."""
-    for h, rho, p, n in results:
-        print(f"{indent}H{h:<4} rho={rho:+.3f}  p={p:.4f} {stars_for(p):<4} (n={n})")
+def print_horizon_correlations(results: list[tuple], indent: str = "  ") -> None:
+    """Print one rho/p line per horizon, with the interval where there is one."""
+    for row in results:
+        h, rho, p, n = row[:4]
+        ci = row[4] if len(row) > 4 else None
+        band = f"  95% CI [{ci[0]:+.2f}, {ci[1]:+.2f}]" if ci else ""
+        print(
+            f"{indent}H{h:<4} rho={rho:+.3f}  p={p:.4f} {stars_for(p):<4} (n={n}){band}"
+        )
 
 
 def print_read_off_caveat(
@@ -789,15 +928,35 @@ def draw_horizon_correlation_axes(
     `series` is (label, color, results) per line, with results as returned by
     correlate_by_horizon(). Significant points are filled and the rest hollow,
     so a coefficient that could be noise does not read as a finding.
+
+    Rows carrying a bootstrap interval (from correlate_by_horizon(with_ci=True))
+    get a shaded band. Bands rather than capped error bars: with several series
+    on one axes, caps at shared horizons collide and read as a grid, while the
+    filled region keeps each series' uncertainty attached to its own line.
     """
     all_rhos = []
     all_hs: list[int] = []
     for label, color, results in series:
-        hs = [h for h, _, _, _ in results]
-        rhos = [rho for _, rho, _, _ in results]
-        sig = [p < 0.05 for _, _, p, _ in results]
+        hs = [h for h, *_ in results]
+        rhos = [row[1] for row in results]
+        sig = [row[2] < 0.05 for row in results]
         all_rhos += rhos
         all_hs += [h for h in hs if h not in all_hs]
+
+        # Drawn under the lines, and only where every row has an interval — a band
+        # that silently skipped a horizon would misstate where it narrows.
+        cis = [row[4] if len(row) > 4 else None for row in results]
+        if cis and all(ci is not None for ci in cis):
+            ax.fill_between(
+                hs,
+                [ci[0] for ci in cis],
+                [ci[1] for ci in cis],
+                color=color,
+                alpha=0.12,
+                lw=0,
+                zorder=1,
+            )
+            all_rhos += [b for ci in cis for b in ci]
         ax.plot(hs, rhos, color=color, lw=2, zorder=2, label=label)
         ax.scatter(
             [h for h, s in zip(hs, sig) if s],
@@ -837,6 +996,13 @@ def draw_horizon_correlation_axes(
     ax.margins(x=0.06)
 
 
+def band_handles(color: str, plt) -> list:
+    """Legend proxy explaining the shaded band."""
+    from matplotlib.patches import Patch
+
+    return [Patch(facecolor=color, alpha=0.12, label="95% CI (bootstrap over models)")]
+
+
 def significance_handles(color: str, plt) -> list:
     """Legend proxies explaining the filled/hollow marker convention."""
     return [
@@ -863,7 +1029,7 @@ def annotate_read_off(ax, results: list[tuple[int, float, float, int]]) -> None:
     about the horizon, and with several series stacked there a leader line to
     one of them reads as singling that series out.
     """
-    if 0 not in [h for h, _, _, _ in results]:
+    if 0 not in [h for h, *_ in results]:
         return
     ax.annotate(
         "read-off,\nnot a forecast",
@@ -900,7 +1066,7 @@ def plot_eci_correlation_by_horizon(
     import matplotlib.pyplot as plt
 
     by_horizon = normalized_by_model_and_horizon(corpus, responses, model_names)
-    results = correlate_by_horizon(eci_by_name(model_names), by_horizon)
+    results = correlate_by_horizon(eci_by_name(model_names), by_horizon, with_ci=True)
 
     if not results:
         print(
@@ -923,9 +1089,10 @@ def plot_eci_correlation_by_horizon(
     )
     ax.set_ylabel("Spearman ρ of ECI vs. normalized CRPS")
     annotate_read_off(ax, results)
-    # With a single series the only thing worth legending is what the fill means.
+    # With a single series the only things worth legending are what the fill and
+    # the band mean.
     ax.legend(
-        handles=significance_handles("#3266a8", plt),
+        handles=significance_handles("#3266a8", plt) + band_handles("#3266a8", plt),
         loc="upper right",
         fontsize=9,
         framealpha=0.9,
@@ -936,6 +1103,143 @@ def plot_eci_correlation_by_horizon(
     fig.savefig(out, dpi=150)
     plt.close(fig)
     return out
+
+
+def draw_predictor_difference_axes(
+    ax,
+    restricted: list[tuple[str, str, dict[str, float]]],
+    by_horizon: dict[int, dict[str, float]],
+) -> None:
+    """Draw the paired |rho| difference against the first predictor, with CIs.
+
+    This is the panel that answers "which predictor is better": the difference is
+    estimated on the same resampled models for both, so the dependence between
+    the two correlations cancels and the interval is far tighter than either
+    coefficient's own. An interval clearing zero is the claim; the sign of the
+    point alone is not.
+    """
+    from matplotlib.transforms import ScaledTranslation
+
+    base_label, _color, base = restricted[0]
+    offsets = [-6, 6]  # points, so two series at one horizon don't overlap
+    drawn = False
+    bounds: list[float] = []
+    for i, (label, color, predictor) in enumerate(restricted[1:]):
+        rows = compare_predictors_by_horizon(base, predictor, by_horizon)
+        if not rows:
+            continue
+        drawn = True
+        bounds += [r["lo"] for r in rows.values()] + [r["hi"] for r in rows.values()]
+        hs = sorted(rows)
+        diffs = [rows[h]["diff"] for h in hs]
+        lows = [rows[h]["diff"] - rows[h]["lo"] for h in hs]
+        highs = [rows[h]["hi"] - rows[h]["diff"] for h in hs]
+        ax.errorbar(
+            hs,
+            diffs,
+            yerr=[lows, highs],
+            color=color,
+            marker="o",
+            ms=6,
+            lw=1.6,
+            capsize=4,
+            elinewidth=1.2,
+            # Nudged apart along x so the two series' bars stay legible where they
+            # share a horizon; the offset is cosmetic, in points, not data.
+            transform=ax.transData
+            + ScaledTranslation(offsets[i % 2] / 72, 0, ax.figure.dpi_scale_trans),
+            label=f"vs {label}",
+        )
+    if not drawn:
+        ax.set_visible(False)
+        return
+    ax.axhline(0, color="#666666", lw=1, ls="--", zorder=1)
+    # Set explicitly: the error bars are drawn through an offset transform, which
+    # autoscaling does not see, so left alone the axes would frame the markers
+    # and clip the intervals that are the whole point of the panel.
+    low, high = min(bounds + [0.0]), max(bounds + [0.0])
+    pad = (high - low) * 0.12 or 0.1
+    ax.set_ylim(low - pad, high + pad)
+    ax.set_xlabel("Horizon (turns past the snapshot)")
+    ax.set_ylabel(f"|ρ| advantage of {base_label}")
+    ax.set_title(
+        f"Paired difference: how much better {base_label} predicts, with 95% CI",
+        fontsize=10,
+    )
+    ax.annotate(
+        f"above 0: {base_label} is the stronger predictor",
+        xy=(0.5, 0.04),
+        xycoords="axes fraction",
+        ha="center",
+        fontsize=8,
+        color="#555555",
+    )
+    ax.grid(alpha=0.3, zorder=0)
+    ax.legend(loc="upper left", fontsize=8, framealpha=0.9, ncol=2)
+
+
+def print_predictor_comparison(
+    restricted: list[tuple[str, str, dict[str, float]]],
+    by_horizon: dict[int, dict[str, float]],
+) -> None:
+    """Report how reliably each predictor beats the first one, per horizon.
+
+    The confidence intervals above are marginal, and at this many models they
+    overlap heavily — which understates what the data can say, because the
+    predictors are strongly correlated with each other and share the nCRPS
+    variable. This paired resampling asks the question the intervals cannot:
+    holding the resampled model set fixed, which predictor tracks skill better?
+    """
+    if len(restricted) < 2:
+        return
+    base_label, _color, base = restricted[0]
+    print(
+        f"\n  How much better {base_label} predicts nCRPS: |rho_{base_label}| -"
+        " |rho_other|,"
+    )
+    print(f"  paired bootstrap over models (positive favors {base_label})")
+    for label, _color, predictor in restricted[1:]:
+        rows = compare_predictors_by_horizon(base, predictor, by_horizon)
+        if not rows:
+            continue
+        print(f"    vs {label}")
+        for h, r in sorted(rows.items()):
+            # Flagged only where the interval clears zero, which is the actual
+            # test; the sign of diff alone is not evidence of a difference.
+            mark = "*" if r["lo"] > 0 or r["hi"] < 0 else ""
+            print(
+                f"      H{h:<4} diff={r['diff']:+.3f}"
+                f"  95% CI [{r['lo']:+.3f}, {r['hi']:+.3f}] {mark}"
+            )
+        signs = [r["diff"] > 0 for r in rows.values() if r["diff"] != 0]
+        if signs and all(signs):
+            print(
+                f"      {base_label} leads at every horizon; no single interval"
+                " clears zero at n="
+                f"{next(iter(rows.values()))['n']}, so the consistency across"
+                " horizons\n      is the evidence rather than any one horizon."
+            )
+
+
+def print_tie_warnings(
+    restricted: list[tuple[str, str, dict[str, float]]], min_distinct: int = 6
+) -> None:
+    """Flag a predictor too coarse for a rank correlation to resolve.
+
+    Spearman works on ranks, so a predictor with many models tied has less
+    resolution than its model count suggests, and its correlation is attenuated
+    for a reason that is not about the world. Worth saying outright, because a
+    weak coefficient otherwise reads as a substantive finding.
+    """
+    for label, _color, predictor in restricted:
+        distinct = len(set(predictor.values()))
+        if distinct < min_distinct and predictor:
+            print(
+                f"\n  {label}: only {distinct} distinct values across"
+                f" {len(predictor)} models, so ties limit how much rank"
+                "\n  correlation it can show; read its weakness as partly"
+                " granularity, not only signal."
+            )
 
 
 def knowledge_predictors(model_names: list[str]) -> dict[str, dict[str, float]] | None:
@@ -1010,11 +1314,16 @@ def plot_predictors_correlation_by_horizon(
     ]
 
     by_horizon = normalized_by_model_and_horizon(corpus, responses, model_names)
+    restricted = [
+        (label, color, {k: v for k, v in predictor.items() if k in shared})
+        for label, color, predictor in series_defs
+    ]
     series = []
-    for label, color, predictor in series_defs:
-        results = correlate_by_horizon(
-            {k: v for k, v in predictor.items() if k in shared}, by_horizon
-        )
+    for i, (label, color, predictor) in enumerate(restricted):
+        # Banded only for the two predictors compared head to head. A third band
+        # over the same span would obscure both without adding a comparison, and
+        # the easy tier's story is its granularity rather than a fine estimate.
+        results = correlate_by_horizon(predictor, by_horizon, with_ci=i < 2)
         if results:
             series.append((label, color, results))
 
@@ -1030,25 +1339,44 @@ def plot_predictors_correlation_by_horizon(
         print(f"  {label}")
         print_horizon_correlations(results, indent="    ")
     print_read_off_caveat(corpus, responses, model_names, series[0][2])
+    print_predictor_comparison(restricted, by_horizon)
+    print_tie_warnings(restricted)
 
     outdir.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(10, 6.5))
+    # Two panels: the coefficients on top, and below them the paired difference
+    # that the comparison actually rests on. The marginal bands above overlap
+    # almost entirely, so on their own they would suggest the predictors are
+    # indistinguishable; the difference panel is where that question is settled,
+    # because the dependence between the two correlations cancels in the pairing.
+    # constrained_layout rather than tight_layout: the difference panel can hide
+    # itself when there is nothing to compare, and tight_layout warns on the
+    # resulting grid instead of laying it out.
+    fig, (ax, ax_diff) = plt.subplots(
+        2,
+        1,
+        figsize=(10, 9),
+        sharex=True,
+        height_ratios=[2, 1],
+        layout="constrained",
+    )
     draw_horizon_correlation_axes(
         ax,
         series,
         "What predicts forecast skill: general capability or world knowledge?\n"
         f"{len(shared)} models with both scores, {len(corpus)} questions",
     )
+    ax.set_xlabel("")
     annotate_read_off(ax, series[0][2])
     handles, labels = ax.get_legend_handles_labels()
+    extra = significance_handles("#666666", plt) + band_handles("#666666", plt)
     ax.legend(
-        handles=handles + significance_handles("#666666", plt),
-        labels=labels + ["p < 0.05", "not significant"],
+        handles=handles + extra,
+        labels=labels + [h.get_label() for h in extra],
         loc="upper right",
         fontsize=9,
         framealpha=0.9,
     )
-    fig.tight_layout()
+    draw_predictor_difference_axes(ax_diff, restricted, by_horizon)
 
     out = outdir / "predictors_correlation_by_horizon.png"
     fig.savefig(out, dpi=150)
@@ -1073,9 +1401,7 @@ def plot_horizon_figures(
     ]
     # A config naming only one side of the split leaves the other empty; skip it
     # rather than drawing an axis with nothing on it.
-    selections = [
-        (subset, [c for c in corpus if keep(c)]) for subset, keep in subsets
-    ]
+    selections = [(subset, [c for c in corpus if keep(c)]) for subset, keep in subsets]
     selections = [(subset, sel) for subset, sel in selections if sel]
 
     # One y-axis top across the set, so the disasters and no-disasters figures
@@ -1090,7 +1416,9 @@ def plot_horizon_figures(
         ]
         by_cell: dict[tuple[str, int], list[float]] = {}
         for r in rows:
-            by_cell.setdefault((r["model_id"], r["horizon"]), []).append(r["normalized"])
+            by_cell.setdefault((r["model_id"], r["horizon"]), []).append(
+                r["normalized"]
+            )
         ymax = max([ymax] + [sum(v) / len(v) for v in by_cell.values()])
     ymax *= 1.08  # headroom so the topmost marker isn't clipped by the frame
 

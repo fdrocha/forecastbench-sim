@@ -117,3 +117,89 @@ def test_correlate_by_horizon_is_ordered_by_horizon():
     by_horizon = {240: dict(scores), 0: dict(scores), 48: dict(scores)}
     horizons = [h for h, _, _, _ in correlate_by_horizon(predictor, by_horizon)]
     assert horizons == [0, 48, 240]
+
+
+def test_spearman_over_resamples_matches_scipy():
+    """The vectorized bootstrap must agree with scipy exactly, ties included.
+
+    Ranks are recomputed per resample rather than taken from the full sample,
+    because a resample repeats models and so has ties the full sample lacks.
+    Getting that wrong would bias every interval, so it is pinned here.
+    """
+    import numpy as np
+    from scipy import stats
+
+    module = load_module()
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    y = np.array([2.0, 1.0, 4.0, 3.0, 5.0])
+    idx = np.array([[0, 1, 2, 3, 4], [0, 0, 1, 2, 3], [4, 3, 2, 1, 0]])
+    got = module.spearman_over_resamples(x, y, idx)
+    want = [stats.spearmanr(x[i], y[i]).statistic for i in idx]
+    assert np.allclose(got, want)
+
+
+def test_spearman_over_resamples_is_nan_on_a_constant_draw():
+    import numpy as np
+
+    module = load_module()
+    x = np.array([1.0, 2.0, 3.0])
+    y = np.array([5.0, 6.0, 7.0])
+    # A resample of one model repeated has no spread, so rho is undefined.
+    got = module.spearman_over_resamples(x, y, np.array([[1, 1, 1], [0, 1, 2]]))
+    assert np.isnan(got[0])
+    assert got[1] == 1.0
+
+
+def test_bootstrap_ci_brackets_a_strong_correlation():
+    module = load_module()
+    xs = list(range(12))
+    ys = [float(v) for v in range(12)]
+    lo, hi = module.bootstrap_rho_ci(xs, ys, resamples=500)
+    # Perfectly monotone, so every resample gives rho=1 and the CI collapses.
+    assert lo == hi == 1.0
+
+
+def test_bootstrap_ci_is_deterministic():
+    # The band must not move between runs, or a re-run reads as changed data.
+    module = load_module()
+    xs = [1, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 12]
+    ys = [0.5, 0.1, 0.4, 0.9, 0.3, 0.8, 0.2, 0.7, 0.6, 1.0, 0.05, 0.95]
+    first = module.bootstrap_rho_ci(xs, ys, resamples=500)
+    assert first == module.bootstrap_rho_ci(xs, ys, resamples=500)
+
+
+def test_correlate_by_horizon_adds_a_ci_only_when_asked():
+    module = load_module()
+    by_horizon = {0: {"p/a": 0.4, "p/b": 0.3, "p/c": 0.2, "p/d": 0.1}}
+    predictor = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0}
+    plain = module.correlate_by_horizon(predictor, by_horizon)
+    assert len(plain[0]) == 4
+    with_ci = module.correlate_by_horizon(predictor, by_horizon, with_ci=True)
+    assert len(with_ci[0]) == 5
+    lo, hi = with_ci[0][4]
+    assert lo <= with_ci[0][1] <= hi
+
+
+def test_compare_predictors_prefers_the_better_aligned_predictor():
+    """The paired comparison must favor the predictor that tracks the scores."""
+    module = load_module()
+    by_horizon = {0: {"p/a": 0.1, "p/b": 0.2, "p/c": 0.3, "p/d": 0.4, "p/e": 0.5}}
+    # `good` is perfectly monotone with nCRPS; `bad` is nearly unrelated.
+    good = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0, "e": 5.0}
+    bad = {"a": 3.0, "b": 1.0, "c": 5.0, "d": 2.0, "e": 4.0}
+    rows = module.compare_predictors_by_horizon(good, bad, by_horizon)
+    assert rows[0]["diff"] > 0  # positive means the first predictor is stronger
+    assert rows[0]["lo"] <= rows[0]["diff"] <= rows[0]["hi"]
+    # Rarely should the weaker predictor win a resample.
+    assert rows[0]["share"] < 0.25
+    assert rows[0]["n"] == 5
+
+
+def test_compare_predictors_is_symmetric_in_sign():
+    module = load_module()
+    by_horizon = {0: {"p/a": 0.1, "p/b": 0.2, "p/c": 0.3, "p/d": 0.4, "p/e": 0.5}}
+    good = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0, "e": 5.0}
+    bad = {"a": 3.0, "b": 1.0, "c": 5.0, "d": 2.0, "e": 4.0}
+    forward = module.compare_predictors_by_horizon(good, bad, by_horizon)[0]
+    reverse = module.compare_predictors_by_horizon(bad, good, by_horizon)[0]
+    assert forward["diff"] == -reverse["diff"]
