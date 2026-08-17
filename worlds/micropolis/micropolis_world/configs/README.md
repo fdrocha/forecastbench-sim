@@ -42,9 +42,17 @@ several times at the same seed and compares the log and events files across
 runs, reporting the first turn and field where any two differ:
 
 ```
-scripts/check_determinism.py                        # default.json5, 3 repeats
-scripts/check_determinism.py one_city.json5 --repeats 5 --turns 100
+scripts/check_determinism.py                        # default.json5, 5 repeats
+scripts/check_determinism.py one_city.json5 --repeats 8 --turns 100
+scripts/check_determinism.py one_city.json5 --plot  # overlay the repeats
 ```
+
+`--plot` also writes one figure per scenario into
+`data/micropolis/determinism/`, overlaying every repeat on the same panels
+`run_sim.py`'s figures use, so the run-to-run spread is visible rather than only
+tabulated. Scenarios with disasters enabled are skipped there: the figure draws
+no disaster lines, so a strike hitting one run and not another would be
+indistinguishable from the RNG divergence the figure is about.
 
 It reads only `seed`, `cities`, and `disasters`, and takes its run length from
 `--turns` rather than the config's `turns`, so a check can be much shorter than

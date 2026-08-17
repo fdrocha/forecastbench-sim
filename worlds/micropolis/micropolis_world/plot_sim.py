@@ -208,3 +208,78 @@ def save_run_plot(sim: CitySimulation) -> str:
     out.parent.mkdir(parents=True, exist_ok=True)
     plot_run(sim, output=str(out))
     return str(out)
+
+
+def plot_repeats(
+    runs: list[list[dict]],
+    title: str,
+    output: str | None = None,
+) -> None:
+    """Overlay several runs of one scenario on the PANEL_METRICS panels.
+
+    Same panels and time axis as plot_run, so the two figures can be read
+    against each other; the difference is that every run gets its own line per
+    panel. That makes the spread between supposedly identical runs the thing
+    the figure shows.
+
+    `runs` holds one run's log rows per entry, in run order. Disasters are not
+    marked: the vertical lines of plot_run would confound a strike with the
+    run-to-run spread this figure is about, so callers pass nodisasters runs.
+    """
+    if not runs:
+        raise ValueError("plot_repeats needs at least one run")
+
+    # Each run gets a color from a qualitative map, so no run reads as the
+    # "real" one — unlike PANEL_METRICS' per-metric colors, which would make
+    # every line in a panel identical and unattributable.
+    colors = plt.get_cmap("tab10").colors
+
+    nrows, ncols = PANEL_GRID
+    fig, axes = plt.subplots(
+        nrows, ncols, figsize=(10, 3.2 * nrows), sharex=True, squeeze=False
+    )
+    fig.suptitle(title)
+
+    flat_axes = [ax for row in axes for ax in row]
+    for ax, (metric, _color) in zip(flat_axes, PANEL_METRICS):
+        for i, rows in enumerate(runs):
+            dates = [
+                date_for(r["cityTime"], r["cityYear"], r["cityMonth"]) for r in rows
+            ]
+            ax.plot(
+                dates,
+                [r[metric] for r in rows],
+                color=colors[i % len(colors)],
+                linewidth=1,
+                alpha=0.8,
+            )
+        ax.set_title(g.METRIC_LABELS[metric].capitalize())
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+        ax.grid(True, alpha=0.3)
+
+    for ax in flat_axes[len(PANEL_METRICS) :]:
+        ax.set_visible(False)
+
+    handles = [
+        plt.Line2D([0], [0], color=colors[i % len(colors)], linewidth=1)
+        for i in range(len(runs))
+    ]
+    fig.legend(
+        handles,
+        [f"run {i}" for i in range(1, len(runs) + 1)],
+        loc="lower center",
+        ncol=min(len(runs), 8),
+        fontsize="small",
+    )
+
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    # Same fraction-of-figure reservation as plot_run's disaster legend.
+    fig.subplots_adjust(bottom=0.3 / nrows)
+
+    if output:
+        fig.savefig(output, dpi=150)
+        print(f"Wrote {output}")
+    else:
+        plt.show()
+    plt.close(fig)

@@ -10,9 +10,13 @@ repeat overwrites the last. Every repeat's output is copied into a scratch
 directory before the next one starts, and the originals are restored afterwards
 so a check leaves data/micropolis/runs/ as it found it.
 
+--plot additionally writes one figure per scenario overlaying every repeat's
+metrics on the same panels plot_sim.py uses, so the run-to-run spread is visible
+rather than only tabulated. Disaster scenarios are skipped there.
+
 Usage:
     scripts/check_determinism.py
-    scripts/check_determinism.py my_config.json5 --repeats 5
+    scripts/check_determinism.py my_config.json5 --repeats 5 --plot
     scripts/check_determinism.py --repeats 3 --turns 200 --keep
 """
 
@@ -23,6 +27,7 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
+from micropolis_world import module_globals as g
 from micropolis_world.city_sim import CitySimulation
 from micropolis_world.config import (
     add_config_args,
@@ -38,6 +43,14 @@ RUN_FILES = ["log", "events"]
 # Enough turns for divergence to compound and show up, without paying for a
 # full 1000-turn run on every repeat. Override with --turns.
 DEFAULT_TURNS = 300
+
+# Enough histories to see the spread in a --plot figure without the panels
+# turning into a thicket. Also the number compared when only reporting.
+DEFAULT_REPEATS = 5
+
+# --plot figures go beside the run data rather than into data/micropolis/runs/,
+# whose per-city plot filenames belong to run_sim.py's single-run figures.
+PLOTS_DIR = g.DATA_DIR / "determinism"
 
 
 def snapshot_run(sim: CitySimulation, dest: Path) -> dict[str, Path]:
@@ -154,6 +167,34 @@ def compare_scenario(
     return identical
 
 
+def plot_scenario_repeats(
+    sim: CitySimulation, runs: list[dict[str, Path]], repeats: int
+) -> None:
+    """Write one figure overlaying every repeat's metrics for this scenario.
+
+    Reads the snapshot copies, not sim.log_data: the originals are restored on
+    the way out, and only run `repeats` is still on disk under its real path.
+
+    Disaster runs are skipped rather than drawn without their disaster lines,
+    which would show a spread that mixes RNG divergence with the effect of a
+    strike hitting one run and not another.
+    """
+    if sim.disasters:
+        print("  plot: skipped (disasters enabled)")
+        return
+
+    # Imported here so a check without --plot doesn't pull in matplotlib.
+    from micropolis_world.plot_sim import plot_repeats
+
+    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+    output = PLOTS_DIR / f"repeats-{sim.get_id_str()}-x{repeats}.png"
+    plot_repeats(
+        [load_rows(run["log"]) for run in runs],
+        title=f"{sim.get_id_str()} — {repeats} runs at the same seed",
+        output=str(output),
+    )
+
+
 @main_with_config
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
@@ -161,8 +202,8 @@ def main() -> None:
     ap.add_argument(
         "--repeats",
         type=int,
-        default=3,
-        help="How many times to run each scenario (default: 3)",
+        default=DEFAULT_REPEATS,
+        help=f"How many times to run each scenario (default: {DEFAULT_REPEATS})",
     )
     ap.add_argument(
         "--turns",
@@ -174,6 +215,14 @@ def main() -> None:
         "--keep",
         action="store_true",
         help="Keep the per-run output copies instead of deleting them",
+    )
+    ap.add_argument(
+        "--plot",
+        action="store_true",
+        help=(
+            "Also write a figure per scenario overlaying every repeat's metrics, "
+            f"into {PLOTS_DIR}. Skips scenarios with disasters enabled"
+        ),
     )
     ap.add_argument("--quiet", action="store_true", help="Only report differences")
     args = ap.parse_args()
@@ -223,6 +272,8 @@ def main() -> None:
                 runs.append(snapshot_run(sim, workdir / sim.get_id_str() / f"run{i}"))
             if not compare_scenario(sim, runs, args.quiet):
                 nondeterministic.append(sim.get_id_str())
+            if args.plot:
+                plot_scenario_repeats(sim, runs, args.repeats)
     finally:
         for saved, original in restore:
             shutil.copy2(saved, original)
