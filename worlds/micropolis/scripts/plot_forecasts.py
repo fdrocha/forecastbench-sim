@@ -1,14 +1,17 @@
 #!/usr/bin/env -S uv run python3
 """Plot single city metric trajectories with model forecasts overlaid.
 
-One figure per (scenario, snapshot turn), carrying every horizon asked from
-that snapshot. Reads data/micropolis/single_city/data.json, written by
-scripts/run_single_city_eval.py, and the simulation logs the questions came
+One figure per scenario, carrying every snapshot taken from it and every horizon
+asked from those snapshots. Reads data/micropolis/single_city/data.json, written
+by scripts/run_single_city_eval.py, and the simulation logs the questions came
 from; prompts no models.
 
 The config selects which slice of the dataset to draw — its models, cities,
 disasters, snapshot_turns and horizons — so one gathered dataset can be plotted
 many ways. Naming anything the dataset lacks is an error, not a smaller figure.
+
+Writes one figure per scenario to
+data/micropolis/single_city/plots/forecasts/, panelled by metric.
 
 Usage:
     scripts/plot_forecasts.py
@@ -19,12 +22,14 @@ import argparse
 import sys
 from pathlib import Path
 
+import micropolis_world.module_globals as g
 from micropolis_world.city_sim import CitySimulation, turn_of
 from micropolis_world.config import (
     add_config_args,
     load_config,
     main_with_config,
 )
+from micropolis_world.plot_sim import PANEL_GRID, PANEL_METRICS
 from micropolis_world.single_city import (
     DATA_PATH,
     PLOTS_PATH,
@@ -35,12 +40,18 @@ from micropolis_world.single_city import (
     select_for_config,
 )
 
-# The metrics charted per figure, in subplot order — the three that have
-# question templates, so every panel carries forecasts as well as the actual.
+# Written to their own directory: one figure per scenario is many files, and they
+# would otherwise be mixed in with the handful of summary plots the scoring
+# script writes alongside them.
+FORECASTS_PATH = PLOTS_PATH / "forecasts"
+
+# The panels come from plot_sim.py's list, so a metric is drawn the same color
+# and in the same position whether the figure carries forecasts or not, and
+# titles come from g.METRIC_LABELS so no panel can disagree with how the same
+# metric is named in a report.
 PLOT_METRICS = [
-    ("totalFunds", "Funds ($)", "tab:green"),
-    ("cityPop", "Population", "tab:blue"),
-    ("crimeAverage", "Crime Average", "tab:red"),
+    (metric, str(g.METRIC_LABELS[metric]).capitalize(), color)
+    for metric, color in PANEL_METRICS
 ]
 
 
@@ -48,16 +59,21 @@ def plot_forecasts(
     corpus: list[dict],
     responses: Responses,
     model_names: list[str],
-    outdir: Path = PLOTS_PATH,
+    outdir: Path = FORECASTS_PATH,
 ) -> list[Path]:
-    """One figure per (scenario, snapshot turn): trajectories + model forecasts.
+    """One figure per scenario: trajectories plus every snapshot's forecasts.
 
-    Metrics are stacked vertically and drawn against turn rather than date, so
-    a forecast sits at the turn it resolves on (snapshot_turn + horizon), give
-    or take the small per-model offset that keeps them apart. Every
-    horizon asked from a snapshot shares the figure: a model's forecasts then
-    read left to right as a fan widening with distance from the snapshot, which
-    is what comparing horizons is about. Disaster lines are omitted.
+    One panel per metric that has forecast questions, gridded and drawn against
+    turn rather than date, so a forecast sits at the turn it resolves on
+    (snapshot_turn + horizon), give or take the small per-model offset that keeps
+    them apart. Every horizon asked from a snapshot shares the figure: a model's
+    forecasts then read left to right as a fan widening with distance from the
+    snapshot, which is what comparing horizons is about.
+
+    Every snapshot of a scenario shares the figure too, distinguished by marker
+    shape, since they share one actual trajectory and comparing what a model said
+    from turn 240 against what it said from 480 is the other half of the picture.
+    Disaster lines are omitted.
     """
     import matplotlib
 
@@ -72,16 +88,18 @@ def plot_forecasts(
     palette = plt.get_cmap(f"tab{n_colors}")
     model_colors = {m: palette(i % n_colors) for i, m in enumerate(model_names)}
 
-    # Group questions by the figure they belong to, then by which subplot.
-    by_figure: dict[tuple[str, int], list[dict]] = {}
+    # One figure per scenario, carrying every snapshot taken from it. The actual
+    # trajectory is a property of the scenario, not of the snapshot, so splitting
+    # by snapshot would redraw the same line once per figure.
+    by_figure: dict[str, list[dict]] = {}
     for c in corpus:
-        by_figure.setdefault((c["scenario_id"], c["snapshot_turn"]), []).append(c)
+        by_figure.setdefault(c["scenario_id"], []).append(c)
 
     # A scenario_id maps to exactly one simulation; load each one once.
     sims: dict[str, CitySimulation] = {}
     written = []
 
-    for (scenario_id, snapshot_turn), entries in sorted(by_figure.items()):
+    for scenario_id, entries in sorted(by_figure.items()):
         if scenario_id not in sims:
             sc = entries[0]["scenario"]
             sim = CitySimulation(
@@ -93,10 +111,21 @@ def plot_forecasts(
         rows = sim.log_data or []
         turns = [turn_of(r) for r in rows]
 
+        snapshot_turns = sorted({c["snapshot_turn"] for c in entries})
+        # Marker shape per snapshot, since color is already spent on the model.
+        # Position alone would not separate them: a late snapshot's nearest
+        # forecasts land among an early snapshot's most distant ones.
+        markers = ["o", "s", "^", "D", "v", "P"]
+        snapshot_markers = {
+            turn: markers[i % len(markers)] for i, turn in enumerate(snapshot_turns)
+        }
+
         # Every model answers the same question, so without this they all land
         # on one x and hide each other. Spread them across a slot narrower than
         # the gap between adjacent resolve turns, centered on the turn the
-        # forecast is actually for, so the groups stay distinct.
+        # forecast is actually for, so the groups stay distinct. Computed over
+        # every snapshot's resolve turns at once, so clusters from different
+        # snapshots that land close together still do not merge.
         resolve_turns = sorted({c["snapshot_turn"] + c["horizon"] for c in entries})
         gaps = [b - a for a, b in zip(resolve_turns, resolve_turns[1:])]
         slot = 0.6 * min(gaps) if gaps else 0.04 * (max(turns) - min(turns))
@@ -105,21 +134,26 @@ def plot_forecasts(
             for i, model_id in enumerate(model_names)
         }
 
+        nrows, ncols = PANEL_GRID
         fig, axes = plt.subplots(
-            len(PLOT_METRICS), 1, figsize=(11, 4 * len(PLOT_METRICS)), sharex=True
+            nrows,
+            ncols,
+            figsize=(8 * ncols, 3.6 * nrows),
+            sharex=True,
+            squeeze=False,
         )
-        for ax, (metric, title, color) in zip(axes, PLOT_METRICS):
+        flat_axes = [ax for row in axes for ax in row]
+        for ax, (metric, title, color) in zip(flat_axes, PLOT_METRICS):
             actual = [r[metric] for r in rows]
-            ax.plot(turns, actual, color=color, label="actual")
-            # Everything left of this line was in the prompt; everything right
-            # of it is what the models were asked to forecast.
-            ax.axvline(
-                snapshot_turn,
-                color="0.4",
-                linestyle="--",
-                linewidth=1.2,
-                label=f"snapshot (turn {snapshot_turn})",
-            )
+            # Unlabelled: each panel draws its metric in its own color, so one
+            # panel's handle would key the legend with a color five other panels
+            # do not use. A neutral proxy stands in below.
+            ax.plot(turns, actual, color=color)
+            # Everything left of one of these lines was in that snapshot's
+            # prompt; everything right of it is what the models were asked to
+            # forecast from it.
+            for turn in snapshot_turns:
+                ax.axvline(turn, color="0.4", linestyle="--", linewidth=1.2)
             ax.set_title(title)
             ax.grid(True, alpha=0.3)
 
@@ -128,28 +162,36 @@ def plot_forecasts(
             # Unparseable answers have no percentiles; skip them.
             all_medians = []
             for model_id in model_names:
-                xs, medians, lo, hi = [], [], [], []
-                for c in entries:
-                    if c["metric"] != metric:
+                for snapshot_turn in snapshot_turns:
+                    xs, medians, lo, hi = [], [], [], []
+                    for c in entries:
+                        if c["metric"] != metric or c["snapshot_turn"] != snapshot_turn:
+                            continue
+                        r = responses.get(ResponseId(model_id, c["question_id"]))
+                        if r is None or r.percentiles is None:
+                            continue
+                        p = r.percentiles
+                        xs.append(c["snapshot_turn"] + c["horizon"] + dodge[model_id])
+                        medians.append(p["p50"])
+                        # errorbar wants distances from the median, not absolute
+                        # positions. Both are non-negative because
+                        # parse_percentiles rejects any set not in increasing
+                        # order.
+                        lo.append(p["p50"] - p["p25"])
+                        hi.append(p["p75"] - p["p50"])
+                    all_medians.extend(medians)
+                    if not xs:
                         continue
-                    r = responses.get(ResponseId(model_id, c["question_id"]))
-                    if r is None or r.percentiles is None:
-                        continue
-                    p = r.percentiles
-                    xs.append(c["snapshot_turn"] + c["horizon"] + dodge[model_id])
-                    medians.append(p["p50"])
-                    # errorbar wants distances from the median, not absolute
-                    # positions. Both are non-negative because parse_percentiles
-                    # rejects any set that isn't in increasing order.
-                    lo.append(p["p50"] - p["p25"])
-                    hi.append(p["p75"] - p["p50"])
-                all_medians.extend(medians)
-                if xs:
+                    # Unlabelled: the model legend is built from color proxies
+                    # below. Labelling a real series here would tie each model's
+                    # legend marker to whichever snapshot it happened to have data
+                    # for, so a model missing the first snapshot would show the
+                    # wrong shape.
                     ax.errorbar(
                         xs,
                         medians,
                         yerr=[lo, hi],
-                        fmt="o",
+                        fmt=snapshot_markers[snapshot_turn],
                         markersize=6,
                         zorder=5,
                         alpha=0.85,
@@ -158,7 +200,6 @@ def plot_forecasts(
                         markeredgewidth=0.5,
                         elinewidth=1.2,
                         capsize=3,
-                        label=model_id.split("/")[-1],
                     )
 
             # Scale to the trajectory and the medians only. A single model with
@@ -170,24 +211,92 @@ def plot_forecasts(
             pad = 0.05 * span if span else 1.0
             ax.set_ylim(min(visible) - pad, max(visible) + pad)
 
-        axes[-1].set_xlabel("Turn")
+        # A grid wider than the metric list would leave panels showing only their
+        # axes, which read as a missing plot rather than an empty slot.
+        for ax in flat_axes[len(PLOT_METRICS) :]:
+            ax.set_visible(False)
 
-        # One shared legend; every subplot has the same series. It grows with
-        # the model count, so wrap it and give the rows it needs back to the
-        # figure rather than letting it eat the bottom subplot.
-        handles, labels = axes[0].get_legend_handles_labels()
-        ncol = min(5, len(labels))
-        legend_rows = -(-len(labels) // ncol)
-        fig.legend(handles, labels, loc="lower center", ncol=ncol, fontsize="small")
+        # sharex leaves tick labels only on the bottom row, so that is where the
+        # x label belongs; putting it under a panel whose ticks are hidden would
+        # leave it floating mid-figure with no axis to read it against.
+        for ax in axes[-1]:
+            if ax.get_visible():
+                ax.set_xlabel("Turn")
+
+        # One shared legend. The trajectory and snapshot lines come off the axes;
+        # models are color proxies and snapshots shape proxies, so the two
+        # encodings are each stated once instead of being crossed into one entry
+        # per (model, snapshot).
+        handles = [
+            plt.Line2D([], [], color="0.35", lw=1.5),
+            plt.Line2D([], [], color="0.4", lw=1.2, linestyle="--"),
+        ]
+        labels = ["actual (per-panel color)", "snapshot"]
+        handles += [
+            plt.Line2D(
+                [],
+                [],
+                marker="o",
+                color=model_colors[model_id],
+                linestyle="",
+                markersize=6,
+                markeredgecolor="black",
+                markeredgewidth=0.5,
+            )
+            for model_id in model_names
+        ]
+        labels += [m.split("/")[-1] for m in model_names]
+        if len(snapshot_turns) > 1:
+            handles += [
+                plt.Line2D(
+                    [],
+                    [],
+                    marker=snapshot_markers[turn],
+                    color="0.35",
+                    linestyle="",
+                    markersize=6,
+                    markeredgecolor="black",
+                    markeredgewidth=0.5,
+                )
+                for turn in snapshot_turns
+            ]
+            labels += [f"from turn {turn}" for turn in snapshot_turns]
+        legend = fig.legend(
+            handles,
+            labels,
+            loc="lower center",
+            ncol=min(6, len(labels)),
+            fontsize="small",
+        )
         horizons = sorted({c["horizon"] for c in entries})
         fig.suptitle(
-            f"{scenario_id} — forecasts from turn {snapshot_turn}, "
+            f"{scenario_id} — forecasts from turns "
+            f"{', '.join(str(t) for t in snapshot_turns)}; "
             f"horizons {', '.join(str(h) for h in horizons)}"
         )
         fig.tight_layout()
-        fig.subplots_adjust(bottom=0.02 + 0.022 * legend_rows)
+        # Reserve the strip the legend occupies, measured from the drawn figure
+        # rather than estimated from the label count: it wraps to a number of rows
+        # that depends on the label widths, so any fixed fraction either overlaps
+        # the axes or leaves a gap.
+        #
+        # tight_layout has already left room below the axes for the tick labels
+        # and x label, but it ran before the legend existed. subplots_adjust
+        # measures from the figure edge, so that room has to be added back on top
+        # of the legend's height or the x labels end up behind the legend.
+        fig.canvas.draw()
+        bottom_axes = [ax for ax in axes[-1] if ax.get_visible()]
+        below_axes = max(
+            (
+                ax.get_position().y0 - ax.get_tightbbox().y0 / fig.bbox.height
+                for ax in bottom_axes
+            ),
+            default=0.0,
+        )
+        legend_height = legend.get_window_extent().height / fig.bbox.height
+        fig.subplots_adjust(bottom=legend_height + below_axes + 0.01)
 
-        out = outdir / f"forecasts_{scenario_id}_turn{snapshot_turn}.png"
+        out = outdir / f"forecasts_{scenario_id}.png"
         fig.savefig(out, dpi=150)
         plt.close(fig)
         written.append(out)
@@ -221,7 +330,7 @@ def main() -> None:
     print(f"config: {cfg.path}")
 
     written = plot_forecasts(corpus, responses, models)
-    print(f"Wrote {len(written)} plots -> {PLOTS_PATH}")
+    print(f"Wrote {len(written)} plots -> {FORECASTS_PATH}")
 
 
 if __name__ == "__main__":
