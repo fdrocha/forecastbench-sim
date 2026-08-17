@@ -68,6 +68,48 @@ def crps_by_model_and_metric(
     return means, counts, metrics
 
 
+def normalized_by_model_and_metric(
+    corpus: list[dict], responses: Responses, model_names: list[str]
+) -> dict[tuple[str, str], float]:
+    """Mean normalized CRPS per (model, metric).
+
+    A cell is absent where the metric is excluded from normalization, or where
+    no forecast for it had a non-zero actual to divide by.
+    """
+    scores: dict[tuple[str, str], list[float]] = {}
+    for row in score_forecasts(corpus, responses, model_names):
+        if row["normalized"] is None:
+            continue
+        scores.setdefault((row["model_id"], row["metric"]), []).append(row["normalized"])
+    return {k: sum(v) / len(v) for k, v in scores.items()}
+
+
+def normalized_metric_set(normalized: dict[tuple[str, str], float]) -> set[str]:
+    """The metrics that have at least one normalized score."""
+    return {metric for _model, metric in normalized}
+
+
+def ranks_within_metric(
+    values: dict[tuple[str, str], float], model_names: list[str], metric: str
+) -> dict[str, int]:
+    """Rank each model within one metric, 1 being the lowest (best) score.
+
+    Ties share the lower rank, so two models level on a metric are not put in an
+    arbitrary order. Models with no score for the metric are left unranked.
+    """
+    scored = sorted(
+        (m for m in model_names if (m, metric) in values),
+        key=lambda m: values[(m, metric)],
+    )
+    ranks: dict[str, int] = {}
+    for i, model_id in enumerate(scored):
+        if i and values[(scored[i - 1], metric)] == values[(model_id, metric)]:
+            ranks[model_id] = ranks[scored[i - 1]]
+        else:
+            ranks[model_id] = i + 1
+    return ranks
+
+
 def print_crps_table(
     corpus: list[dict], responses: Responses, model_names: list[str]
 ) -> None:
@@ -157,6 +199,90 @@ def print_crps_table(
     ]
     if missing:
         print(f"\nUnparseable forecasts excluded — {', '.join(missing)}")
+
+
+def print_normalized_crps_table(
+    corpus: list[dict], responses: Responses, model_names: list[str]
+) -> None:
+    """Print models x metrics of normalized CRPS, each cell with its rank.
+
+    Dividing by |actual| makes a cell unitless, so unlike the raw table above
+    this one compares a model's performance across metrics as well as down a
+    column. The parenthesized rank is the model's standing within that metric,
+    1 being best, which is what shows whether a model is uniformly strong or
+    carried by one metric.
+    """
+    normalized = normalized_by_model_and_metric(corpus, responses, model_names)
+    # Only the metrics that actually normalize get a column: one that never does
+    # would be a column of n/a, which the raw table above already covers.
+    metrics = [
+        m for m in metrics_in_order(corpus) if m in normalized_metric_set(normalized)
+    ]
+    ranks = {m: ranks_within_metric(normalized, model_names, m) for m in metrics}
+
+    # The mean of the per-metric means, so every metric counts equally. The raw
+    # table's "norm" instead averages the underlying questions, which weights a
+    # metric by how many of them parsed; the two differ slightly, hence the
+    # distinct column name.
+    overall = {
+        model_id: _mean(
+            [normalized[(model_id, m)] for m in metrics if (model_id, m) in normalized]
+        )
+        for model_id in model_names
+    }
+
+    labels = {m: str(g.METRIC_LABELS.get(m, m)) for m in metrics}
+    model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in model_names])
+    norm_col, norm_width = "mean", 7
+
+    def cell(model_id: str, metric: str) -> str:
+        value = normalized.get((model_id, metric))
+        if value is None:
+            return "n/a"
+        return f"{value:.3f} ({ranks[metric][model_id]})"
+
+    # Wide enough for the score plus its rank suffix, which the label alone may
+    # not cover once a two-digit rank is appended.
+    widths = {
+        m: max([len(labels[m])] + [len(cell(mid, m)) for mid in model_names])
+        for m in metrics
+    }
+
+    excluded = [
+        str(g.METRIC_LABELS.get(m, m))
+        for m in metrics_in_order(corpus)
+        if m not in metrics
+    ]
+    print("\nMean normalized CRPS by model and metric (lower is better)")
+    print(
+        "CRPS/|actual|, so cells compare across metrics as well as down them;"
+        " (n) is the model's rank within that metric"
+    )
+    print(
+        "mean = mean of the per-metric cells, weighting each metric equally"
+        + (
+            f"; omits {', '.join(excluded)}, whose actual is sometimes 0"
+            if excluded
+            else ""
+        )
+    )
+
+    ordered = sorted(model_names, key=lambda m: (overall[m] is None, overall[m] or 0.0))
+    header = (
+        f"{'Model':<{model_col}}  {norm_col:>{norm_width}}  "
+        + "  ".join(f"{labels[m]:>{widths[m]}}" for m in metrics)
+    )
+    print(header)
+    print("-" * len(header))
+
+    for model_id in ordered:
+        value = overall[model_id]
+        row = [
+            f"{model_id.split('/')[-1]:<{model_col}}",
+            f"{'n/a' if value is None else f'{value:.3f}':>{norm_width}}",
+        ]
+        row += [f"{cell(model_id, m):>{widths[m]}}" for m in metrics]
+        print("  ".join(row))
 
 
 def print_horizon_table(
@@ -300,6 +426,7 @@ def main() -> None:
     print(f"{len(corpus)} questions x {len(models)} models")
 
     print_crps_table(corpus, responses, models)
+    print_normalized_crps_table(corpus, responses, models)
     print_normalized_horizon_table(corpus, responses, models)
     print_per_metric_horizon_tables(corpus, responses, models)
 
