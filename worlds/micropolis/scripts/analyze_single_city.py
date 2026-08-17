@@ -9,8 +9,9 @@ The config selects which slice of the dataset to score — its models, cities,
 disasters, snapshot_turns and horizons — so one gathered dataset can be viewed
 many ways. Naming anything the dataset lacks is an error, not a smaller table.
 
-Also writes a scatter plot of normalized CRPS against horizon to
-data/micropolis/single_city/plots/; --no-plot skips it.
+Also writes scatter plots of normalized CRPS against horizon to
+data/micropolis/single_city/plots/ — over all runs, and restricted to the runs
+with and without disasters; --no-plot skips them.
 
 Usage:
     scripts/analyze_single_city.py
@@ -23,6 +24,7 @@ output; --per-metric opts into them.
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -414,6 +416,8 @@ def plot_normalized_by_horizon(
     corpus: list[dict],
     responses: Responses,
     model_names: list[str],
+    subset: str = "",
+    ymax: float | None = None,
     outdir: Path = PLOTS_PATH,
 ) -> Path:
     """Scatter normalized CRPS against horizon, one series per model.
@@ -423,6 +427,11 @@ def plot_normalized_by_horizon(
     with distance, and which models depart from the pack. The mean over models is
     drawn as a thick line so it reads as the summary rather than as one more
     model.
+
+    `subset` names the slice of the corpus being drawn, for the title and the
+    filename; empty means the whole of it. `ymax` fixes the top of the y-axis, so
+    a set of figures over different slices can be read against each other rather
+    than each being scaled to its own worst model.
     """
     import matplotlib
 
@@ -521,13 +530,13 @@ def plot_normalized_by_horizon(
     )
     ax.set_ylabel("Normalized CRPS (CRPS/|actual|, lower is better)")
     ax.set_title(
-        f"Normalized CRPS by horizon  ({len(model_names)} models, "
-        f"{len(corpus)} questions)"
+        f"Normalized CRPS by horizon{f' — {subset}' if subset else ''}\n"
+        f"{len(model_names)} models, {len(corpus)} questions"
     )
     ax.set_xticks(horizons)
     ax.grid(alpha=0.3, zorder=0)
     ax.margins(x=0.04)
-    ax.set_ylim(bottom=0)
+    ax.set_ylim(bottom=0, top=ymax)
 
     # The legend is as tall as the model list, so it goes beside the axes rather
     # than over the points. Entries are ordered best-first, so the legend doubles
@@ -546,10 +555,55 @@ def plot_normalized_by_horizon(
     )
     fig.tight_layout()
 
-    out = outdir / "normalized_crps_by_horizon.png"
+    suffix = f"-{re.sub(r'[^a-z0-9]+', '-', subset.lower()).strip('-')}" if subset else ""
+    out = outdir / f"normalized_crps_by_horizon{suffix}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     return out
+
+
+def plot_horizon_figures(
+    corpus: list[dict], responses: Responses, model_names: list[str]
+) -> list[Path]:
+    """The horizon scatter over all runs, then split by whether disasters ran.
+
+    Disasters are the corpus's one deliberate difficulty axis, so the split says
+    whether a model's decay with horizon is about forecasting a city at all or
+    about coping with the shocks. Drawn as separate figures rather than one
+    overlay: with this many models, two series each would be unreadable.
+    """
+    subsets = [
+        ("", lambda c: True),
+        ("disasters", lambda c: c["scenario"]["disasters"]),
+        ("no disasters", lambda c: not c["scenario"]["disasters"]),
+    ]
+    # A config naming only one side of the split leaves the other empty; skip it
+    # rather than drawing an axis with nothing on it.
+    selections = [
+        (subset, [c for c in corpus if keep(c)]) for subset, keep in subsets
+    ]
+    selections = [(subset, sel) for subset, sel in selections if sel]
+
+    # One y-axis top across the set, so the disasters and no-disasters figures
+    # can be read against each other instead of each filling its own axis. Taken
+    # from the per-(model, horizon) means, which is what the figures plot.
+    ymax = 0.0
+    for _subset, selected in selections:
+        rows = [
+            r
+            for r in score_forecasts(selected, responses, model_names)
+            if r["normalized"] is not None
+        ]
+        by_cell: dict[tuple[str, int], list[float]] = {}
+        for r in rows:
+            by_cell.setdefault((r["model_id"], r["horizon"]), []).append(r["normalized"])
+        ymax = max([ymax] + [sum(v) / len(v) for v in by_cell.values()])
+    ymax *= 1.08  # headroom so the topmost marker isn't clipped by the frame
+
+    return [
+        plot_normalized_by_horizon(selected, responses, model_names, subset, ymax)
+        for subset, selected in selections
+    ]
 
 
 def print_per_metric_horizon_tables(
@@ -629,7 +683,9 @@ def main() -> None:
         print("\nPer-metric horizon tables omitted; pass --per-metric for them.")
 
     if args.plot:
-        print(f"\nWrote {plot_normalized_by_horizon(corpus, responses, models)}")
+        print()
+        for out in plot_horizon_figures(corpus, responses, models):
+            print(f"Wrote {out}")
 
 
 if __name__ == "__main__":
