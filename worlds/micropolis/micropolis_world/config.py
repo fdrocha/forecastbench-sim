@@ -3,7 +3,8 @@
 Every script takes an optional config file path as its first positional argument
 and reads all of its non-flag parameters from there; behavior toggles
 (--dry-run, --quiet, --plot) stay on the command line. Omitting the path falls
-back to configs/default.json5.
+back to configs/default.json5, or to whatever a script passes as
+add_config_args(default=...) when its own needs differ.
 
 A script asks for the keys it needs via Config.get* and errors out if one is
 missing, so a single config file can carry the union of every script's
@@ -16,7 +17,9 @@ trailing commas. Plain JSON is a subset of JSON5 and loads unchanged.
 import argparse
 import functools
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import json5
 
@@ -143,13 +146,19 @@ class Config:
         return override if override is not None else self.get_int("seed")
 
 
-def add_config_args(ap: argparse.ArgumentParser) -> None:
-    """Add the config-file and seed-override arguments shared by every script."""
+def add_config_args(ap: argparse.ArgumentParser, default: Path | None = None) -> None:
+    """Add the config-file and seed-override arguments shared by every script.
+
+    `default` names the config to use when the positional argument is omitted,
+    for a script whose natural default is not default.json5. Passed here rather
+    than applied by the caller after parsing, so the --help text names the file
+    the script will actually read.
+    """
     ap.add_argument(
         "config",
         nargs="?",
-        default=None,
-        help=f"JSON5 config file (default: {DEFAULT_CONFIG_PATH})",
+        default=default,
+        help=f"JSON5 config file (default: {default or DEFAULT_CONFIG_PATH})",
     )
     ap.add_argument(
         "--seed",

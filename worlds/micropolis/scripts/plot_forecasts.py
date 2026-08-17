@@ -13,9 +13,13 @@ many ways. Naming anything the dataset lacks is an error, not a smaller figure.
 Writes one figure per scenario to
 data/micropolis/single_city/plots/forecasts/, panelled by metric.
 
+Defaults to the forecasts_plots.json5 config, which subsets the models to a
+number these figures can legibly carry; name another config to override it.
+
 Usage:
     scripts/plot_forecasts.py
     scripts/plot_forecasts.py subset.json5
+    scripts/plot_forecasts.py micropolis_world/configs/default.json5
 """
 
 import argparse
@@ -25,6 +29,7 @@ from pathlib import Path
 import micropolis_world.module_globals as g
 from micropolis_world.city_sim import CitySimulation, turn_of
 from micropolis_world.config import (
+    CONFIG_DIR,
     add_config_args,
     load_config,
     main_with_config,
@@ -44,6 +49,12 @@ from micropolis_world.single_city import (
 # would otherwise be mixed in with the handful of summary plots the scoring
 # script writes alongside them.
 FORECASTS_PATH = PLOTS_PATH / "forecasts"
+
+# These figures carry one marker per (model, snapshot, horizon) per panel, so the
+# full model set makes them unreadable; this config subsets to a legible few.
+# Named here as the default rather than in default.json5 so the scoring scripts,
+# which want every model, are unaffected. Pass a config to override.
+DEFAULT_CONFIG_PATH = CONFIG_DIR / "forecasts_plots.json5"
 
 # The panels come from plot_sim.py's list, so a metric is drawn the same color
 # and in the same position whether the figure carries forecasts or not, and
@@ -307,7 +318,7 @@ def plot_forecasts(
 @main_with_config
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    add_config_args(ap)
+    add_config_args(ap, default=DEFAULT_CONFIG_PATH)
     args = ap.parse_args()
 
     cfg = load_config(args)
