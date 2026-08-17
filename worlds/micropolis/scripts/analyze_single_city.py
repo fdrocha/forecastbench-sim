@@ -111,6 +111,24 @@ def ranks_within_column(values: dict[str, float | None]) -> dict[str, int]:
     return ranks
 
 
+def ranked_cell(value: float | None, rank: int | None, fmt: str, rank_width: int) -> str:
+    """A score with its rank in parens, the rank right-aligned to rank_width.
+
+    Cells are right-aligned as whole strings, so a one-digit rank next to a
+    two-digit one would shift the score left by a character and break the
+    decimal points down the column. Padding inside the parens keeps the numbers
+    aligned regardless of how many models the rank has to count.
+    """
+    if value is None:
+        return "n/a"
+    return f"{format(value, fmt)} ({rank:>{rank_width}})"
+
+
+def rank_width_for(ranks: dict[str, int]) -> int:
+    """Digits needed for the widest rank in a column."""
+    return max((len(str(r)) for r in ranks.values()), default=1)
+
+
 def print_crps_table(
     corpus: list[dict], responses: Responses, model_names: list[str]
 ) -> None:
@@ -239,11 +257,17 @@ def print_normalized_crps_table(
     model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in model_names])
     norm_col, norm_width = "mean", 7
 
+    # One rank width for the whole table: every column ranks the same models, so
+    # a shared width keeps the columns reading as one grid.
+    rank_width = max(rank_width_for(ranks[m]) for m in metrics) if metrics else 1
+
     def cell(model_id: str, metric: str) -> str:
-        value = normalized.get((model_id, metric))
-        if value is None:
-            return "n/a"
-        return f"{value:.3f} ({ranks[metric][model_id]})"
+        return ranked_cell(
+            normalized.get((model_id, metric)),
+            ranks[metric].get(model_id),
+            ".3f",
+            rank_width,
+        )
 
     # Wide enough for the score plus its rank suffix, which the label alone may
     # not cover once a two-digit rank is appended.
@@ -319,12 +343,13 @@ def print_horizon_table(
         for h in horizons
     }
     ranks = {key: ranks_within_column(values) for key, values in columns.items()}
+    # One rank width for the whole table, so the columns read as one grid.
+    rank_width = max(rank_width_for(r) for r in ranks.values())
 
     def cell(key, model_id: str) -> str:
-        value = columns[key][model_id]
-        if value is None:
-            return "n/a"
-        return f"{format(value, fmt)} ({ranks[key][model_id]})"
+        return ranked_cell(
+            columns[key][model_id], ranks[key].get(model_id), fmt, rank_width
+        )
 
     model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in model_names])
     labels = {"all": "all"} | {h: f"H{h}" for h in horizons}
