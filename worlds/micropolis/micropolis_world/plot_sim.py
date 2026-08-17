@@ -1,4 +1,7 @@
-"""Plot population, funds, crime, and pollution over time for a Micropolis run.
+"""Plot a Micropolis run's metrics over time, one subplot each.
+
+The panels are listed in PANEL_METRICS: population, traffic, pollution, crime,
+land value and funds.
 
 Works off an already-completed simulation's log/events files, loading them from
 disk when the CitySimulation doesn't have them in memory yet. Also overlays a
@@ -38,6 +41,21 @@ DISASTER_COLORS = {
 # instead of collapsing them onto a single date per month.
 SUB_MONTH_DAYS = [1, 8, 15, 22]
 
+# The metrics to panel, in subplot order (row-major), each with its line color.
+# Keys are log fields from g.METRICS; the titles come from g.METRIC_LABELS so a
+# panel cannot disagree with how the same metric is named in a report.
+PANEL_METRICS = [
+    ("cityPop", "tab:blue"),
+    ("trafficAverage", "tab:purple"),
+    ("pollutionAverage", "tab:orange"),
+    ("crimeAverage", "tab:red"),
+    ("landValueAverage", "tab:brown"),
+    ("totalFunds", "tab:green"),
+]
+
+# Rows x columns for the panel grid, wide enough for the six metrics above.
+PANEL_GRID = (3, 2)
+
 
 def date_for(city_time, city_year, city_month):
     # cityMonth is 0-indexed (Jan=0..Dec=11) per the engine's update.cpp.
@@ -46,7 +64,9 @@ def date_for(city_time, city_year, city_month):
 
 
 def plot_run(sim: CitySimulation, output: str | None = None) -> None:
-    """Build the population/funds/crime/pollution figure for a CitySimulation.
+    """Build the per-metric subplot figure for a CitySimulation.
+
+    One panel per entry of PANEL_METRICS, sharing a time axis.
 
     Writes the figure to `output` if given, otherwise shows it interactively.
     """
@@ -56,10 +76,6 @@ def plot_run(sim: CitySimulation, output: str | None = None) -> None:
     events_data = sim.events_data or []
 
     dates = [date_for(r["cityTime"], r["cityYear"], r["cityMonth"]) for r in rows]
-    pop = [r["cityPop"] for r in rows]
-    funds = [r["totalFunds"] for r in rows]
-    crime = [r["crimeAverage"] for r in rows]
-    pollution = [r["pollutionAverage"] for r in rows]
 
     disaster_events = []
     for event in events_data:
@@ -71,19 +87,19 @@ def plot_run(sim: CitySimulation, output: str | None = None) -> None:
         date = date_for(event["cityTime"], event["cityYear"], event["cityMonth"])
         disaster_events.append((date, (label, DISASTER_COLORS.get(label, "black"))))
 
-    fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharex=True)
+    nrows, ncols = PANEL_GRID
+    fig, axes = plt.subplots(
+        nrows, ncols, figsize=(10, 3.2 * nrows), sharex=True, squeeze=False
+    )
     fig.suptitle(rows[0].get("cityName", sim.city_name))
 
-    plots = [
-        (axes[0][0], pop, "Population", "tab:blue"),
-        (axes[0][1], funds, "Funds ($)", "tab:green"),
-        (axes[1][0], crime, "Crime Average", "tab:red"),
-        (axes[1][1], pollution, "Pollution Average", "tab:orange"),
-    ]
+    flat_axes = [ax for row in axes for ax in row]
     disaster_lines = []  # (axes, Line2D, label, date) for hover lookups
-    for ax, values, title, color in plots:
-        ax.plot(dates, values, color=color)
-        ax.set_title(title)
+    for ax, (metric, color) in zip(flat_axes, PANEL_METRICS):
+        ax.plot(dates, [r[metric] for r in rows], color=color)
+        # Capitalized here rather than in METRIC_LABELS, which reads mid-sentence
+        # in the reports.
+        ax.set_title(g.METRIC_LABELS[metric].capitalize())
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
         ax.grid(True, alpha=0.3)
         for date, (label, disaster_color) in disaster_events:
@@ -91,6 +107,11 @@ def plot_run(sim: CitySimulation, output: str | None = None) -> None:
                 date, color=disaster_color, linestyle="--", linewidth=1, alpha=0.7
             )
             disaster_lines.append((ax, line, label, date))
+
+    # A grid wider than the metric list would leave blank panels showing only
+    # their axes, which read as a missing plot rather than an empty slot.
+    for ax in flat_axes[len(PANEL_METRICS) :]:
+        ax.set_visible(False)
 
     # Only legend the disaster types that actually occurred in this run.
     legend_labels = {label: color for _, (label, color) in disaster_events}
@@ -110,7 +131,10 @@ def plot_run(sim: CitySimulation, output: str | None = None) -> None:
     fig.autofmt_xdate()
     fig.tight_layout()
     if legend_labels:
-        fig.subplots_adjust(bottom=0.15)
+        # The strip reserved for the legend is a fraction of the figure, so it
+        # has to shrink as rows are added or it leaves a gap the height of a
+        # whole panel.
+        fig.subplots_adjust(bottom=0.3 / nrows)
 
     # Hover tooltip: show the disaster name when the cursor is near one of its
     # vertical lines. Only meaningful in the interactive window (no-op on save).
