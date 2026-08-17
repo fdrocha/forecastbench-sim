@@ -12,6 +12,10 @@ many ways. Naming anything the dataset lacks is an error, not a smaller table.
 Usage:
     scripts/analyze_single_city.py
     scripts/analyze_single_city.py subset.json5
+    scripts/analyze_single_city.py --per-metric
+
+The per-metric horizon tables are one table per metric and so are the bulk of the
+output; --per-metric opts into them.
 """
 
 import argparse
@@ -89,21 +93,18 @@ def normalized_metric_set(normalized: dict[tuple[str, str], float]) -> set[str]:
     return {metric for _model, metric in normalized}
 
 
-def ranks_within_metric(
-    values: dict[tuple[str, str], float], model_names: list[str], metric: str
-) -> dict[str, int]:
-    """Rank each model within one metric, 1 being the lowest (best) score.
+def ranks_within_column(values: dict[str, float | None]) -> dict[str, int]:
+    """Rank models by score within one column, 1 being the lowest (best).
 
-    Ties share the lower rank, so two models level on a metric are not put in an
-    arbitrary order. Models with no score for the metric are left unranked.
+    Ties share the lower rank, so two models level on a column are not put in an
+    arbitrary order. Models whose score is absent or None are left unranked.
     """
     scored = sorted(
-        (m for m in model_names if (m, metric) in values),
-        key=lambda m: values[(m, metric)],
+        (m for m, v in values.items() if v is not None), key=lambda m: values[m]
     )
     ranks: dict[str, int] = {}
     for i, model_id in enumerate(scored):
-        if i and values[(scored[i - 1], metric)] == values[(model_id, metric)]:
+        if i and values[scored[i - 1]] == values[model_id]:
             ranks[model_id] = ranks[scored[i - 1]]
         else:
             ranks[model_id] = i + 1
@@ -218,7 +219,10 @@ def print_normalized_crps_table(
     metrics = [
         m for m in metrics_in_order(corpus) if m in normalized_metric_set(normalized)
     ]
-    ranks = {m: ranks_within_metric(normalized, model_names, m) for m in metrics}
+    ranks = {
+        m: ranks_within_column({mid: normalized.get((mid, m)) for mid in model_names})
+        for m in metrics
+    }
 
     # The mean of the per-metric means, so every metric counts equally. The raw
     # table's "norm" instead averages the underlying questions, which weights a
@@ -296,46 +300,52 @@ def print_horizon_table(
     """Print models x horizons from (model, horizon, score) triples.
 
     `fmt` is the format spec for a cell, since normalized scores and raw CRPS
-    want different precision. Rows are sorted by the "all" column, so the table
-    reads best-first, and a model with nothing to average sorts last rather
-    than crashing the compare.
+    want different precision. Each cell carries the model's rank within its own
+    column in parens, 1 being best, which is what shows a model gaining or
+    losing ground as the horizon lengthens. Rows are sorted by the "all" column,
+    so the table reads best-first, and a model with nothing to average sorts
+    last rather than crashing the compare.
     """
-    cells = {
-        (model_id, h): _mean([v for m, hz, v in scored if m == model_id and hz == h])
-        for model_id in model_names
-        for h in horizons
-    }
     overall = {
         model_id: _mean([v for m, _, v in scored if m == model_id])
         for model_id in model_names
     }
+    # Keyed by column, "all" included, so ranking is uniform across the table.
+    columns = {"all": overall} | {
+        h: {
+            model_id: _mean([v for m, hz, v in scored if m == model_id and hz == h])
+            for model_id in model_names
+        }
+        for h in horizons
+    }
+    ranks = {key: ranks_within_column(values) for key, values in columns.items()}
 
-    def cell(value: float | None) -> str:
-        return "n/a" if value is None else format(value, fmt)
+    def cell(key, model_id: str) -> str:
+        value = columns[key][model_id]
+        if value is None:
+            return "n/a"
+        return f"{format(value, fmt)} ({ranks[key][model_id]})"
 
     model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in model_names])
-    h_labels = {h: f"H{h}" for h in horizons}
-    # Wide enough for the longest number in the table, so a metric in the
-    # hundreds of thousands doesn't push its columns out of alignment.
+    labels = {"all": "all"} | {h: f"H{h}" for h in horizons}
+    # Wide enough for the longest cell in the table, so a metric in the hundreds
+    # of thousands doesn't push its columns out of alignment.
     width = max(
-        [9]
-        + [len(cell(v)) for v in cells.values()]
-        + [len(cell(v)) for v in overall.values()]
+        [9] + [len(cell(key, mid)) for key in columns for mid in model_names]
     )
     ordered = sorted(model_names, key=lambda m: (overall[m] is None, overall[m] or 0.0))
 
     print(f"\n{title}")
     print(subtitle)
-    header = f"{'Model':<{model_col}}  {'all':>{width}}  " + "  ".join(
-        f"{h_labels[h]:>{width}}" for h in horizons
+    header = f"{'Model':<{model_col}}  " + "  ".join(
+        f"{labels[key]:>{width}}" for key in columns
     )
     print(header)
     print("-" * len(header))
 
     for model_id in ordered:
         row = [f"{model_id.split('/')[-1]:<{model_col}}"]
-        for value in [overall[model_id]] + [cells[(model_id, h)] for h in horizons]:
-            row.append(f"{cell(value):>{width}}")
+        row += [f"{cell(key, model_id):>{width}}" for key in columns]
         print("  ".join(row))
 
 
@@ -403,6 +413,12 @@ def print_per_metric_horizon_tables(
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     add_config_args(ap)
+    ap.add_argument(
+        "--per-metric",
+        action="store_true",
+        help="Also print one CRPS by model and horizon table per metric, in that "
+        "metric's own units",
+    )
     args = ap.parse_args()
 
     cfg = load_config(args)
@@ -428,7 +444,10 @@ def main() -> None:
     print_crps_table(corpus, responses, models)
     print_normalized_crps_table(corpus, responses, models)
     print_normalized_horizon_table(corpus, responses, models)
-    print_per_metric_horizon_tables(corpus, responses, models)
+    if args.per_metric:
+        print_per_metric_horizon_tables(corpus, responses, models)
+    else:
+        print("\nPer-metric horizon tables omitted; pass --per-metric for them.")
 
 
 if __name__ == "__main__":
