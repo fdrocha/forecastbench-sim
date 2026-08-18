@@ -9,6 +9,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
 
 
@@ -255,3 +257,112 @@ def test_horizon_table_keeps_the_read_off_as_its_own_column(capsys):
     out = capsys.readouterr().out
     assert f"H{module.READ_OFF_HORIZON}" in out
     assert "all*" in out
+
+
+def _persistence_corpus():
+    """Two horizons of one metric, with a known snapshot value at the read-off.
+
+    cityPop reads 100 at the snapshot, 150 at H48 and 50 at H96, so persistence
+    is off by 50/150 and 50/50 respectively — two different ratios, so a helper
+    that divided by the wrong operand would not pass by coincidence.
+    """
+    return [
+        {
+            "scenario_id": "s",
+            "snapshot_turn": 240,
+            "metric": "cityPop",
+            "horizon": h,
+            "value": v,
+        }
+        for h, v in [(0, 100), (48, 150), (96, 50)]
+    ]
+
+
+def test_persistence_normalizes_by_the_actual_not_the_snapshot():
+    module = load_module()
+    baseline = module.persistence_by_horizon(_persistence_corpus())
+    assert baseline[48] == pytest.approx(50 / 150)
+    assert baseline[96] == pytest.approx(50 / 50)
+
+
+def test_persistence_omits_the_read_off_horizon():
+    """It scores 0 there by construction, which would misdraw the reference line.
+
+    Asserted on a corpus whose read-off value disagrees with its resolved value,
+    so a kept read-off would contribute a nonzero score rather than being hidden
+    by also being dropped for scoring 0.
+    """
+    module = load_module()
+    corpus = [
+        {
+            "scenario_id": "s",
+            "snapshot_turn": 240,
+            "metric": "cityPop",
+            "horizon": h,
+            "value": v,
+        }
+        # Two read-off questions for one group: the second is a stand-in for a
+        # dataset where the read-off row is not the one the snapshot came from,
+        # so scoring it would land on a nonzero ratio and show up in the result.
+        for h, v in [(0, 100), (0, 200), (48, 150)]
+    ]
+    assert module.READ_OFF_HORIZON not in module.persistence_by_horizon(corpus)
+
+
+def test_persistence_skips_metrics_excluded_from_normalization():
+    module = load_module()
+    corpus = [
+        {
+            "scenario_id": "s",
+            "snapshot_turn": 240,
+            "metric": "totalFunds",
+            "horizon": h,
+            "value": v,
+        }
+        for h, v in [(0, 100), (48, 150)]
+    ]
+    assert module.persistence_by_horizon(corpus) == {48: None}
+
+
+def test_persistence_skips_a_zero_actual():
+    """Dividing by |actual| is undefined there, as it is for the model scores."""
+    module = load_module()
+    corpus = [
+        {
+            "scenario_id": "s",
+            "snapshot_turn": 240,
+            "metric": "cityPop",
+            "horizon": h,
+            "value": v,
+        }
+        for h, v in [(0, 100), (48, 0)]
+    ]
+    assert module.persistence_by_horizon(corpus) == {48: None}
+
+
+def test_persistence_reads_the_snapshot_from_its_own_scenario():
+    """A shared metric name must not let one run's snapshot score another's."""
+    module = load_module()
+    corpus = []
+    for scenario, snapshot in [("a", 100), ("b", 900)]:
+        corpus.append(
+            {
+                "scenario_id": scenario,
+                "snapshot_turn": 240,
+                "metric": "cityPop",
+                "horizon": 0,
+                "value": snapshot,
+            }
+        )
+        corpus.append(
+            {
+                "scenario_id": scenario,
+                "snapshot_turn": 240,
+                "metric": "cityPop",
+                "horizon": 48,
+                "value": snapshot,
+            }
+        )
+    # Each run's H48 equals its own snapshot, so a correct lookup scores 0; a
+    # lookup that ignored scenario_id would cross the two and score above 0.
+    assert module.persistence_by_horizon(corpus)[48] == pytest.approx(0.0)

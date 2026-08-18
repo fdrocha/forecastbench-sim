@@ -61,6 +61,11 @@ READ_OFF_HORIZON = 0
 # goes out without the exclusion attached to it.
 READ_OFF_NOTE = f"excludes H{READ_OFF_HORIZON} (a read-off, not a forecast)"
 
+# Named in one place because the string is both the legend entry and the key the
+# legend is reordered by, and the two silently disagreeing would drop the
+# baseline out of the legend while leaving it on the axes.
+PERSISTENCE_LABEL = "persistence baseline (no change from snapshot)"
+
 
 def is_forecast(horizon: int) -> bool:
     """Whether `horizon` asks the model to predict rather than to read off."""
@@ -81,6 +86,62 @@ def forecast_questions(corpus: list[dict]) -> list[dict]:
 def _mean(values: list[float]) -> float | None:
     """Mean of `values`, or None if there are none to average."""
     return sum(values) / len(values) if values else None
+
+
+def persistence_by_horizon(corpus: list[dict]) -> dict[int, float | None]:
+    """Mean normalized CRPS of a persistence forecast, per horizon.
+
+    Persistence predicts that nothing changes: whatever the metric reads at the
+    snapshot turn is what it will read at the resolution turn. It is the
+    reference every forecast should be measured against — a model that cannot
+    beat "assume the city stands still" has not demonstrated any understanding
+    of the dynamics, however low its absolute score looks.
+
+    Scored on exactly the same footing as the models. CRPS of a point forecast
+    (all five quantiles equal) reduces to absolute error, so the pinball loss is
+    never actually needed here; the baseline's normalized score for one question
+    is |snapshot - actual| / |actual|, averaged the same way and over the same
+    questions as a model's.
+
+    The snapshot value is read from the read-off horizon's own question, which
+    resolves at the snapshot turn by definition, so this costs nothing and needs
+    no re-simulation. That also means the read-off horizon itself is left out of
+    the result: persistence scores 0 there by construction, which is a property
+    of the question, not evidence about the baseline. Questions whose group has
+    no read-off value are skipped; a horizon with nothing usable comes back None.
+    """
+    # Keyed on everything but the horizon, so a question can find the snapshot
+    # reading of its own metric in its own run.
+    snapshot_value = {
+        (c["scenario_id"], c["snapshot_turn"], c["metric"]): c["value"]
+        for c in corpus
+        if c["horizon"] == READ_OFF_HORIZON
+    }
+
+    # Forecast horizons only, so the read-off is never a key here and its
+    # questions are never scored. Persistence resolves the read-off exactly right
+    # by construction, and a reference line dropping to zero there would imply
+    # every model is infinitely worse at a horizon where the baseline is not
+    # making a forecast either.
+    horizons = sorted({c["horizon"] for c in corpus if is_forecast(c["horizon"])})
+
+    scores: dict[int, list[float]] = {h: [] for h in horizons}
+    for c in corpus:
+        if c["horizon"] not in scores:
+            continue
+        # Same exclusions as score_forecasts, so the baseline line and the model
+        # points are means over an identical question set.
+        actual = abs(c["value"])
+        if c["metric"] in UNNORMALIZED_METRICS or actual == 0:
+            continue
+        snapshot = snapshot_value.get(
+            (c["scenario_id"], c["snapshot_turn"], c["metric"])
+        )
+        if snapshot is None:
+            continue
+        scores[c["horizon"]].append(abs(snapshot - c["value"]) / actual)
+
+    return {h: _mean(v) for h, v in scores.items()}
 
 
 def metrics_in_order(corpus: list[dict]) -> list[str]:
@@ -487,7 +548,9 @@ def plot_normalized_by_horizon(
     numbers is work; here the shape is immediate — how steeply accuracy decays
     with distance, and which models depart from the pack. The mean over models is
     drawn as a thick line so it reads as the summary rather than as one more
-    model.
+    model, and the persistence baseline as a dashed line, so the figure answers
+    "is this good?" and not only "who is best?" — absolute nCRPS values carry no
+    scale of their own, and a whole field can sit below the baseline.
 
     `subset` names the slice of the corpus being drawn, for the title and the
     filename; empty means the whole of it. `ymax` fixes the top of the y-axis, so
@@ -594,6 +657,26 @@ def plot_normalized_by_horizon(
             label="mean over models",
         )
 
+    # The baseline, drawn last so it sits above the model points. Dashed and in
+    # a color no model can be assigned, so it reads as a reference level rather
+    # than as another series: points below the line beat "nothing changes",
+    # points above it are worse than assuming the city stands still.
+    baseline_points = [
+        (h, v) for h, v in persistence_by_horizon(corpus).items() if v is not None
+    ]
+    if baseline_points:
+        ax.plot(
+            [h for h, _ in baseline_points],
+            [v for _, v in baseline_points],
+            color="crimson",
+            lw=2.5,
+            ls="--",
+            marker="D",
+            ms=7,
+            zorder=5,
+            label=PERSISTENCE_LABEL,
+        )
+
     ax.set_xlabel(
         "Horizon (turns past the snapshot; model points spread within each tick)"
     )
@@ -601,7 +684,8 @@ def plot_normalized_by_horizon(
     ax.set_title(
         f"Normalized CRPS by horizon{f' — {subset}' if subset else ''}\n"
         f"{len(model_names)} models, {len(corpus)} questions\n"
-        f"legend ranks on the forecast horizons only ({READ_OFF_NOTE})"
+        f"legend ranks on the forecast horizons only ({READ_OFF_NOTE})\n"
+        "below the dashed line beats persistence"
     )
     ax.set_xticks(horizons)
     ax.grid(alpha=0.3, zorder=0)
@@ -618,7 +702,9 @@ def plot_normalized_by_horizon(
     # as a ranking, with the mean on top as the series to find first.
     handles, labels = ax.get_legend_handles_labels()
     by_label = dict(zip(labels, handles))
-    legend_order = ["mean over models"] + [m.split("/")[-1] for m in ordered]
+    legend_order = ["mean over models", PERSISTENCE_LABEL] + [
+        m.split("/")[-1] for m in ordered
+    ]
     legend_labels = [lbl for lbl in dict.fromkeys(legend_order) if lbl in by_label]
     ax.legend(
         [by_label[lbl] for lbl in legend_labels],
@@ -1430,7 +1516,14 @@ def plot_horizon_figures(
             by_cell.setdefault((r["model_id"], r["horizon"]), []).append(
                 r["normalized"]
             )
-        ymax = max([ymax] + [sum(v) / len(v) for v in by_cell.values()])
+        # The baseline counts toward the top too. On the harder subsets it sits
+        # above every model, and a top set from the models alone would push the
+        # reference line off the figure — losing exactly the comparison it is
+        # drawn for, and silently, since a clipped line still plots.
+        baseline = [
+            v for v in persistence_by_horizon(selected).values() if v is not None
+        ]
+        ymax = max([ymax] + [sum(v) / len(v) for v in by_cell.values()] + baseline)
     # A zero top would hand matplotlib set_ylim(0, 0) and draw axes with a
     # collapsed frame; say what is actually missing instead. Every metric being
     # unnormalizable, or nothing parsing at all, is what gets here.
