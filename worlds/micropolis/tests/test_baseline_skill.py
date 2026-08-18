@@ -256,3 +256,58 @@ def test_baseline_crps_sigma_uses_the_history_spread(monkeypatch):
     assert tight["q-48"] == pytest.approx(50.0)
     # A real spread puts probability nearer the actual, so CRPS is lower.
     assert loose["q-48"] < tight["q-48"]
+
+
+def test_geometric_mean_of_takes_plain_ratios():
+    """The figures' mean-over-models line averages cells, not rows."""
+    module = load_module()
+    assert module.geometric_mean_of([0.5, 2.0]) == pytest.approx(1.0)
+    assert module.geometric_mean_of([]) is None
+
+
+def test_skill_by_keeps_a_cell_whose_mean_is_not_truthy():
+    """ "No questions here" and "scored 0 here" must not collapse together.
+
+    A geometric mean of positive ratios cannot be 0 today, so this guards the
+    distinction rather than a live bug: a falsiness filter would start dropping
+    real cells the moment a 0 became reachable.
+    """
+    module = load_module()
+    import math
+
+    rows = [
+        {
+            "model_id": "m",
+            "metric": "cityPop",
+            "horizon": 48,
+            "disasters": False,
+            "skill": 1.0,
+            "log_skill": 0.0,
+        }
+    ]
+    assert module.skill_by(rows, "model_id") == {("m",): 1.0}
+    # Patch in a group that averages to 0 and confirm it is reported, not dropped.
+    monkey = [dict(rows[0], log_skill=-math.inf, skill=0.0)]
+    assert module.skill_by(monkey, "model_id") == {("m",): 0.0}
+
+
+def test_relabel_correlation_axes_rewrites_the_inherited_footnote():
+    """The shared helper's footnote describes the other script's axes.
+
+    It reads "the better-scoring models forecast better", which is wrong here:
+    x is a predictor, not a score, and y is a ratio against the baseline.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    module = load_module()
+    fig, ax = plt.subplots()
+    ax.annotate("ρ<0: the better-scoring models forecast better (pro-g)", xy=(0, 0))
+    module.relabel_correlation_axes(ax)
+    texts = [t.get_text() for t in ax.texts]
+    assert not any("better-scoring" in t for t in texts)
+    assert any("predictor" in t for t in texts)
+    assert "CRPS_baseline" in ax.get_ylabel()
+    plt.close(fig)

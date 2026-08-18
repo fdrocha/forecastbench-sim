@@ -49,7 +49,7 @@ data/micropolis/single_city/plots/with_baseline/.
 Usage:
     scripts/analyze_baseline_skill.py
     scripts/analyze_baseline_skill.py --baseline plain
-    scripts/analyze_baseline_skill.py my_config.json5 --per-metric --no-plot
+    scripts/analyze_baseline_skill.py my_config.json5 --no-plot
 """
 
 import argparse
@@ -286,6 +286,17 @@ def score_skill(
     return rows, dropped
 
 
+def geometric_mean_of(values: list[float]) -> float | None:
+    """Geometric mean of already-computed ratios, or None if there are none.
+
+    For averaging cells that are themselves means — the figures' mean-over-models
+    line — where geometric_mean's row dicts would have to be fabricated.
+    """
+    if not values:
+        return None
+    return math.exp(statistics.fmean(math.log(v) for v in values))
+
+
 def geometric_mean(rows: list[dict]) -> float | None:
     """Geometric mean of `rows`' skill ratios, or None if there are none.
 
@@ -308,7 +319,11 @@ def skill_by(rows: list[dict], *keys: str) -> dict[tuple, float]:
     grouped: dict[tuple, list[dict]] = {}
     for r in rows:
         grouped.setdefault(tuple(r[k] for k in keys), []).append(r)
-    return {k: value for k, v in grouped.items() if (value := geometric_mean(v))}
+    # Tested against None rather than for truthiness: a geometric mean of
+    # positive ratios cannot be 0 today, but "no questions in this cell" and "this
+    # cell scored 0" are different facts and a falsiness test would merge them.
+    means = {k: geometric_mean(v) for k, v in grouped.items()}
+    return {k: v for k, v in means.items() if v is not None}
 
 
 def split_rows(rows: list[dict], split: str) -> list[dict]:
@@ -491,29 +506,6 @@ def print_skill_by_horizon(
         print("  ".join(row))
 
 
-def print_per_metric_horizon_tables(
-    rows: list[dict], model_names: list[str], kind: str, split: str
-) -> None:
-    """One models x horizons skill table per metric.
-
-    The pooled horizon table averages the metrics together, which hides a model
-    that beats the baseline on population while losing badly on traffic. These
-    are all in the same skill units, so unlike the |actual|-normalized script's
-    per-metric tables they can be compared with each other directly.
-    """
-    metrics = metrics_in_order_all(rows)
-    # On the funds side there is one metric and the pooled table already is it.
-    if len(metrics) < 2:
-        return
-    for metric in metrics:
-        label = str(g.METRIC_LABELS.get(metric, metric))
-        subset = [r for r in rows if r["metric"] == metric]
-        if not subset:
-            continue
-        print(f"\n--- {label} ---")
-        print_skill_by_horizon(subset, model_names, kind, split)
-
-
 def plot_skill_by_horizon(
     rows: list[dict],
     model_names: list[str],
@@ -553,16 +545,13 @@ def plot_skill_by_horizon(
         ]
         for model_id in model_names
     }
-    # Averaged over the per-model values so every model counts equally, matching
-    # how the tables' "all" column is built.
+    # Averaged over the per-model cells, not over the raw questions, so every
+    # model counts equally however many of its forecasts had a usable baseline.
+    # This is deliberately not the same number as a table cell: the tables average
+    # a model's own questions, and the two differ by up to about 1% at H240, where
+    # the models' question counts diverge most.
     mean_by_horizon = {
-        h: geometric_mean(
-            [
-                {"log_skill": math.log(cells[(m, h)])}
-                for m in model_names
-                if (m, h) in cells
-            ]
-        )
+        h: geometric_mean_of([cells[(m, h)] for m in model_names if (m, h) in cells])
         for h in horizons
     }
 
@@ -815,6 +804,25 @@ def plot_eci_vs_skill(
     return out
 
 
+def relabel_correlation_axes(ax) -> None:
+    """Fix up the shared correlation axes for a skill-vs-baseline y variable.
+
+    draw_horizon_correlation_axes is written for the |actual|-normalized script
+    and hardcodes both its y-label and a footnote reading "the better-scoring
+    models forecast better", which describes neither axis here — x is a predictor
+    (ECI or knowledge score), not a score, and y is a ratio against the baseline.
+    Rewriting them in place keeps that helper shared, and unchanged, rather than
+    forking it or editing the script it belongs to.
+    """
+    ax.set_ylabel("Spearman ρ vs. skill (CRPS_model / CRPS_baseline)")
+    for child in ax.texts:
+        if "better-scoring" in child.get_text():
+            child.set_text(
+                "ρ<0: the models scoring higher on the predictor beat the "
+                "baseline by more"
+            )
+
+
 def plot_eci_correlation_by_horizon(
     rows: list[dict],
     model_names: list[str],
@@ -854,9 +862,7 @@ def plot_eci_correlation_by_horizon(
         f"Does capability predict beating the baseline? — {SPLITS[split][0]}\n"
         f"Spearman ρ of ECI vs skill, by horizon; baseline: {BASELINES[kind][0]}",
     )
-    # The shared helper labels its y-axis for the |actual|-normalized score it
-    # was written for; the coefficient here is against skill vs the baseline.
-    ax.set_ylabel("Spearman ρ vs. skill (CRPS_model / CRPS_baseline)")
+    relabel_correlation_axes(ax)
     # The proxies carry their own labels, so matplotlib reads them off directly.
     ax.legend(
         handles=band_handles("#3266a8", plt) + significance_handles("#3266a8", plt),
@@ -943,7 +949,7 @@ def plot_predictors_correlation_by_horizon(
         f"{SPLITS[split][0]}; {len(shared)} models with both scores\n"
         f"baseline: {BASELINES[kind][0]}",
     )
-    ax.set_ylabel("Spearman ρ vs. skill (CRPS_model / CRPS_baseline)")
+    relabel_correlation_axes(ax)
     handles, labels = ax.get_legend_handles_labels()
     extra = significance_handles("#666666", plt) + band_handles("#666666", plt)
     ax.legend(
@@ -1007,7 +1013,6 @@ def run_split(
     model_names: list[str],
     kind: str,
     split: str,
-    per_metric: bool,
     plot: bool,
 ) -> list[Path]:
     """Every table and figure for one side of the city-funds split.
@@ -1027,9 +1032,6 @@ def run_split(
 
     print_skill_by_metric(selected, model_names, kind, split)
     print_skill_by_horizon(selected, model_names, kind, split)
-    if per_metric:
-        print_per_metric_horizon_tables(selected, model_names, kind, split)
-
     if not plot:
         return []
     figures = [
@@ -1056,11 +1058,6 @@ def main() -> None:
             "five quantiles on the snapshot value, and so is exactly right — and "
             "gives no usable ratio — whenever the metric did not move"
         ),
-    )
-    ap.add_argument(
-        "--per-metric",
-        action="store_true",
-        help="Also print one skill by model and horizon table per metric",
     )
     ap.add_argument(
         "--no-plot",
@@ -1118,9 +1115,7 @@ def main() -> None:
 
     written = []
     for split in SPLITS:
-        written += run_split(
-            rows, models, args.baseline, split, args.per_metric, args.plot
-        )
+        written += run_split(rows, models, args.baseline, split, args.plot)
 
     if written:
         print()
