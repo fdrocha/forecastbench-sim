@@ -47,6 +47,35 @@ from micropolis_world.single_city import (
     select_for_config,
 )
 
+# The nearest horizon asks for a value the snapshot report already prints, so it
+# is a comprehension check — did the model read the report and follow the answer
+# format — rather than a forecast. It is kept as its own point in every
+# per-horizon table and figure, and excluded from everything that pools horizons
+# together, where averaging a read-off in with real forecasts would flatter every
+# model by the same trick and let a model that merely copies numbers well outrank
+# one that forecasts better.
+READ_OFF_HORIZON = 0
+
+# Said wherever an aggregate has had the read-off removed, so no pooled number
+# goes out without the exclusion attached to it.
+READ_OFF_NOTE = f"excludes H{READ_OFF_HORIZON} (a read-off, not a forecast)"
+
+
+def is_forecast(horizon: int) -> bool:
+    """Whether `horizon` asks the model to predict rather than to read off."""
+    return horizon != READ_OFF_HORIZON
+
+
+def forecast_questions(corpus: list[dict]) -> list[dict]:
+    """`corpus` without the read-off horizon.
+
+    Used by the aggregates that pool horizons. Narrowing the corpus rather than
+    filtering the scored rows keeps the counts, the metric list and the question
+    totals reported alongside an aggregate describing the same set of questions
+    the aggregate was computed over.
+    """
+    return [c for c in corpus if is_forecast(c["horizon"])]
+
 
 def _mean(values: list[float]) -> float | None:
     """Mean of `values`, or None if there are none to average."""
@@ -153,7 +182,22 @@ def print_crps_table(
     over the normalizable metrics, which is unitless and so can be averaged
     across them; rows are sorted by it. A "questions" column gives the number of
     parsed forecasts behind each row, out of the whole corpus.
+
+    Every cell pools the horizons, so the read-off horizon is dropped first and
+    the counts are out of the remaining questions.
     """
+    corpus = forecast_questions(corpus)
+    # Both would otherwise surface as a bare max() on an empty sequence while
+    # measuring the column widths, several frames from the cause.
+    if not model_names:
+        raise ValueError(
+            "no models to tabulate: the config's 'models' list selected nothing"
+        )
+    if not corpus:
+        raise ValueError(
+            "no questions to tabulate: the config's cities, disasters, "
+            "snapshot_turns and horizons selected nothing from the dataset"
+        )
     means, counts, metrics = crps_by_model_and_metric(corpus, responses, model_names)
     rows = score_forecasts(corpus, responses, model_names)
 
@@ -195,6 +239,7 @@ def print_crps_table(
 
     normalized_metrics = [m for m in metrics if m not in UNNORMALIZED_METRICS]
     print("\nMean CRPS by model and metric (lower is better)")
+    print(f"pooled over every forecast horizon; {READ_OFF_NOTE}")
     print(
         f"norm = mean CRPS/|actual| over {', '.join(labels[m] for m in normalized_metrics)}"
         f" (excludes {', '.join(labels[m] for m in metrics if m in UNNORMALIZED_METRICS)},"
@@ -244,7 +289,10 @@ def print_normalized_crps_table(
     column. The parenthesized rank is the model's standing within that metric,
     1 being best, which is what shows whether a model is uniformly strong or
     carried by one metric.
+
+    Pools the horizons into each cell, so the read-off horizon is dropped first.
     """
+    corpus = forecast_questions(corpus)
     normalized = normalized_by_model_and_metric(corpus, responses, model_names)
     # Only the metrics that actually normalize get a column: one that never does
     # would be a column of n/a, which the raw table above already covers.
@@ -296,6 +344,7 @@ def print_normalized_crps_table(
         if m not in metrics
     ]
     print("\nMean normalized CRPS by model and metric (lower is better)")
+    print(f"pooled over every forecast horizon; {READ_OFF_NOTE}")
     print(
         "CRPS/|actual|, so cells compare across metrics as well as down them;"
         " (n) is the model's rank within that metric"
@@ -342,9 +391,13 @@ def print_horizon_table(
     losing ground as the horizon lengthens. Rows are sorted by the "all" column,
     so the table reads best-first, and a model with nothing to average sorts
     last rather than crashing the compare.
+
+    The read-off horizon keeps its own column — it is the comprehension check —
+    but is left out of "all", which is the column the ranking and the row order
+    come from.
     """
     overall = {
-        model_id: _mean([v for m, _, v in scored if m == model_id])
+        model_id: _mean([v for m, h, v in scored if m == model_id and is_forecast(h)])
         for model_id in model_names
     }
     # Keyed by column, "all" included, so ranking is uniform across the table.
@@ -365,7 +418,9 @@ def print_horizon_table(
         )
 
     model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in model_names])
-    labels = {"all": "all"} | {h: f"H{h}" for h in horizons}
+    # "all" is starred rather than renamed so the column stays narrow; the
+    # subtitle each caller passes says what the star means.
+    labels = {"all": "all*"} | {h: f"H{h}" for h in horizons}
     # Wide enough for the longest cell in the table, so a metric in the hundreds
     # of thousands doesn't push its columns out of alignment.
     width = max([9] + [len(cell(key, mid)) for key in columns for mid in model_names])
@@ -410,7 +465,9 @@ def print_normalized_horizon_table(
         sorted({c["horizon"] for c in corpus}),
         "Mean normalized CRPS by model and horizon (lower is better)",
         f"CRPS/|actual| over {', '.join(normalized_labels)};"
-        " horizons are turns past the snapshot",
+        " horizons are turns past the snapshot"
+        f"\nall* {READ_OFF_NOTE}; the H{READ_OFF_HORIZON} column is kept as the"
+        " comprehension check it is",
         ".3f",
     )
 
@@ -475,9 +532,17 @@ def plot_normalized_by_horizon(
     n_colors = 10 if len(model_names) <= 10 else 20
     palette = plt.get_cmap(f"tab{n_colors}")
 
-    # Models in the legend best-first, so its order is itself a ranking.
+    # Models in the legend best-first, so its order is itself a ranking. Ranked
+    # on the forecast horizons only, matching the tables' "all" column; ranking
+    # on a mean that included the read-off would disagree with them.
     overall = {
-        model_id: _mean([v for v in by_model[model_id].values() if v is not None])
+        model_id: _mean(
+            [
+                v
+                for h, v in by_model[model_id].items()
+                if v is not None and is_forecast(h)
+            ]
+        )
         for model_id in model_names
     }
     ordered = sorted(model_names, key=lambda m: (overall[m] is None, overall[m] or 0.0))
@@ -534,12 +599,18 @@ def plot_normalized_by_horizon(
     ax.set_ylabel("Normalized CRPS (CRPS/|actual|, lower is better)")
     ax.set_title(
         f"Normalized CRPS by horizon{f' — {subset}' if subset else ''}\n"
-        f"{len(model_names)} models, {len(corpus)} questions"
+        f"{len(model_names)} models, {len(corpus)} questions\n"
+        f"legend ranks on the forecast horizons only ({READ_OFF_NOTE})"
     )
     ax.set_xticks(horizons)
     ax.grid(alpha=0.3, zorder=0)
     ax.margins(x=0.04)
     ax.set_ylim(bottom=0, top=ymax)
+
+    # Drawn here as well as on the correlation figures: the read-off is on this
+    # axis as a real point, and near-zero error at the nearest tick reads as
+    # models being superb at short range unless it is named.
+    annotate_read_off(ax, [(h,) for h in horizons])
 
     # The legend is as tall as the model list, so it goes beside the axes rather
     # than over the points. Entries are ordered best-first, so the legend doubles
@@ -570,10 +641,13 @@ def plot_normalized_by_horizon(
 def normalized_by_model(
     corpus: list[dict], responses: Responses, model_names: list[str]
 ) -> dict[str, float]:
-    """Mean normalized CRPS per model, over every forecast that normalizes."""
+    """Mean normalized CRPS per model, over every forecast that normalizes.
+
+    Pools the horizons, so the read-off horizon is left out.
+    """
     scores: dict[str, list[float]] = {}
     for row in score_forecasts(corpus, responses, model_names):
-        if row["normalized"] is None:
+        if row["normalized"] is None or not is_forecast(row["horizon"]):
             continue
         scores.setdefault(row["model_id"], []).append(row["normalized"])
     return {m: sum(v) / len(v) for m, v in scores.items()}
@@ -610,6 +684,7 @@ def plot_eci_vs_normalized(
     from scipy import stats
 
     scores = normalized_by_model(corpus, responses, model_names)
+    forecasts = forecast_questions(corpus)
     points = sorted(
         (eci_of(m), scores[m], m.split("/")[-1])
         for m in model_names
@@ -636,7 +711,7 @@ def plot_eci_vs_normalized(
     # Lower nCRPS is better, so ECI going up while error goes down is the
     # capability-tracking direction.
     direction = "pro-g" if rho < 0 else "anti-g"
-    print("\nECI vs mean normalized CRPS (Spearman)")
+    print(f"\nECI vs mean normalized CRPS (Spearman) — {READ_OFF_NOTE}")
     print(
         f"  rho={rho:+.3f}  p={p_rho:.4f} {stars(p_rho):<4} ({direction}, "
         f"n={len(points)})"
@@ -668,7 +743,8 @@ def plot_eci_vs_normalized(
     ax.set_xlabel("ECI (Epoch capability index)")
     ax.set_ylabel("Mean normalized CRPS (CRPS/|actual|, lower is better)")
     ax.set_title(
-        f"Forecast skill vs. ECI  ({len(points)} models, {len(corpus)} questions)"
+        f"Forecast skill vs. ECI  ({len(points)} models,"
+        f" {len(forecasts)} questions)\n{READ_OFF_NOTE}"
     )
     ax.grid(alpha=0.3, zorder=0)
     ax.margins(x=0.12, y=0.1)
@@ -1022,18 +1098,22 @@ def significance_handles(color: str, plt) -> list:
     ]
 
 
-def annotate_read_off(ax, results: list[tuple[int, float, float, int]]) -> None:
-    """Mark the nearest horizon as not comparable to the others, if present.
+def annotate_read_off(ax, rows: list[tuple]) -> None:
+    """Mark the read-off horizon as not comparable to the others, if present.
 
-    Anchored to the H0 tick rather than to any one series' point: the caveat is
-    about the horizon, and with several series stacked there a leader line to
-    one of them reads as singling that series out.
+    `rows` is any sequence of tuples whose first element is a horizon — the
+    correlation figures pass correlate_by_horizon() results, the scatter passes
+    its horizons — since all this needs is whether the read-off is on the axis.
+
+    Anchored to the read-off tick rather than to any one series' point: the
+    caveat is about the horizon, and with several series stacked there a leader
+    line to one of them reads as singling that series out.
     """
-    if 0 not in [h for h, *_ in results]:
+    if READ_OFF_HORIZON not in [h for h, *_ in rows]:
         return
     ax.annotate(
         "read-off,\nnot a forecast",
-        xy=(0, 0),
+        xy=(READ_OFF_HORIZON, 0),
         xycoords=("data", "axes fraction"),
         xytext=(0, 26),
         textcoords="offset points",
@@ -1317,6 +1397,9 @@ def plot_horizon_figures(
     # One y-axis top across the set, so the disasters and no-disasters figures
     # can be read against each other instead of each filling its own axis. Taken
     # from the per-(model, horizon) means, which is what the figures plot.
+    # Includes the read-off horizon: its cells sit near zero and so never set the
+    # top, but the figures still draw them and an axis that excluded them could
+    # clip a point that is on the plot.
     ymax = 0.0
     for _subset, selected in selections:
         rows = [
@@ -1330,6 +1413,16 @@ def plot_horizon_figures(
                 r["normalized"]
             )
         ymax = max([ymax] + [sum(v) / len(v) for v in by_cell.values()])
+    # A zero top would hand matplotlib set_ylim(0, 0) and draw axes with a
+    # collapsed frame; say what is actually missing instead. Every metric being
+    # unnormalizable, or nothing parsing at all, is what gets here.
+    if ymax <= 0:
+        raise ValueError(
+            "no normalized scores to plot: every selected forecast either failed "
+            "to parse or resolved on a metric that is excluded from "
+            f"normalization ({', '.join(sorted(UNNORMALIZED_METRICS))}) or had an "
+            "actual of 0"
+        )
     ymax *= 1.08  # headroom so the topmost marker isn't clipped by the frame
 
     return [
@@ -1363,7 +1456,8 @@ def print_per_metric_horizon_tables(
             model_names,
             horizons,
             f"Mean CRPS by model and horizon — {label} (lower is better)",
-            f"in {label} units, not normalized; horizons are turns past the snapshot",
+            f"in {label} units, not normalized; horizons are turns past the snapshot"
+            f"\nall* {READ_OFF_NOTE}",
             ",.1f",
         )
 

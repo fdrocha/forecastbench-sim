@@ -203,3 +203,55 @@ def test_compare_predictors_is_symmetric_in_sign():
     forward = module.compare_predictors_by_horizon(good, bad, by_horizon)[0]
     reverse = module.compare_predictors_by_horizon(bad, good, by_horizon)[0]
     assert forward["diff"] == -reverse["diff"]
+
+
+def test_read_off_horizon_is_not_a_forecast():
+    module = load_module()
+    assert not module.is_forecast(module.READ_OFF_HORIZON)
+    assert module.is_forecast(module.READ_OFF_HORIZON + 48)
+
+
+def test_forecast_questions_drops_only_the_read_off_horizon():
+    module = load_module()
+    corpus = [
+        {"question_id": "a", "horizon": module.READ_OFF_HORIZON},
+        {"question_id": "b", "horizon": 48},
+        {"question_id": "c", "horizon": 240},
+    ]
+    assert [c["question_id"] for c in module.forecast_questions(corpus)] == ["b", "c"]
+
+
+def test_horizon_table_all_column_excludes_the_read_off(capsys):
+    """The "all" column pools horizons, so it must leave the read-off out.
+
+    The read-off scores 0 for every model, so including it would pull "all"
+    below the mean of the real horizons — here to 0.10 rather than 0.15.
+    """
+    module = load_module()
+    scored = [
+        ("m", module.READ_OFF_HORIZON, 0.0),
+        ("m", 48, 0.1),
+        ("m", 240, 0.2),
+    ]
+    module.print_horizon_table(
+        scored, ["m"], [module.READ_OFF_HORIZON, 48, 240], "t", "s", ".3f"
+    )
+    out = capsys.readouterr().out
+    row = next(ln for ln in out.splitlines() if ln.startswith("m "))
+    assert "0.150" in row, row
+    assert "0.100" not in row.split("0.150")[0], row
+
+
+def test_horizon_table_keeps_the_read_off_as_its_own_column(capsys):
+    module = load_module()
+    module.print_horizon_table(
+        [("m", module.READ_OFF_HORIZON, 0.0), ("m", 48, 0.1)],
+        ["m"],
+        [module.READ_OFF_HORIZON, 48],
+        "t",
+        "s",
+        ".3f",
+    )
+    out = capsys.readouterr().out
+    assert f"H{module.READ_OFF_HORIZON}" in out
+    assert "all*" in out
