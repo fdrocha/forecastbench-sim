@@ -44,7 +44,7 @@
     "xai/grok-4.6",
   ],
 
-  // The test asks for one answer line per statement (219 of them), so the cap
+  // The test asks for one answer line per statement, so the cap
   // must clear roughly 2k tokens of answers plus any preamble the model adds.
   // Some of the reasoning models need a lot of tokens to produce an non-blank response, that's why it is so high
   // Note gpt-3.5-turbo-1106 rejects anything above 4096.

@@ -5,7 +5,7 @@ from collections import Counter
 from . import module_globals as g
 from .city_sim import CitySimulation, turn_of
 
-_difficulty_labels = {0: "Easy", 1: "Medium", 3: "Hard"}
+_difficulty_labels = {0: "Easy", 1: "Medium", 2: "Hard"}
 
 
 def _snapshot_section(row: dict) -> list[str]:
@@ -36,8 +36,13 @@ def _snapshot_section(row: dict) -> list[str]:
 
 
 def _history_section(log_data: list[dict], turn: int, history_freq: int) -> list[str]:
-    """Metric history sampled every history_freq turns, ending on the snapshot turn."""
-    turns = sorted(set(range(turn, -1, -history_freq)))
+    """Metric history sampled every history_freq turns, ending on the snapshot turn.
+
+    Counted back from the snapshot so the last row is always the state the
+    forecast is made from. Turn 0 is added when the stride steps over it, so the
+    table always shows where the city started as well as where it stands.
+    """
+    turns = sorted(set(range(turn, -1, -history_freq)) | {0})
     header = ["Turn"] + [g.METRIC_LABELS.get(m, m) for m in g.METRICS]
     rows = [[str(t)] + [str(log_data[t][m]) for m in g.METRICS] for t in turns]
     return [f"HISTORY (every {history_freq} turns)", "", ",".join(header)] + [

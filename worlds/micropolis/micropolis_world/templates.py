@@ -14,7 +14,10 @@ def _get_continuous_template(metric: str) -> QuestionTemplate:
         # Note we assume there is only one region/player in the Micropolis world, so we don't need to specify a region_id in the question.
         question_template=f"What will the {metric_label} be at turn {{resolution_turn}}?",
         resolution_type="continuous",
-        data_path=f"time_series.{metric}.{{player_id}}.{{resolution_turn}}",
+        # Turn-major, matching fbsim_core.questions.timeseries and what
+        # city_sim.to_world() writes. Descriptive only: the resolver reads the
+        # series through signal_at() and never parses this string.
+        data_path=f"time_series.{metric}.{{resolution_turn}}.{{player_id}}",
         comparison_op="value",
         required_params=["player_id", "resolution_turn"],
     )

@@ -164,10 +164,13 @@ def direction(rho: float) -> str:
 def correlate(xs: list[int], ys: list[float], min_n: int) -> dict | None:
     """Spearman and Pearson correlation of ECI against score, or None.
 
-    None when there are too few models to say anything, or when every model
-    scored identically and a correlation is undefined.
+    None when there are too few models to say anything, or when either variable
+    is constant and a correlation is undefined. Both sides are guarded: a set of
+    models that happens to share one ECI score leaves no spread in x, which
+    yields nan rather than a coefficient, and nan would print as a real number
+    with an "anti-g" direction label.
     """
-    if len(xs) < min_n or len(set(ys)) < 2:
+    if len(xs) < min_n or len(set(xs)) < 2 or len(set(ys)) < 2:
         return None
     rho, p_rho = stats.spearmanr(xs, ys)
     r, p_r = stats.pearsonr(xs, ys)
