@@ -26,8 +26,11 @@ output; --per-metric opts into them.
 
 import argparse
 import re
+import statistics
 import sys
 from pathlib import Path
+
+from fbsim_core.metrics import compute_crps
 
 import micropolis_world.module_globals as g
 from micropolis_world.config import (
@@ -44,6 +47,7 @@ from micropolis_world.single_city import (
     ResponseId,
     Responses,
     load_dataset,
+    scenario_history,
     score_forecasts,
     select_for_config,
 )
@@ -88,7 +92,14 @@ def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
 
 
-def persistence_by_horizon(corpus: list[dict]) -> dict[int, float | None]:
+def question_key(c: dict) -> tuple[str, int, str, int]:
+    """A question's identity for comparing which ones a baseline could score."""
+    return (c["scenario_id"], c["snapshot_turn"], c["metric"], c["horizon"])
+
+
+def persistence_by_horizon(
+    corpus: list[dict], scored: set[tuple[str, int, str, int]] | None = None
+) -> dict[int, float | None]:
     """Mean normalized CRPS of a persistence forecast, per horizon.
 
     Persistence predicts that nothing changes: whatever the metric reads at the
@@ -109,6 +120,14 @@ def persistence_by_horizon(corpus: list[dict]) -> dict[int, float | None]:
     the result: persistence scores 0 there by construction, which is a property
     of the question, not evidence about the baseline. Questions whose group has
     no read-off value are skipped; a horizon with nothing usable comes back None.
+
+    `scored`, if given, is the set of (scenario, snapshot, metric, horizon) keys
+    to average over, and anything outside it is dropped. Callers drawing this
+    beside persistence_sigma_by_horizon pass that function's keys, so the two
+    lines are means over the same questions — the spread estimate is unavailable
+    for some of them, and comparing a line over all questions with a line over a
+    subset would attribute the difference between two question sets to the
+    difference between two forecasts.
     """
     # Keyed on everything but the horizon, so a question can find the snapshot
     # reading of its own metric in its own run.
@@ -129,6 +148,8 @@ def persistence_by_horizon(corpus: list[dict]) -> dict[int, float | None]:
     for c in corpus:
         if c["horizon"] not in scores:
             continue
+        if scored is not None and question_key(c) not in scored:
+            continue
         # Same exclusions as score_forecasts, so the baseline line and the model
         # points are means over an identical question set.
         actual = abs(c["value"])
@@ -142,6 +163,111 @@ def persistence_by_horizon(corpus: list[dict]) -> dict[int, float | None]:
         scores[c["horizon"]].append(abs(snapshot - c["value"]) / actual)
 
     return {h: _mean(v) for h, v in scores.items()}
+
+
+# Normal-distribution quantiles, for widening the persistence baseline's
+# interval from a single spread estimate. Using z rather than the empirical
+# quantiles of the historical changes keeps the estimate stable where only a
+# handful of changes are available — the annual metrics have as few as one at the
+# longest horizon — at the cost of assuming the changes are roughly symmetric.
+NORMAL_Z = {"p10": -1.2816, "p25": -0.6745, "p50": 0.0, "p75": 0.6745, "p90": 1.2816}
+
+# Names the second baseline wherever it is drawn or ranked, for the same reason
+# PERSISTENCE_LABEL does.
+PERSISTENCE_SIGMA_LABEL = "persistence + historical spread"
+
+
+def historical_sigma(
+    history: list[dict], metric: str, snapshot_turn: int, horizon: int
+) -> float | None:
+    """Std dev of `metric`'s change over `horizon` turns, before the snapshot.
+
+    The spread a naive forecaster could have known at forecast time: every pair
+    of turns `horizon` apart within the history the snapshot report was built
+    from, and nothing after it. Returns None where fewer than two changes are
+    available, which is where the estimate would be meaningless rather than
+    merely noisy.
+
+    The changes overlap — turn 0->48 and turn 1->49 share 47 turns — so the
+    effective sample size is nearer len(changes)/horizon than len(changes), and
+    this is a rougher estimate at the long horizons than the count suggests. It
+    is deliberately still a point estimate: the baseline is meant to be naive.
+    """
+    # Rows are turn-indexed, and the snapshot turn is itself observable at
+    # forecast time, so the history runs 0..snapshot_turn inclusive.
+    values = [row[metric] for row in history[: snapshot_turn + 1]]
+    changes = [values[t + horizon] - values[t] for t in range(len(values) - horizon)]
+    if len(changes) < 2:
+        return None
+    return statistics.stdev(changes)
+
+
+def persistence_sigma_by_horizon(
+    corpus: list[dict], seed: int
+) -> tuple[dict[int, float | None], set[tuple[str, int, str, int]]]:
+    """Mean normalized CRPS of persistence widened by historical spread.
+
+    Same median as persistence_by_horizon — the snapshot value, so this is not a
+    better central estimate — but the other four quantiles are placed at
+    median + z * sigma, with sigma the metric's own historical volatility over a
+    window the length of the horizon (see historical_sigma) and z the normal
+    quantiles. That makes it a calibrated-interval version of the same forecast,
+    which under CRPS is the fairer reference: a degenerate forecast is scored as
+    pure absolute error and so is never penalized for its false confidence, while
+    a model that hedges honestly is.
+
+    It should therefore score better than plain persistence wherever the metric
+    moves at all, raising the bar the models have to clear rather than lowering
+    it.
+
+    Needs the run logs for the history, which the dataset does not carry. A
+    scenario whose log is not cached is skipped, so this can come back None where
+    persistence_by_horizon does not; the caller draws what it has.
+
+    Returns the per-horizon means and the set of question keys they were computed
+    over. The keys matter because the spread estimate is not available for every
+    question — the annual metrics have too few historical changes at the longest
+    horizon from an early snapshot — so a caller drawing this beside plain
+    persistence must hold that line to the same set rather than let the two
+    differ in both forecast and question set at once.
+    """
+    snapshot_value = {
+        (c["scenario_id"], c["snapshot_turn"], c["metric"]): c["value"]
+        for c in corpus
+        if c["horizon"] == READ_OFF_HORIZON
+    }
+
+    # One log read per scenario rather than per question; each is ~1000 rows and
+    # every question in a scenario reads the same one.
+    histories = {
+        scenario_id: scenario_history(scenario_id, seed)
+        for scenario_id in {c["scenario_id"] for c in corpus}
+    }
+
+    horizons = sorted({c["horizon"] for c in corpus if is_forecast(c["horizon"])})
+    scores: dict[int, list[float]] = {h: [] for h in horizons}
+    scored: set[tuple[str, int, str, int]] = set()
+    for c in corpus:
+        if c["horizon"] not in scores:
+            continue
+        # Same exclusions as score_forecasts and persistence_by_horizon, so all
+        # three are means over an identical question set.
+        actual = abs(c["value"])
+        if c["metric"] in UNNORMALIZED_METRICS or actual == 0:
+            continue
+        key = (c["scenario_id"], c["snapshot_turn"], c["metric"])
+        snapshot = snapshot_value.get(key)
+        history = histories.get(c["scenario_id"])
+        if snapshot is None or history is None:
+            continue
+        sigma = historical_sigma(history, c["metric"], c["snapshot_turn"], c["horizon"])
+        if sigma is None:
+            continue
+        percentiles = {k: snapshot + z * sigma for k, z in NORMAL_Z.items()}
+        scores[c["horizon"]].append(compute_crps(percentiles, c["value"]) / actual)
+        scored.add(question_key(c))
+
+    return {h: _mean(v) for h, v in scores.items()}, scored
 
 
 def metrics_in_order(corpus: list[dict]) -> list[str]:
@@ -538,6 +664,7 @@ def plot_normalized_by_horizon(
     corpus: list[dict],
     responses: Responses,
     model_names: list[str],
+    seed: int,
     subset: str = "",
     ymax: float | None = None,
     outdir: Path = PLOTS_PATH,
@@ -548,9 +675,15 @@ def plot_normalized_by_horizon(
     numbers is work; here the shape is immediate — how steeply accuracy decays
     with distance, and which models depart from the pack. The mean over models is
     drawn as a thick line so it reads as the summary rather than as one more
-    model, and the persistence baseline as a dashed line, so the figure answers
-    "is this good?" and not only "who is best?" — absolute nCRPS values carry no
-    scale of their own, and a whole field can sit below the baseline.
+    model, and the two persistence baselines as dashed and dotted lines, so the
+    figure answers "is this good?" and not only "who is best?" — absolute nCRPS
+    values carry no scale of their own, and a whole field can sit below the
+    baseline.
+
+    The two baselines make the same central guess and differ only in their
+    interval, which separates two ways of losing: distance above the dashed line
+    is a bad central estimate, and the gap between the lines is what honest
+    uncertainty is worth on this corpus.
 
     `subset` names the slice of the corpus being drawn, for the title and the
     filename; empty means the whole of it. `ymax` fixes the top of the y-axis, so
@@ -661,8 +794,13 @@ def plot_normalized_by_horizon(
     # a color no model can be assigned, so it reads as a reference level rather
     # than as another series: points below the line beat "nothing changes",
     # points above it are worse than assuming the city stands still.
+    # Sigma first, because its question set is the narrower of the two and the
+    # plain line is then held to it.
+    sigma_by_horizon, scored = persistence_sigma_by_horizon(corpus, seed)
     baseline_points = [
-        (h, v) for h, v in persistence_by_horizon(corpus).items() if v is not None
+        (h, v)
+        for h, v in persistence_by_horizon(corpus, scored).items()
+        if v is not None
     ]
     if baseline_points:
         ax.plot(
@@ -677,6 +815,23 @@ def plot_normalized_by_horizon(
             label=PERSISTENCE_LABEL,
         )
 
+    # The same forecast with an honestly-wide interval. Drawn in the same hue so
+    # the pair reads as two versions of one reference rather than two unrelated
+    # lines, and lighter, since it is the harder of the two bars to clear.
+    sigma_points = [(h, v) for h, v in sigma_by_horizon.items() if v is not None]
+    if sigma_points:
+        ax.plot(
+            [h for h, _ in sigma_points],
+            [v for _, v in sigma_points],
+            color="darkorange",
+            lw=2.5,
+            ls=":",
+            marker="s",
+            ms=7,
+            zorder=5,
+            label=PERSISTENCE_SIGMA_LABEL,
+        )
+
     ax.set_xlabel(
         "Horizon (turns past the snapshot; model points spread within each tick)"
     )
@@ -685,7 +840,8 @@ def plot_normalized_by_horizon(
         f"Normalized CRPS by horizon{f' — {subset}' if subset else ''}\n"
         f"{len(model_names)} models, {len(corpus)} questions\n"
         f"legend ranks on the forecast horizons only ({READ_OFF_NOTE})\n"
-        "below the dashed line beats persistence"
+        "below dashed beats persistence; below dotted also beats it "
+        "with an honest interval"
     )
     ax.set_xticks(horizons)
     ax.grid(alpha=0.3, zorder=0)
@@ -702,9 +858,11 @@ def plot_normalized_by_horizon(
     # as a ranking, with the mean on top as the series to find first.
     handles, labels = ax.get_legend_handles_labels()
     by_label = dict(zip(labels, handles))
-    legend_order = ["mean over models", PERSISTENCE_LABEL] + [
-        m.split("/")[-1] for m in ordered
-    ]
+    legend_order = [
+        "mean over models",
+        PERSISTENCE_LABEL,
+        PERSISTENCE_SIGMA_LABEL,
+    ] + [m.split("/")[-1] for m in ordered]
     legend_labels = [lbl for lbl in dict.fromkeys(legend_order) if lbl in by_label]
     ax.legend(
         [by_label[lbl] for lbl in legend_labels],
@@ -1479,7 +1637,7 @@ def plot_predictors_correlation_by_horizon(
 
 
 def plot_horizon_figures(
-    corpus: list[dict], responses: Responses, model_names: list[str]
+    corpus: list[dict], responses: Responses, model_names: list[str], seed: int
 ) -> list[Path]:
     """The horizon scatter over all runs, then split by whether disasters ran.
 
@@ -1520,9 +1678,12 @@ def plot_horizon_figures(
         # above every model, and a top set from the models alone would push the
         # reference line off the figure — losing exactly the comparison it is
         # drawn for, and silently, since a clipped line still plots.
+        sigma_means, scored = persistence_sigma_by_horizon(selected, seed)
         baseline = [
-            v for v in persistence_by_horizon(selected).values() if v is not None
-        ]
+            v
+            for v in persistence_by_horizon(selected, scored).values()
+            if v is not None
+        ] + [v for v in sigma_means.values() if v is not None]
         ymax = max([ymax] + [sum(v) / len(v) for v in by_cell.values()] + baseline)
     # A zero top would hand matplotlib set_ylim(0, 0) and draw axes with a
     # collapsed frame; say what is actually missing instead. Every metric being
@@ -1537,7 +1698,7 @@ def plot_horizon_figures(
     ymax *= 1.08  # headroom so the topmost marker isn't clipped by the frame
 
     return [
-        plot_normalized_by_horizon(selected, responses, model_names, subset, ymax)
+        plot_normalized_by_horizon(selected, responses, model_names, seed, subset, ymax)
         for subset, selected in selections
     ]
 
@@ -1628,7 +1789,9 @@ def main() -> None:
             plot_predictors_correlation_by_horizon(corpus, responses, models),
         ]
         print()
-        for out in plot_horizon_figures(corpus, responses, models):
+        for out in plot_horizon_figures(
+            corpus, responses, models, cfg.get_seed(args.seed)
+        ):
             print(f"Wrote {out}")
         for out in eci_plots:
             if out is not None:

@@ -366,3 +366,141 @@ def test_persistence_reads_the_snapshot_from_its_own_scenario():
     # Each run's H48 equals its own snapshot, so a correct lookup scores 0; a
     # lookup that ignored scenario_id would cross the two and score above 0.
     assert module.persistence_by_horizon(corpus)[48] == pytest.approx(0.0)
+
+
+def _flat_history(n: int = 300) -> list[dict]:
+    """A history whose metric never moves, so its historical spread is zero."""
+    return [{"cityPop": 100} for _ in range(n)]
+
+
+def test_historical_sigma_uses_only_turns_up_to_the_snapshot():
+    """A jump after the snapshot must not widen the interval that precedes it.
+
+    Otherwise the baseline is peeking at the resolution window and is no longer a
+    forecast a naive forecaster could have made.
+    """
+    module = load_module()
+    history = _flat_history(300)
+    for row in history[250:]:
+        row["cityPop"] = 100000
+    assert module.historical_sigma(history, "cityPop", 240, 48) == 0.0
+
+
+def test_historical_sigma_counts_overlapping_changes():
+    """n = snapshot + 1 - horizon, since the snapshot turn is itself observable."""
+    module = load_module()
+    history = [{"cityPop": i} for i in range(300)]
+    # A perfectly linear series changes by exactly `horizon` every time, so the
+    # spread is 0 while the count is what the window allows.
+    assert module.historical_sigma(history, "cityPop", 240, 48) == 0.0
+    # Too few changes to have a spread at all: one change is not a sample.
+    assert module.historical_sigma(history, "cityPop", 240, 240) is None
+
+
+def test_historical_sigma_is_none_when_history_is_shorter_than_the_horizon():
+    module = load_module()
+    assert module.historical_sigma(_flat_history(10), "cityPop", 240, 48) is None
+
+
+def test_sigma_baseline_matches_persistence_when_nothing_ever_moved(monkeypatch):
+    """Zero spread collapses the interval, so the two baselines must agree.
+
+    Pins the sigma baseline to the degenerate one at its boundary case, which is
+    the check that it is the same forecast with a different interval rather than
+    a different forecast.
+    """
+    module = load_module()
+    corpus = [
+        {
+            "scenario_id": "s",
+            "snapshot_turn": 240,
+            "metric": "cityPop",
+            "horizon": h,
+            "value": v,
+        }
+        for h, v in [(0, 100), (48, 150)]
+    ]
+    monkeypatch.setattr(module, "scenario_history", lambda _sid, _seed: _flat_history())
+    means, scored = module.persistence_sigma_by_horizon(corpus, 42)
+    assert means[48] == pytest.approx(module.persistence_by_horizon(corpus, scored)[48])
+
+
+def test_sigma_baseline_beats_persistence_when_the_metric_moves(monkeypatch):
+    """A real spread must help, not hurt: that is the whole point of the line."""
+    module = load_module()
+    corpus = [
+        {
+            "scenario_id": "s",
+            "snapshot_turn": 240,
+            "metric": "cityPop",
+            "horizon": h,
+            "value": v,
+        }
+        for h, v in [(0, 100), (48, 150)]
+    ]
+    # A wandering history, so sigma is well above zero.
+    history = [{"cityPop": 100 + (i % 7) * 30} for i in range(300)]
+    monkeypatch.setattr(module, "scenario_history", lambda _sid, _seed: history)
+    means, scored = module.persistence_sigma_by_horizon(corpus, 42)
+    assert means[48] < module.persistence_by_horizon(corpus, scored)[48]
+
+
+def test_sigma_baseline_skips_a_scenario_with_no_cached_run(monkeypatch):
+    """A missing log is not an error; the line is drawn from what is on disk."""
+    module = load_module()
+    corpus = [
+        {
+            "scenario_id": "s",
+            "snapshot_turn": 240,
+            "metric": "cityPop",
+            "horizon": h,
+            "value": v,
+        }
+        for h, v in [(0, 100), (48, 150)]
+    ]
+    monkeypatch.setattr(module, "scenario_history", lambda _sid, _seed: None)
+    means, scored = module.persistence_sigma_by_horizon(corpus, 42)
+    assert means == {48: None}
+    assert scored == set()
+
+
+def test_normal_z_is_symmetric_and_centered_on_the_median():
+    """An asymmetric z would shift the median off the snapshot value."""
+    module = load_module()
+    assert module.NORMAL_Z["p50"] == 0.0
+    assert module.NORMAL_Z["p10"] == pytest.approx(-module.NORMAL_Z["p90"])
+    assert module.NORMAL_Z["p25"] == pytest.approx(-module.NORMAL_Z["p75"])
+
+
+def test_the_two_baselines_average_over_the_same_questions(monkeypatch):
+    """Where the spread is unavailable, both lines must drop the question.
+
+    Otherwise the H240 comparison comes from two different question sets and the
+    gap between the lines reads as a difference between forecasts when it is
+    partly a difference in what was scored.
+    """
+    module = load_module()
+    corpus = []
+    for scenario in ["keep", "drop"]:
+        for h, v in [(0, 100), (48, 150)]:
+            corpus.append(
+                {
+                    "scenario_id": scenario,
+                    "snapshot_turn": 240,
+                    "metric": "cityPop",
+                    "horizon": h,
+                    "value": v,
+                }
+            )
+    # Only one scenario has a cached run, so only its questions get a spread.
+    monkeypatch.setattr(
+        module,
+        "scenario_history",
+        lambda sid, _seed: _flat_history() if sid == "keep" else None,
+    )
+    _means, scored = module.persistence_sigma_by_horizon(corpus, 42)
+    assert scored == {("keep", 240, "cityPop", 48)}
+    # Unrestricted, plain persistence averages both scenarios; restricted, one.
+    assert len(module.persistence_by_horizon(corpus)) == 1
+    restricted = module.persistence_by_horizon(corpus, scored)
+    assert restricted[48] == pytest.approx(50 / 150)

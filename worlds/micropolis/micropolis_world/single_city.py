@@ -140,6 +140,31 @@ def load_dataset(path: Path = DATA_PATH) -> tuple[list[dict], Responses, list[st
     return corpus, responses, data["models"]
 
 
+def scenario_history(scenario_id: str, seed: int) -> list[dict] | None:
+    """The cached log rows of a scenario run, or None if it isn't on disk.
+
+    Indexed by turn: row i is turn i, matching how build_corpus resolves a
+    question at snapshot_turn + horizon. Reads the cache only — never simulates —
+    so the analysis scripts stay offline and cost nothing.
+
+    The scenario id encodes city, disasters and seed, which is what names the log
+    file, so a run can be found from a corpus entry alone. `seed` is taken as an
+    argument rather than parsed back out of the id: the id is built by
+    CitySimulation and this should not depend on how it is spelled.
+    """
+    city, _, rest = scenario_id.partition("_")
+    if not rest:
+        return None
+    sim = CitySimulation(
+        city_name=city, seed=seed, disasters=rest.startswith("disasters")
+    )
+    try:
+        sim.load_from_disk()
+    except FileNotFoundError:
+        return None
+    return sim.log_data
+
+
 class DatasetError(Exception):
     """The dataset on disk doesn't cover what the config asked for."""
 
