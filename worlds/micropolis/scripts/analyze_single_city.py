@@ -41,6 +41,7 @@ from micropolis_world.single_city import (
     PLOTS_PATH,
     UNNORMALIZED_METRICS,
     DatasetError,
+    ResponseId,
     Responses,
     load_dataset,
     score_forecasts,
@@ -972,26 +973,43 @@ def print_read_off_caveat(
     model_names: list[str],
     results: list[tuple[int, float, float, int]],
 ) -> None:
-    """Warn that the nearest horizon is not really a forecast, if it is in play.
+    """Warn that the read-off horizon is not really a forecast, if it is in play.
 
-    The nearest horizon asks about a value the snapshot already shows, so most
-    models score exactly 0 there; its coefficient is mostly about reading the
-    report correctly, and is not comparable to the rest.
+    It asks about a value the snapshot already prints, so almost every model puts
+    its median on the actual. What separates them there is whether they also
+    collapsed the interval onto it: a model that hedges a value it could have
+    copied scores worse without having read anything wrong. So the coefficient at
+    this horizon is largely about how confidently a known value is restated, not
+    about forecasting, and is not comparable to the rest.
+
+    Both shares are reported because the gap between them is the point — quoting
+    only the CRPS-zero one reads as models failing to read the report.
     """
-    if not results or results[0][0] != 0:
+    if not results or results[0][0] != READ_OFF_HORIZON:
         return
-    exact = [
-        r["normalized"]
-        for r in score_forecasts(corpus, responses, model_names)
-        if r["horizon"] == 0 and r["normalized"] is not None
-    ]
-    if not exact:
+    scored = []
+    for c in corpus:
+        if c["horizon"] != READ_OFF_HORIZON:
+            continue
+        for model_id in model_names:
+            r = responses.get(ResponseId(model_id, c["question_id"]))
+            if r is not None and r.percentiles is not None:
+                scored.append((r.percentiles, c["value"]))
+    if not scored:
         return
-    share = sum(1 for v in exact if v == 0) / len(exact)
+    median = sum(1 for p, actual in scored if p["p50"] == actual) / len(scored)
+    exact = sum(
+        1 for p, actual in scored if all(v == actual for v in p.values())
+    ) / len(scored)
     print(
-        f"  H0 is a read-off, not a forecast ({share:.0%} of its forecasts"
-        " are exactly right); treat its rho apart from the others."
+        f"  H{READ_OFF_HORIZON} is a read-off, not a forecast:"
+        f" {median:.0%} of its forecasts put the median on the"
     )
+    print(
+        f"  actual and {exact:.0%} collapse the whole interval onto it, so its rho"
+        " is mostly about"
+    )
+    print("  how confidently a known value is restated; treat it apart.")
 
 
 def draw_horizon_correlation_axes(
