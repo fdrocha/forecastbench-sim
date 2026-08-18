@@ -131,7 +131,7 @@ SPLITS = {
     ),
     "funds": (
         "city funds",
-        "reported alone: a near-deterministic series, unlike the other five",
+        "reported alone, being a near-deterministic series unlike the other five",
     ),
 }
 
@@ -326,6 +326,26 @@ def skill_by(rows: list[dict], *keys: str) -> dict[tuple, float]:
     return {k: v for k, v in means.items() if v is not None}
 
 
+# Column headings for this script's tables and legends. g.METRIC_LABELS spells
+# four of the metrics "average traffic", "average pollution" and so on, which is
+# right where it is used mid-sentence — in a world report, and in the question
+# text the models were actually prompted with — but wastes width in a table
+# header where every column is already a mean. Overridden here rather than
+# changed at the source: g.METRIC_LABELS also feeds templates.py, so editing it
+# would reword the prompts these cached responses were gathered under.
+_SHORT_LABELS = {
+    "trafficAverage": "traffic",
+    "pollutionAverage": "pollution",
+    "crimeAverage": "crime",
+    "landValueAverage": "land value",
+}
+
+
+def metric_label(metric: str) -> str:
+    """Short display name for `metric`, for a table column or a plot legend."""
+    return _SHORT_LABELS.get(metric, str(g.METRIC_LABELS.get(metric, metric)))
+
+
 def split_rows(rows: list[dict], split: str) -> list[dict]:
     """`rows` narrowed to one side of the city-funds split.
 
@@ -387,13 +407,20 @@ def print_skill_by_metric(
     be read down a column.
     """
     metrics = metrics_in_order_all(rows)
-    labels = {m: str(g.METRIC_LABELS.get(m, m)) for m in metrics}
+    labels = {m: metric_label(m) for m in metrics}
     cells = skill_by(rows, "model_id", "metric")
     overall = skill_by(rows, "model_id")
 
-    columns = {"all": {m: overall.get((m,)) for m in model_names}} | {
+    per_metric = {
         metric: {m: cells.get((m, metric)) for m in model_names} for metric in metrics
     }
+    # The pooled column is dropped when there is only one metric to pool, where it
+    # would repeat that metric's column value for value. That is the city funds
+    # side of the split, which is reported alone.
+    pooled = (
+        {"all": {m: overall.get((m,)) for m in model_names}} if len(metrics) > 1 else {}
+    )
+    columns = pooled | per_metric
     ranks = {key: ranks_within_column(values) for key, values in columns.items()}
     rank_width = max(rank_width_for(r) for r in ranks.values())
 

@@ -311,3 +311,91 @@ def test_relabel_correlation_axes_rewrites_the_inherited_footnote():
     assert any("predictor" in t for t in texts)
     assert "CRPS_baseline" in ax.get_ylabel()
     plt.close(fig)
+
+
+def test_metric_label_drops_the_average_prefix():
+    """Table headers say "traffic", not "average traffic": every column is a mean.
+
+    Overridden locally rather than in g.METRIC_LABELS, which also supplies the
+    question text the models were prompted with — rewording it there would desync
+    the cached responses from the questions they answered.
+    """
+    module = load_module()
+    assert module.metric_label("trafficAverage") == "traffic"
+    assert module.metric_label("pollutionAverage") == "pollution"
+    assert module.metric_label("crimeAverage") == "crime"
+    assert module.metric_label("landValueAverage") == "land value"
+
+
+def test_metric_label_leaves_the_others_alone():
+    module = load_module()
+    assert module.metric_label("cityPop") == "population"
+    assert module.metric_label(module.FUNDS_METRIC) == "city funds"
+    # An unknown metric falls back to its own key rather than raising.
+    assert module.metric_label("somethingNew") == "somethingNew"
+
+
+def test_the_prompted_question_text_is_left_untouched():
+    """Guards the reason metric_label is a local override.
+
+    g.METRIC_LABELS feeds templates.py, so the wording change must not reach it.
+    """
+    import micropolis_world.module_globals as g
+
+    assert g.METRIC_LABELS["trafficAverage"] == "average traffic"
+
+
+def _header_line(capsys) -> str:
+    """The column header of the table just printed."""
+    return next(
+        line
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("Model")
+    )
+
+
+def _one_metric_rows(metric: str) -> list[dict]:
+    return [
+        {
+            "model_id": "p/m",
+            "metric": metric,
+            "horizon": h,
+            "disasters": False,
+            "skill": 0.5,
+            "log_skill": -0.6931471805599453,
+        }
+        for h in [48, 96]
+    ]
+
+
+def test_metric_table_drops_the_pooled_column_for_a_single_metric(capsys):
+    """On the funds side "all" would repeat the one metric column value for value."""
+    module = load_module()
+    module.print_skill_by_metric(
+        _one_metric_rows(module.FUNDS_METRIC), ["p/m"], "sigma", "funds"
+    )
+    header = _header_line(capsys)
+    assert "city funds" in header
+    assert "all" not in header
+
+
+def test_metric_table_keeps_the_pooled_column_for_several_metrics(capsys):
+    """With more than one metric to pool, "all" is a real summary and stays."""
+    module = load_module()
+    rows = _one_metric_rows("cityPop") + _one_metric_rows("crimeAverage")
+    module.print_skill_by_metric(rows, ["p/m"], "sigma", "behavioral")
+    header = _header_line(capsys)
+    assert "all" in header
+    assert "population" in header and "crime" in header
+
+
+def test_horizon_table_keeps_its_pooled_column_on_the_funds_side(capsys):
+    """Unlike the metric table's, this "all" pools several horizons, so it is not
+    a duplicate of any one column."""
+    module = load_module()
+    module.print_skill_by_horizon(
+        _one_metric_rows(module.FUNDS_METRIC), ["p/m"], "sigma", "funds"
+    )
+    header = _header_line(capsys)
+    assert "all" in header
+    assert "H48" in header and "H96" in header
