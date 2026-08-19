@@ -1,0 +1,185 @@
+{
+ "smoke": false,
+ "derived_horizons": {
+  "H2": 120,
+  "H3": 150
+ },
+ "worlds": [
+  {
+   "game_id": "seed0",
+   "h1": 55,
+   "rollouts_resolved": 1000,
+   "unreadable": 0,
+   "horizons": {
+    "H2": {
+     "derived": 55,
+     "survived": 55,
+     "dropped": 0,
+     "partial_null": 0
+    },
+    "H3": {
+     "derived": 55,
+     "survived": 55,
+     "dropped": 0,
+     "partial_null": 0
+    }
+   },
+   "dropped_qids": [],
+   "sec": 0.3
+  },
+  {
+   "game_id": "seed1",
+   "h1": 54,
+   "rollouts_resolved": 1000,
+   "unreadable": 0,
+   "horizons": {
+    "H2": {
+     "derived": 54,
+     "survived": 54,
+     "dropped": 0,
+     "partial_null": 0
+    },
+    "H3": {
+     "derived": 54,
+     "survived": 54,
+     "dropped": 0,
+     "partial_null": 0
+    }
+   },
+   "dropped_qids": [],
+   "sec": 0.3
+  },
+  {
+   "game_id": "seed2",
+   "h1": 54,
+   "rollouts_resolved": 1000,
+   "unreadable": 0,
+   "horizons": {
+    "H2": {
+     "derived": 54,
+     "survived": 54,
+     "dropped": 0,
+     "partial_null": 0
+    },
+    "H3": {
+     "derived": 54,
+     "survived": 54,
+     "dropped": 0,
+     "partial_null": 0
+    }
+   },
+   "dropped_qids": [],
+   "sec": 0.7
+  },
+  {
+   "game_id": "seed3",
+   "h1": 57,
+   "rollouts_resolved": 1000,
+   "unreadable": 0,
+   "horizons": {
+    "H2": {
+     "derived": 57,
+     "survived": 57,
+     "dropped": 0,
+     "partial_null": 0
+    },
+    "H3": {
+     "derived": 57,
+     "survived": 57,
+     "dropped": 0,
+     "partial_null": 0
+    }
+   },
+   "dropped_qids": [],
+   "sec": 0.3
+  },
+  {
+   "game_id": "seed300",
+   "h1": 57,
+   "rollouts_resolved": 1000,
+   "unreadable": 0,
+   "horizons": {
+    "H2": {
+     "derived": 57,
+     "survived": 57,
+     "dropped": 0,
+     "partial_null": 0
+    },
+    "H3": {
+     "derived": 57,
+     "survived": 57,
+     "dropped": 0,
+     "partial_null": 0
+    }
+   },
+   "dropped_qids": [],
+   "sec": 0.5
+  },
+  {
+   "game_id": "seed345",
+   "h1": 56,
+   "rollouts_resolved": 1000,
+   "unreadable": 0,
+   "horizons": {
+    "H2": {
+     "derived": 56,
+     "survived": 56,
+     "dropped": 0,
+     "partial_null": 0
+    },
+    "H3": {
+     "derived": 56,
+     "survived": 56,
+     "dropped": 0,
+     "partial_null": 0
+    }
+   },
+   "dropped_qids": [],
+   "sec": 0.3
+  },
+  {
+   "game_id": "seed350",
+   "h1": 57,
+   "rollouts_resolved": 1000,
+   "unreadable": 0,
+   "horizons": {
+    "H2": {
+     "derived": 57,
+     "survived": 57,
+     "dropped": 0,
+     "partial_null": 0
+    },
+    "H3": {
+     "derived": 57,
+     "survived": 57,
+     "dropped": 0,
+     "partial_null": 0
+    }
+   },
+   "dropped_qids": [],
+   "sec": 0.3
+  },
+  {
+   "game_id": "seed355",
+   "h1": 55,
+   "rollouts_resolved": 1000,
+   "unreadable": 0,
+   "horizons": {
+    "H2": {
+     "derived": 55,
+     "survived": 55,
+     "dropped": 0,
+     "partial_null": 0
+    },
+    "H3": {
+     "derived": 55,
+     "survived": 55,
+     "dropped": 0,
+     "partial_null": 0
+    }
+   },
+   "dropped_qids": [],
+   "sec": 0.3
+  }
+ ]
+}
