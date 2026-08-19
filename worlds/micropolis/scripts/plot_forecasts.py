@@ -2,8 +2,9 @@
 """Plot single city metric trajectories with model forecasts overlaid.
 
 One figure per scenario, carrying every snapshot taken from it and every horizon
-asked from those snapshots. Reads data/micropolis/single_city/data.json, written
-by scripts/run_single_city_eval.py, and the simulation logs the questions came
+asked from those snapshots. Reads
+data/micropolis/single_city/{analysis_label}/data.json, written by
+scripts/run_single_city_eval.py, and the simulation logs the questions came
 from; prompts no models.
 
 The config selects which slice of the dataset to draw — its models, cities,
@@ -11,7 +12,8 @@ disasters, snapshot_turns and horizons — so one gathered dataset can be plotte
 many ways. Naming anything the dataset lacks is an error, not a smaller figure.
 
 Writes one figure per scenario to
-data/micropolis/single_city/plots/forecasts/, panelled by metric.
+data/micropolis/single_city/{analysis_label}/plots/forecasts/, panelled by
+metric.
 
 Defaults to the forecasts_plots.json5 config, which subsets the models to a
 number these figures can legibly carry; name another config to override it.
@@ -36,19 +38,21 @@ from micropolis_world.config import (
 )
 from micropolis_world.plot_sim import PANEL_GRID, PANEL_METRICS
 from micropolis_world.single_city import (
-    DATA_PATH,
-    PLOTS_PATH,
     DatasetError,
     Responses,
     ResponseId,
+    data_path,
     load_dataset,
+    plots_path,
     select_for_config,
 )
 
-# Written to their own directory: one figure per scenario is many files, and they
-# would otherwise be mixed in with the handful of summary plots the scoring
-# script writes alongside them.
-FORECASTS_PATH = PLOTS_PATH / "forecasts"
+
+def forecasts_path(label: str) -> Path:
+    # Written to their own directory: one figure per scenario is many files, and
+    # they would otherwise be mixed in with the handful of summary plots the
+    # scoring script writes alongside them.
+    return plots_path(label) / "forecasts"
 
 # These figures carry one marker per (model, snapshot, horizon) per panel, so the
 # full model set makes them unreadable; this config subsets to a legible few.
@@ -70,7 +74,7 @@ def plot_forecasts(
     corpus: list[dict],
     responses: Responses,
     model_names: list[str],
-    outdir: Path = FORECASTS_PATH,
+    outdir: Path,
 ) -> list[Path]:
     """One figure per scenario: trajectories plus every snapshot's forecasts.
 
@@ -322,12 +326,15 @@ def main() -> None:
     args = ap.parse_args()
 
     cfg = load_config(args)
+    label = cfg.get_analysis_label()
+    data_file = data_path(label)
+    outdir = forecasts_path(label)
 
     # Both failures are user error with an obvious fix — the gathering step
     # hasn't run, or hasn't run for this config — so say so plainly rather than
     # with a traceback.
     try:
-        corpus, responses, models = load_dataset()
+        corpus, responses, models = load_dataset(data_file)
         corpus, responses, models = select_for_config(
             corpus, responses, models, cfg, cfg.get_seed(args.seed)
         )
@@ -337,11 +344,12 @@ def main() -> None:
     print("=" * 70)
     print("MICROPOLIS WORLD — single city forecast plots")
     print("=" * 70)
-    print(f"data:   {DATA_PATH}")
+    print(f"data:   {data_file}")
     print(f"config: {cfg.path}")
+    print(f"label:  {label}")
 
-    written = plot_forecasts(corpus, responses, models)
-    print(f"Wrote {len(written)} plots -> {FORECASTS_PATH}")
+    written = plot_forecasts(corpus, responses, models, outdir)
+    print(f"Wrote {len(written)} plots -> {outdir}")
 
 
 if __name__ == "__main__":

@@ -345,13 +345,14 @@ def test_the_prompted_question_text_is_left_untouched():
     assert g.METRIC_LABELS["trafficAverage"] == "average traffic"
 
 
-def _header_line(capsys) -> str:
-    """The column header of the table just printed."""
-    return next(
-        line
-        for line in capsys.readouterr().out.splitlines()
-        if line.startswith("Model")
-    )
+def _header_line(report) -> str:
+    """The column header of the table just appended to `report`.
+
+    base_dir is irrelevant here: none of these tests call report.image(), so
+    render() never resolves a relative link against it.
+    """
+    text = report.render(Path("."))
+    return next(line for line in text.splitlines() if line.startswith("Model"))
 
 
 def _one_metric_rows(metric: str) -> list[dict]:
@@ -368,34 +369,37 @@ def _one_metric_rows(metric: str) -> list[dict]:
     ]
 
 
-def test_metric_table_drops_the_pooled_column_for_a_single_metric(capsys):
+def test_metric_table_drops_the_pooled_column_for_a_single_metric():
     """On the funds side "all" would repeat the one metric column value for value."""
     module = load_module()
+    report = module.MdReport()
     module.print_skill_by_metric(
-        _one_metric_rows(module.FUNDS_METRIC), ["p/m"], "sigma", "funds"
+        report, _one_metric_rows(module.FUNDS_METRIC), ["p/m"], "sigma", "funds"
     )
-    header = _header_line(capsys)
+    header = _header_line(report)
     assert "city funds" in header
     assert "all" not in header
 
 
-def test_metric_table_keeps_the_pooled_column_for_several_metrics(capsys):
+def test_metric_table_keeps_the_pooled_column_for_several_metrics():
     """With more than one metric to pool, "all" is a real summary and stays."""
     module = load_module()
+    report = module.MdReport()
     rows = _one_metric_rows("cityPop") + _one_metric_rows("crimeAverage")
-    module.print_skill_by_metric(rows, ["p/m"], "sigma", "behavioral")
-    header = _header_line(capsys)
+    module.print_skill_by_metric(report, rows, ["p/m"], "sigma", "behavioral")
+    header = _header_line(report)
     assert "all" in header
     assert "population" in header and "crime" in header
 
 
-def test_horizon_table_keeps_its_pooled_column_on_the_funds_side(capsys):
+def test_horizon_table_keeps_its_pooled_column_on_the_funds_side():
     """Unlike the metric table's, this "all" pools several horizons, so it is not
     a duplicate of any one column."""
     module = load_module()
+    report = module.MdReport()
     module.print_skill_by_horizon(
-        _one_metric_rows(module.FUNDS_METRIC), ["p/m"], "sigma", "funds"
+        report, _one_metric_rows(module.FUNDS_METRIC), ["p/m"], "sigma", "funds"
     )
-    header = _header_line(capsys)
+    header = _header_line(report)
     assert "all" in header
     assert "H48" in header and "H96" in header

@@ -8,11 +8,15 @@ their forecasts to data/micropolis/single_city/data.json.
 Questions that share a game report — same scenario and snapshot turn — are
 asked together in one numbered prompt, so the report is paid for once per
 batch instead of once per question. Each batch's prompt and raw responses are
-cached in data/micropolis/single_city/cache/{batch_id}/ as prompt.txt and one
-response-{model}.txt per model; cached responses are never re-requested, and
-deleting a batch directory re-gathers it. data.json is regenerated from the
-cached responses on every run, so parser improvements take effect without
-re-prompting.
+cached in data/micropolis/single_city/cache/{batch_id}/ as prompt-{hash}.txt
+and one response-{model}-{hash}.txt per model, where {hash} is the first 8
+characters of the prompt's SHA-256 digest (see knowledge_eval/runner.py's
+prompt_hash) — the same convention the knowledge eval uses. A response is only
+reused when its hash matches the freshly built prompt, so trying a different
+prompt variant (template, history_freq, ...) never mixes its answers with an
+older variant's; it just adds new files alongside them. data.json is
+regenerated from the cached responses on every run, so parser improvements
+take effect without re-prompting.
 
 Scoring and plotting read that file:
     scripts/analyze_single_city.py   tables of CRPS
@@ -44,12 +48,13 @@ from micropolis_world.scenarios import (
     parse_batch_percentiles,
 )
 from micropolis_world.single_city import (
-    DATA_PATH,
     Response,
     ResponseId,
     Responses,
     batch_dir,
     batch_id_for,
+    data_path,
+    prompt_hash,
     prompt_path,
     response_path,
     save_dataset,
@@ -65,31 +70,6 @@ def group_into_batches(corpus: list[dict]) -> dict[str, list[dict]]:
     return batches
 
 
-def check_prompts_against_cache(prompts: dict[str, str]) -> None:
-    """Refuse to run when a cached batch was prompted with different questions.
-
-    A batch directory answers the exact prompt stored in it, but batch_id names
-    only the scenario and snapshot turn: a config change to horizons, templates
-    or history_freq changes the prompt under the same batch_id, and reusing the
-    cached responses would silently attach them to different questions. Deleting
-    the stale directories is left to the user, so nothing gathered is thrown
-    away without them seeing what and why.
-    """
-    stale = [
-        bid
-        for bid, prompt in prompts.items()
-        if prompt_path(bid).exists() and prompt_path(bid).read_text() != prompt
-    ]
-    if stale:
-        dirs = "\n".join(f"  {batch_dir(bid)}" for bid in stale)
-        raise SystemExit(
-            f"{len(stale)} cached batch(es) were prompted with different "
-            "questions than this config builds (changed horizons, templates, "
-            "or history_freq?). Delete the stale batch directories to "
-            f"re-gather them:\n{dirs}"
-        )
-
-
 def gather_responses(
     corpus: list[dict],
     model_names: list[str],
@@ -97,30 +77,45 @@ def gather_responses(
 ) -> Responses:
     """Prompt each model on each batch of questions, reusing cached responses.
 
-    A model is only queried for batches with no cached response file, so
-    re-running is free once a run completes. An empty reply — a reasoning
-    model can burn the whole token budget thinking — is not cached, so the
-    next run retries it; a non-empty reply is cached even when unparseable,
-    since retrying greedy decoding would return the same text.
+    Cache files are named with the prompt's hash (see single_city.prompt_hash),
+    so a response is only ever reused when it was gathered under the exact
+    prompt being asked now — a config change to horizons, templates or
+    history_freq changes the hash, which simply misses the cache rather than
+    risking a stale match. An empty reply — a reasoning model can burn the
+    whole token budget thinking — is not cached, so the next run retries it; a
+    non-empty reply is cached even when unparseable, since retrying greedy
+    decoding would return the same text.
     """
     batches = group_into_batches(corpus)
     prompts = {
         bid: build_batch_prompt_continuous(questions[0]["context"], questions)
         for bid, questions in batches.items()
     }
-    check_prompts_against_cache(prompts)
+    phashes = {bid: prompt_hash(prompt) for bid, prompt in prompts.items()}
     for bid, prompt in prompts.items():
-        if not prompt_path(bid).exists():
+        ppath = prompt_path(bid, phashes[bid])
+        if not ppath.exists():
             batch_dir(bid).mkdir(parents=True, exist_ok=True)
-            prompt_path(bid).write_text(prompt)
+            ppath.write_text(prompt)
+
+    models = get_models(model_names)
+    rpaths = {
+        (bid, model_name): response_path(bid, model_name, phashes[bid])
+        for bid in batches
+        for model_name in model_names
+    }
+    ncached = sum(1 for p in rpaths.values() if p.exists())
+    print(
+        f"{ncached} of {len(rpaths)} batch responses cached; "
+        f"generating {len(rpaths) - ncached}"
+    )
 
     responses: Responses = {}
-    models = get_models(model_names)
     nmodels = len(models)
     for model_idx, (model_name, model) in enumerate(zip(model_names, models)):
         print(f"Prompting {model_name} ({model_idx + 1}/{nmodels})")
         for bid, questions in tqdm(batches.items()):
-            rpath = response_path(bid, model_name)
+            rpath = rpaths[(bid, model_name)]
             if rpath.exists():
                 raw = rpath.read_text()
             else:
@@ -160,12 +155,15 @@ def main() -> None:
 
     cfg = load_config(args)
     seed = cfg.get_seed(args.seed)
+    label = cfg.get_analysis_label()
     models = args.models if args.models else cfg.get_str_list("models")
+    out_path = data_path(label)
 
     print("=" * 70)
     print("MICROPOLIS WORLD — single city eval")
     print("=" * 70)
     print(f"config: {cfg.path}")
+    print(f"label:  {label}")
 
     scenarios = get_single_city_base_scenarios(
         seed=seed, cities=cfg.get_cities(), disasters=cfg.get_bool_list("disasters")
@@ -187,9 +185,9 @@ def main() -> None:
     responses = gather_responses(corpus, models, cfg.get_int("max_tokens"))
     print("Done gathering")
 
-    save_dataset(corpus, responses, models)
+    save_dataset(corpus, responses, models, out_path)
     usable = sum(1 for r in responses.values() if r.percentiles is not None)
-    print(f"\nWrote {len(corpus)} questions x {len(models)} models -> {DATA_PATH}")
+    print(f"\nWrote {len(corpus)} questions x {len(models)} models -> {out_path}")
     print(f"  {usable} of {len(responses)} forecasts usable")
     print("=" * 70)
     print("Next: scripts/analyze_single_city.py, scripts/plot_forecasts.py")

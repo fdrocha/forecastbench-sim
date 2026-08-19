@@ -43,8 +43,13 @@ The read-off horizon is excluded throughout: it is a comprehension check, the
 baseline resolves it exactly by construction, and a ratio against a zero
 denominator says nothing.
 
-Writes tables to stdout and plots to
-data/micropolis/single_city/plots/with_baseline/.
+Writes a Markdown report to
+data/micropolis/single_city/{analysis_label}/analysis-skill.md (--baseline
+plain) or analysis-skill-sigma.md (--baseline sigma, the default), with plots
+in data/micropolis/single_city/{analysis_label}/plots/with_baseline/. The two
+baselines' plots are also distinguished by a -sigma suffix, so running both
+never overwrites the other's figures. Only the paths written and the report's
+own path are printed to stdout.
 
 Usage:
     scripts/analyze_baseline_skill.py
@@ -69,12 +74,14 @@ from micropolis_world.config import (
 )
 from micropolis_world.plot_labels import place_labels
 from micropolis_world.single_city import (
-    DATA_PATH,
-    PLOTS_PATH,
     DatasetError,
+    MdReport,
     ResponseId,
     Responses,
+    data_path,
+    label_dir,
     load_dataset,
+    plots_path,
     scenario_history,
     select_for_config,
 )
@@ -90,12 +97,12 @@ from analyze_single_city import (
     draw_horizon_correlation_axes,
     eci_by_name,
     eci_of,
+    format_horizon_correlations,
+    format_predictor_comparison,
+    format_tie_warnings,
     historical_sigma,
     is_forecast,
     knowledge_predictor,
-    print_horizon_correlations,
-    print_predictor_comparison,
-    print_tie_warnings,
     rank_width_for,
     ranked_cell,
     ranks_within_column,
@@ -103,9 +110,22 @@ from analyze_single_city import (
     stars_for,
 )
 
-# Plots go in their own directory so this analysis never overwrites a figure
-# from the |actual|-normalized one, which stays as it was.
-OUT_DIR = PLOTS_PATH / "with_baseline"
+
+def out_dir(label: str) -> Path:
+    # Plots go in their own directory so this analysis never overwrites a figure
+    # from the |actual|-normalized one, which stays as it was.
+    return plots_path(label) / "with_baseline"
+
+
+def plot_suffix(kind: str) -> str:
+    """Filename suffix distinguishing the sigma baseline's plots from plain's.
+
+    "plain" keeps the original, unsuffixed names — it was the only variant
+    before --baseline existed — so only "sigma" (the default today) is tagged;
+    otherwise the two variants' figures would silently overwrite each other
+    whenever both are plotted against the same analysis_label.
+    """
+    return "-sigma" if kind == "sigma" else ""
 
 # A skill score of exactly 1 is the baseline's own score, so it is the reference
 # every axis and table is read against.
@@ -369,10 +389,10 @@ def baseline_note(kind: str) -> str:
     return f"baseline: {name} ({how})"
 
 
-def print_dropped(dropped: dict[str, int], total: int) -> None:
-    """Say what had no skill score and why, as a share of the pairs attempted.
+def print_dropped(report: MdReport, dropped: dict[str, int], total: int) -> None:
+    """Report what had no skill score and why, as a share of the pairs attempted.
 
-    Always printed, including when nothing was dropped, so the absence of a
+    Always reported, including when nothing was dropped, so the absence of a
     warning is informative rather than ambiguous. The plain baseline drops far
     more than the spread-widened one — it is exactly right whenever the metric
     did not move — and that difference is the main thing to know when comparing
@@ -387,16 +407,17 @@ def print_dropped(dropped: dict[str, int], total: int) -> None:
     attempted = total + n
     if not attempted:
         return
-    print(f"\n{n} of {attempted} (model, question) pairs have no skill score:")
+    lines = [f"{n} of {attempted} (model, question) pairs have no skill score:"]
     for key, count in dropped.items():
         if count:
-            print(f"  {count:>6}  {labels[key]}")
+            lines.append(f"  {count:>6}  {labels[key]}")
     if not n:
-        print("  none")
+        lines.append("  none")
+    report.text("\n".join(lines))
 
 
 def print_skill_by_metric(
-    rows: list[dict], model_names: list[str], kind: str, split: str
+    report: MdReport, rows: list[dict], model_names: list[str], kind: str, split: str
 ) -> None:
     """Print models x metrics of geometric-mean skill, each cell with its rank.
 
@@ -446,25 +467,24 @@ def print_skill_by_metric(
         model_names, key=lambda m: (overall.get((m,)) is None, overall.get((m,)) or 0.0)
     )
 
-    print("\nSkill vs baseline by model and metric (below 1 beats the baseline)")
-    print(split_note(split))
-    print(baseline_note(kind))
-    print(
+    report.heading("Skill vs baseline by model and metric (below 1 beats the baseline)")
+    report.text(
+        f"{split_note(split)}\n\n{baseline_note(kind)}\n\n"
         "each cell is the geometric mean of CRPS_model/CRPS_baseline; "
         f"H{READ_OFF_HORIZON} excluded"
     )
     header = f"{'Model':<{model_col}}  {'scored':>{questions_width}}  " + "  ".join(
         f"{header_labels[key]:>{width}}" for key in columns
     )
-    print(header)
-    print("-" * len(header))
+    lines = [header, "-" * len(header)]
     for model_id in ordered:
         row = [
             f"{model_id.split('/')[-1]:<{model_col}}",
             f"{counts[model_id]:>{questions_width}}",
         ]
         row += [f"{cell(key, model_id):>{width}}" for key in columns]
-        print("  ".join(row))
+        lines.append("  ".join(row))
+    report.table("\n".join(lines))
 
 
 def metrics_in_order_all(rows: list[dict]) -> list[str]:
@@ -479,7 +499,7 @@ def metrics_in_order_all(rows: list[dict]) -> list[str]:
 
 
 def print_skill_by_horizon(
-    rows: list[dict], model_names: list[str], kind: str, split: str
+    report: MdReport, rows: list[dict], model_names: list[str], kind: str, split: str
 ) -> None:
     """Print models x horizons of geometric-mean skill, each cell with its rank.
 
@@ -514,10 +534,9 @@ def print_skill_by_horizon(
         model_names, key=lambda m: (overall.get((m,)) is None, overall.get((m,)) or 0.0)
     )
 
-    print("\nSkill vs baseline by model and horizon (below 1 beats the baseline)")
-    print(split_note(split))
-    print(baseline_note(kind))
-    print(
+    report.heading("Skill vs baseline by model and horizon (below 1 beats the baseline)")
+    report.text(
+        f"{split_note(split)}\n\n{baseline_note(kind)}\n\n"
         "horizons are turns past the snapshot; "
         f"H{READ_OFF_HORIZON} excluded (a read-off, and the baseline resolves it "
         "exactly)"
@@ -525,22 +544,23 @@ def print_skill_by_horizon(
     header = f"{'Model':<{model_col}}  " + "  ".join(
         f"{labels[key]:>{width}}" for key in columns
     )
-    print(header)
-    print("-" * len(header))
+    lines = [header, "-" * len(header)]
     for model_id in ordered:
         row = [f"{model_id.split('/')[-1]:<{model_col}}"]
         row += [f"{cell(key, model_id):>{width}}" for key in columns]
-        print("  ".join(row))
+        lines.append("  ".join(row))
+    report.table("\n".join(lines))
 
 
 def plot_skill_by_horizon(
+    report: MdReport,
     rows: list[dict],
     model_names: list[str],
     kind: str,
     split: str,
+    outdir: Path,
     subset: str = "",
     ylim: tuple[float, float] | None = None,
-    outdir: Path = OUT_DIR,
 ) -> Path:
     """Scatter skill against horizon, one series per model, on a log y-axis.
 
@@ -687,10 +707,11 @@ def plot_skill_by_horizon(
     )
     fig.tight_layout()
 
-    suffix = f"-{slugify(subset)}" if subset else ""
-    out = outdir / f"skill_by_horizon-{split}{suffix}.png"
+    subset_suffix = f"-{slugify(subset)}" if subset else ""
+    out = outdir / f"skill_by_horizon-{split}{subset_suffix}{plot_suffix(kind)}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
+    report.image(out, caption=subset)
     return out
 
 
@@ -711,11 +732,12 @@ def skill_by_model_and_horizon(
 
 
 def plot_eci_vs_skill(
+    report: MdReport,
     rows: list[dict],
     model_names: list[str],
     kind: str,
     split: str,
-    outdir: Path = OUT_DIR,
+    outdir: Path,
 ) -> Path | None:
     """Scatter each model's ECI against its overall skill vs the baseline.
 
@@ -743,8 +765,8 @@ def plot_eci_vs_skill(
         m.split("/")[-1] for m in model_names if m in scores and eci_of(m) is None
     )
     if len(points) < 4:
-        print(
-            f"\nECI vs skill ({SPLITS[split][0]}): only {len(points)} model(s) "
+        report.text(
+            f"ECI vs skill ({SPLITS[split][0]}): only {len(points)} model(s) "
             "have an ECI score; skipping the plot."
         )
         return None
@@ -758,21 +780,20 @@ def plot_eci_vs_skill(
     r, p_r = stats.pearsonr(ecis, [math.log(v) for v in values])
     direction = "pro-g" if rho < 0 else "anti-g"
 
-    print(f"\nECI vs skill vs baseline — {SPLITS[split][0]}")
-    print(f"  {baseline_note(kind)}")
-    print(
-        f"  rho={rho:+.3f}  p={p_rho:.4f} {stars_for(p_rho):<4} ({direction}, "
-        f"n={len(points)})"
-    )
-    print(f"  Pearson r={r:+.3f}  p={p_r:.4f} {stars_for(p_r)} (on log skill)")
-    print(
-        "  skill is lower-is-better, so rho<0 means the more capable models\n"
-        "  beat the baseline by more (pro-g)."
-    )
     beaten = sum(1 for v in values if v < BASELINE_SKILL)
-    print(f"  {beaten} of {len(values)} models with an ECI score beat the baseline")
+    report.heading(f"ECI vs skill vs baseline — {SPLITS[split][0]}")
+    lines = [
+        baseline_note(kind),
+        f"rho={rho:+.3f}  p={p_rho:.4f} {stars_for(p_rho):<4} ({direction}, "
+        f"n={len(points)})",
+        f"Pearson r={r:+.3f}  p={p_r:.4f} {stars_for(p_r)} (on log skill)",
+        "skill is lower-is-better, so rho<0 means the more capable models "
+        "beat the baseline by more (pro-g).",
+        f"{beaten} of {len(values)} models with an ECI score beat the baseline",
+    ]
     if skipped:
-        print(f"  no ECI score, excluded: {', '.join(skipped)}")
+        lines.append(f"no ECI score, excluded: {', '.join(skipped)}")
+    report.text("\n".join(lines))
 
     outdir.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(9, 6.5))
@@ -825,9 +846,10 @@ def plot_eci_vs_skill(
     fig.canvas.draw()
     place_labels(fig, ax, [n for _, _, n in points], ecis, values)
 
-    out = outdir / f"eci_vs_skill-{split}.png"
+    out = outdir / f"eci_vs_skill-{split}{plot_suffix(kind)}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
+    report.image(out)
     return out
 
 
@@ -851,11 +873,12 @@ def relabel_correlation_axes(ax) -> None:
 
 
 def plot_eci_correlation_by_horizon(
+    report: MdReport,
     rows: list[dict],
     model_names: list[str],
     kind: str,
     split: str,
-    outdir: Path = OUT_DIR,
+    outdir: Path,
 ) -> Path | None:
     """Spearman rho of ECI against skill, per horizon, with bootstrap intervals.
 
@@ -871,15 +894,14 @@ def plot_eci_correlation_by_horizon(
     by_horizon = skill_by_model_and_horizon(rows, model_names)
     results = correlate_by_horizon(predictor, by_horizon, with_ci=True)
     if not results:
-        print(
-            f"\nECI correlation by horizon ({SPLITS[split][0]}): no horizon has "
+        report.text(
+            f"ECI correlation by horizon ({SPLITS[split][0]}): no horizon has "
             "enough models with an ECI score; skipping the plot."
         )
         return None
 
-    print(f"\nECI vs skill by horizon (Spearman) — {SPLITS[split][0]}")
-    print(f"  {baseline_note(kind)}")
-    print_horizon_correlations(results)
+    report.heading(f"ECI vs skill by horizon (Spearman) — {SPLITS[split][0]}")
+    report.text(f"{baseline_note(kind)}\n\n{format_horizon_correlations(results)}")
 
     outdir.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(9, 6))
@@ -898,18 +920,20 @@ def plot_eci_correlation_by_horizon(
         framealpha=0.9,
     )
     fig.tight_layout()
-    out = outdir / f"eci_correlation_by_horizon-{split}.png"
+    out = outdir / f"eci_correlation_by_horizon-{split}{plot_suffix(kind)}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
+    report.image(out)
     return out
 
 
 def plot_predictors_correlation_by_horizon(
+    report: MdReport,
     rows: list[dict],
     model_names: list[str],
     kind: str,
     split: str,
-    outdir: Path = OUT_DIR,
+    outdir: Path,
 ) -> Path | None:
     """Compare ECI and knowledge-eval score as predictors of skill vs baseline.
 
@@ -927,8 +951,8 @@ def plot_predictors_correlation_by_horizon(
 
     knowledge = knowledge_predictor(model_names)
     if knowledge is None:
-        print(
-            f"\nPredictor comparison ({SPLITS[split][0]}): no cached knowledge-eval"
+        report.text(
+            f"Predictor comparison ({SPLITS[split][0]}): no cached knowledge-eval"
             " answers for these models; skipping the plot."
         )
         return None
@@ -950,22 +974,27 @@ def plot_predictors_correlation_by_horizon(
         if results:
             series.append((label, color, results))
     if not series:
-        print(
-            f"\nPredictor comparison ({SPLITS[split][0]}): only {len(shared)} "
+        report.text(
+            f"Predictor comparison ({SPLITS[split][0]}): only {len(shared)} "
             "model(s) have both scores; skipping the plot."
         )
         return None
 
-    print(
-        f"\nPredictors of skill by horizon — {SPLITS[split][0]} "
+    report.heading(
+        f"Predictors of skill by horizon — {SPLITS[split][0]} "
         f"({len(shared)} shared models)"
     )
-    print(f"  {baseline_note(kind)}")
+    lines = [baseline_note(kind)]
     for label, _color, results in series:
-        print(f"  {label}")
-        print_horizon_correlations(results, indent="    ")
-    print_predictor_comparison(restricted, by_horizon)
-    print_tie_warnings(restricted)
+        lines.append(label)
+        lines.append(format_horizon_correlations(results, indent="  "))
+    comparison = format_predictor_comparison(restricted, by_horizon)
+    if comparison:
+        lines.append(comparison)
+    tie_warnings = format_tie_warnings(restricted)
+    if tie_warnings:
+        lines.append(tie_warnings)
+    report.text("\n\n".join(lines))
 
     outdir.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(10, 6.5))
@@ -988,14 +1017,20 @@ def plot_predictors_correlation_by_horizon(
     )
     fig.tight_layout()
 
-    out = outdir / f"predictors_correlation_by_horizon-{split}.png"
+    out = outdir / f"predictors_correlation_by_horizon-{split}{plot_suffix(kind)}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
+    report.image(out)
     return out
 
 
 def plot_horizon_figures(
-    rows: list[dict], model_names: list[str], kind: str, split: str
+    report: MdReport,
+    rows: list[dict],
+    model_names: list[str],
+    kind: str,
+    split: str,
+    outdir: Path,
 ) -> list[Path]:
     """The skill-by-horizon scatter over all runs, then split by disasters.
 
@@ -1030,17 +1065,19 @@ def plot_horizon_figures(
     ylim = (min(limits + [BASELINE_SKILL]) / 1.3, max(limits + [BASELINE_SKILL]) * 1.3)
 
     return [
-        plot_skill_by_horizon(selected, model_names, kind, split, subset, ylim)
+        plot_skill_by_horizon(report, selected, model_names, kind, split, outdir, subset, ylim)
         for subset, selected in grouped.items()
     ]
 
 
 def run_split(
+    report: MdReport,
     rows: list[dict],
     model_names: list[str],
     kind: str,
     split: str,
     plot: bool,
+    outdir: Path,
 ) -> list[Path]:
     """Every table and figure for one side of the city-funds split.
 
@@ -1049,24 +1086,23 @@ def run_split(
     """
     selected = split_rows(rows, split)
     name, how = SPLITS[split]
-    print()
-    print("=" * 70)
-    print(f"{name.upper()} — {how}")
-    print("=" * 70)
+    report.heading(f"{name.upper()} — {how}", level=1)
     if not selected:
-        print("no scored forecasts on this side of the split; nothing to report")
+        report.text("no scored forecasts on this side of the split; nothing to report")
         return []
 
-    print_skill_by_metric(selected, model_names, kind, split)
-    print_skill_by_horizon(selected, model_names, kind, split)
+    print_skill_by_metric(report, selected, model_names, kind, split)
+    print_skill_by_horizon(report, selected, model_names, kind, split)
     if not plot:
         return []
     figures = [
-        plot_eci_vs_skill(selected, model_names, kind, split),
-        plot_eci_correlation_by_horizon(selected, model_names, kind, split),
-        plot_predictors_correlation_by_horizon(selected, model_names, kind, split),
+        plot_eci_vs_skill(report, selected, model_names, kind, split, outdir),
+        plot_eci_correlation_by_horizon(report, selected, model_names, kind, split, outdir),
+        plot_predictors_correlation_by_horizon(
+            report, selected, model_names, kind, split, outdir
+        ),
     ]
-    return plot_horizon_figures(selected, model_names, kind, split) + [
+    return plot_horizon_figures(report, selected, model_names, kind, split, outdir) + [
         f for f in figures if f is not None
     ]
 
@@ -1096,9 +1132,12 @@ def main() -> None:
 
     cfg = load_config(args)
     seed = cfg.get_seed(args.seed)
+    label = cfg.get_analysis_label()
+    data_file = data_path(label)
+    outdir = out_dir(label)
 
     try:
-        corpus, responses, models = load_dataset()
+        corpus, responses, models = load_dataset(data_file)
         corpus, responses, models = select_for_config(
             corpus, responses, models, cfg, seed
         )
@@ -1120,20 +1159,25 @@ def main() -> None:
     print("=" * 70)
     print("MICROPOLIS WORLD — single city eval, skill vs a naive baseline")
     print("=" * 70)
-    print(f"data:   {DATA_PATH}")
+    print(f"data:   {data_file}")
     print(f"config: {cfg.path}")
-    print(f"plots:  {OUT_DIR}")
+    print(f"label:  {label}")
+    print(f"plots:  {outdir}")
     print(f"{len(forecasts)} forecast questions x {len(models)} models")
     print(baseline_note(args.baseline))
-    print(
+
+    report = MdReport()
+    report.text(
         "score = CRPS_model / CRPS_baseline per question, geometric mean over "
-        "questions;\nbelow 1 beats the baseline. City funds is reported "
-        "separately from the other\nfive metrics — see the module docstring for "
-        "why."
+        "questions; below 1 beats the baseline. City funds is reported "
+        "separately from the other five metrics — see the module docstring for "
+        "why.\n\n"
+        f"{baseline_note(args.baseline)}\n\n"
+        f"{len(forecasts)} forecast questions x {len(models)} models"
     )
 
     rows, dropped = score_skill(corpus, responses, models, seed, args.baseline)
-    print_dropped(dropped, len(rows))
+    print_dropped(report, dropped, len(rows))
     if not rows:
         sys.exit(
             "[error] no forecast has a usable skill score; nothing to report. "
@@ -1142,12 +1186,18 @@ def main() -> None:
 
     written = []
     for split in SPLITS:
-        written += run_split(rows, models, args.baseline, split, args.plot)
+        written += run_split(report, rows, models, args.baseline, split, args.plot, outdir)
 
     if written:
         print()
         for out in written:
             print(f"Wrote {out}")
+
+    md_name = f"analysis-skill{plot_suffix(args.baseline)}.md"
+    out_path = report.write(
+        label_dir(label) / md_name, f"Single city eval — skill vs baseline ({args.baseline})"
+    )
+    print(out_path)
 
 
 if __name__ == "__main__":

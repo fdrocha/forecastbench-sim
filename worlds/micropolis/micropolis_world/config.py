@@ -145,6 +145,22 @@ class Config:
         """The 'seed', or override when one was passed on the command line."""
         return override if override is not None else self.get_int("seed")
 
+    def get_analysis_label(self) -> str:
+        """The 'analysis_label', or the config file's stem if it has none.
+
+        Names the single-city eval's per-run output directory, so every config
+        gets a distinct one even without setting the key explicitly.
+        """
+        value = self.data.get("analysis_label")
+        if value is None:
+            return self.path.stem
+        if not isinstance(value, str):
+            raise ConfigError(
+                f"parameter 'analysis_label' in {self.path} must be a string, "
+                f"got {value!r}"
+            )
+        return value
+
 
 def add_config_args(ap: argparse.ArgumentParser, default: Path | None = None) -> None:
     """Add the config-file and seed-override arguments shared by every script.

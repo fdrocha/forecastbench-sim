@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run python3
 """Score the single city eval: CRPS tables by metric and by horizon.
 
-Reads data/micropolis/single_city/data.json, written by
+Reads data/micropolis/single_city/{analysis_label}/data.json, written by
 scripts/run_single_city_eval.py. Prompts no models and runs no simulations, so
 it is cheap to re-run while changing how the numbers are presented.
 
@@ -9,10 +9,13 @@ The config selects which slice of the dataset to score — its models, cities,
 disasters, snapshot_turns and horizons — so one gathered dataset can be viewed
 many ways. Naming anything the dataset lacks is an error, not a smaller table.
 
-Also writes plots to data/micropolis/single_city/plots/: normalized CRPS against
-horizon, over all runs and restricted to the runs with and without disasters;
-forecast skill against ECI; and the correlation of each against horizon, both for
-ECI alone and comparing ECI to the knowledge-eval score. --no-plot skips them.
+Writes every table and figure to one Markdown report,
+data/micropolis/single_city/{analysis_label}/analysis-crps.md, rather than to
+stdout: normalized CRPS against horizon, over all runs and restricted to the
+runs with and without disasters; forecast skill against ECI; and the
+correlation of each against horizon, both for ECI alone and comparing ECI to
+the knowledge-eval score. --no-plot skips the figures. Only the paths written
+and the report's own path are printed to stdout.
 
 Usage:
     scripts/analyze_single_city.py
@@ -40,13 +43,15 @@ from micropolis_world.config import (
 )
 from micropolis_world.plot_labels import place_labels
 from micropolis_world.single_city import (
-    DATA_PATH,
-    PLOTS_PATH,
     UNNORMALIZED_METRICS,
     DatasetError,
+    MdReport,
     ResponseId,
     Responses,
+    data_path,
+    label_dir,
     load_dataset,
+    plots_path,
     scenario_history,
     score_forecasts,
     select_for_config,
@@ -361,9 +366,9 @@ def rank_width_for(ranks: dict[str, int]) -> int:
 
 
 def print_crps_table(
-    corpus: list[dict], responses: Responses, model_names: list[str]
+    report: MdReport, corpus: list[dict], responses: Responses, model_names: list[str]
 ) -> None:
-    """Print models x metrics, each cell the mean CRPS over that model's forecasts.
+    """Append models x metrics, each cell the mean CRPS over that model's forecasts.
 
     Raw CRPS is in each metric's own units, so it compares models down a column
     but never across columns. The "norm" column is the mean of CRPS/|actual|
@@ -426,9 +431,9 @@ def print_crps_table(
     )
 
     normalized_metrics = [m for m in metrics if m not in UNNORMALIZED_METRICS]
-    print("\nMean CRPS by model and metric (lower is better)")
-    print(f"pooled over every forecast horizon; {READ_OFF_NOTE}")
-    print(
+    report.heading("Mean CRPS by model and metric (lower is better)")
+    report.text(
+        f"pooled over every forecast horizon; {READ_OFF_NOTE}\n\n"
         f"norm = mean CRPS/|actual| over {', '.join(labels[m] for m in normalized_metrics)}"
         f" (excludes {', '.join(labels[m] for m in metrics if m in UNNORMALIZED_METRICS)},"
         " whose actual is sometimes 0)"
@@ -438,8 +443,7 @@ def print_crps_table(
         f"{norm_col:>{norm_width}}  "
         + "  ".join(f"{labels[m]:>{widths[m]}}" for m in metrics)
     )
-    print(header)
-    print("-" * len(header))
+    lines = [header, "-" * len(header)]
 
     for model_id in ordered:
         norm = normalized[model_id]
@@ -452,7 +456,8 @@ def print_crps_table(
             mean = means.get((model_id, m))
             cell = "n/a" if mean is None else f"{mean:,.1f}"
             row.append(f"{cell:>{widths[m]}}")
-        print("  ".join(row))
+        lines.append("  ".join(row))
+    report.table("\n".join(lines))
 
     # A cell averaging fewer questions than the corpus holds means some
     # responses failed to parse; say so rather than let the means look complete.
@@ -464,11 +469,11 @@ def print_crps_table(
         if counts.get((model_id, m), 0) < expected[m]
     ]
     if missing:
-        print(f"\nUnparseable forecasts excluded — {', '.join(missing)}")
+        report.text(f"Unparseable forecasts excluded — {', '.join(missing)}")
 
 
 def print_normalized_crps_table(
-    corpus: list[dict], responses: Responses, model_names: list[str]
+    report: MdReport, corpus: list[dict], responses: Responses, model_names: list[str]
 ) -> None:
     """Print models x metrics of normalized CRPS, each cell with its rank.
 
@@ -531,13 +536,11 @@ def print_normalized_crps_table(
         for m in metrics_in_order(corpus)
         if m not in metrics
     ]
-    print("\nMean normalized CRPS by model and metric (lower is better)")
-    print(f"pooled over every forecast horizon; {READ_OFF_NOTE}")
-    print(
+    report.heading("Mean normalized CRPS by model and metric (lower is better)")
+    report.text(
+        f"pooled over every forecast horizon; {READ_OFF_NOTE}\n\n"
         "CRPS/|actual|, so cells compare across metrics as well as down them;"
-        " (n) is the model's rank within that metric"
-    )
-    print(
+        " (n) is the model's rank within that metric\n\n"
         "mean = mean of the per-metric cells, weighting each metric equally"
         + (
             f"; omits {', '.join(excluded)}, whose actual is sometimes 0"
@@ -550,8 +553,7 @@ def print_normalized_crps_table(
     header = f"{'Model':<{model_col}}  {norm_col:>{norm_width}}  " + "  ".join(
         f"{labels[m]:>{widths[m]}}" for m in metrics
     )
-    print(header)
-    print("-" * len(header))
+    lines = [header, "-" * len(header)]
 
     for model_id in ordered:
         value = overall[model_id]
@@ -560,10 +562,12 @@ def print_normalized_crps_table(
             f"{'n/a' if value is None else f'{value:.3f}':>{norm_width}}",
         ]
         row += [f"{cell(model_id, m):>{widths[m]}}" for m in metrics]
-        print("  ".join(row))
+        lines.append("  ".join(row))
+    report.table("\n".join(lines))
 
 
 def print_horizon_table(
+    report: MdReport,
     scored: list[tuple[str, int, float]],
     model_names: list[str],
     horizons: list[int],
@@ -614,22 +618,22 @@ def print_horizon_table(
     width = max([9] + [len(cell(key, mid)) for key in columns for mid in model_names])
     ordered = sorted(model_names, key=lambda m: (overall[m] is None, overall[m] or 0.0))
 
-    print(f"\n{title}")
-    print(subtitle)
+    report.heading(title)
+    report.text(subtitle)
     header = f"{'Model':<{model_col}}  " + "  ".join(
         f"{labels[key]:>{width}}" for key in columns
     )
-    print(header)
-    print("-" * len(header))
+    lines = [header, "-" * len(header)]
 
     for model_id in ordered:
         row = [f"{model_id.split('/')[-1]:<{model_col}}"]
         row += [f"{cell(key, model_id):>{width}}" for key in columns]
-        print("  ".join(row))
+        lines.append("  ".join(row))
+    report.table("\n".join(lines))
 
 
 def print_normalized_horizon_table(
-    corpus: list[dict], responses: Responses, model_names: list[str]
+    report: MdReport, corpus: list[dict], responses: Responses, model_names: list[str]
 ) -> None:
     """Print models x horizons, each cell the mean normalized CRPS.
 
@@ -648,6 +652,7 @@ def print_normalized_horizon_table(
         if m not in UNNORMALIZED_METRICS
     ]
     print_horizon_table(
+        report,
         scored,
         model_names,
         sorted({c["horizon"] for c in corpus}),
@@ -661,13 +666,14 @@ def print_normalized_horizon_table(
 
 
 def plot_normalized_by_horizon(
+    report: MdReport,
     corpus: list[dict],
     responses: Responses,
     model_names: list[str],
     seed: int,
+    outdir: Path,
     subset: str = "",
     ymax: float | None = None,
-    outdir: Path = PLOTS_PATH,
 ) -> Path:
     """Scatter normalized CRPS against horizon, one series per model.
 
@@ -880,6 +886,7 @@ def plot_normalized_by_horizon(
     out = outdir / f"normalized_crps_by_horizon{suffix}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
+    report.image(out, caption=subset)
     return out
 
 
@@ -907,10 +914,11 @@ def eci_of(model_id: str) -> int | None:
 
 
 def plot_eci_vs_normalized(
+    report: MdReport,
     corpus: list[dict],
     responses: Responses,
     model_names: list[str],
-    outdir: Path = PLOTS_PATH,
+    outdir: Path,
 ) -> Path | None:
     """Scatter each model's ECI against its mean normalized CRPS.
 
@@ -939,9 +947,9 @@ def plot_eci_vs_normalized(
         m.split("/")[-1] for m in model_names if m in scores and eci_of(m) is None
     )
     if len(points) < 4:
-        print(
-            "\nECI vs normalized CRPS: only "
-            f"{len(points)} model(s) have an ECI score; skipping the plot."
+        report.text(
+            f"ECI vs normalized CRPS: only {len(points)} model(s) have an ECI "
+            "score; skipping the plot."
         )
         return None
 
@@ -956,18 +964,16 @@ def plot_eci_vs_normalized(
     # Lower nCRPS is better, so ECI going up while error goes down is the
     # capability-tracking direction.
     direction = "pro-g" if rho < 0 else "anti-g"
-    print(f"\nECI vs mean normalized CRPS (Spearman) — {READ_OFF_NOTE}")
-    print(
-        f"  rho={rho:+.3f}  p={p_rho:.4f} {stars(p_rho):<4} ({direction}, "
-        f"n={len(points)})"
-    )
-    print(f"  Pearson r={r:+.3f}  p={p_r:.4f} {stars(p_r)}")
-    print(
-        "  nCRPS is lower-is-better, so rho<0 means the more capable models\n"
-        "  forecast better (pro-g)."
-    )
+    report.heading(f"ECI vs mean normalized CRPS (Spearman) — {READ_OFF_NOTE}")
+    lines = [
+        f"rho={rho:+.3f}  p={p_rho:.4f} {stars(p_rho):<4} ({direction}, n={len(points)})",
+        f"Pearson r={r:+.3f}  p={p_r:.4f} {stars(p_r)}",
+        "nCRPS is lower-is-better, so rho<0 means the more capable models "
+        "forecast better (pro-g).",
+    ]
     if skipped:
-        print(f"  no ECI score, excluded: {', '.join(skipped)}")
+        lines.append(f"no ECI score, excluded: {', '.join(skipped)}")
+    report.text("\n".join(lines))
 
     outdir.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(9, 6.5))
@@ -1003,6 +1009,7 @@ def plot_eci_vs_normalized(
     out = outdir / "eci_vs_normalized_crps.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
+    report.image(out)
     return out
 
 
@@ -1200,23 +1207,25 @@ def stars_for(p: float) -> str:
     return "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
 
 
-def print_horizon_correlations(results: list[tuple], indent: str = "  ") -> None:
-    """Print one rho/p line per horizon, with the interval where there is one."""
+def format_horizon_correlations(results: list[tuple], indent: str = "  ") -> str:
+    """One rho/p line per horizon, with the interval where there is one."""
+    lines = []
     for row in results:
         h, rho, p, n = row[:4]
         ci = row[4] if len(row) > 4 else None
         band = f"  95% CI [{ci[0]:+.2f}, {ci[1]:+.2f}]" if ci else ""
-        print(
+        lines.append(
             f"{indent}H{h:<4} rho={rho:+.3f}  p={p:.4f} {stars_for(p):<4} (n={n}){band}"
         )
+    return "\n".join(lines)
 
 
-def print_read_off_caveat(
+def read_off_caveat(
     corpus: list[dict],
     responses: Responses,
     model_names: list[str],
     results: list[tuple[int, float, float, int]],
-) -> None:
+) -> str | None:
     """Warn that the read-off horizon is not really a forecast, if it is in play.
 
     It asks about a value the snapshot already prints, so almost every model puts
@@ -1227,10 +1236,11 @@ def print_read_off_caveat(
     about forecasting, and is not comparable to the rest.
 
     Both shares are reported because the gap between them is the point — quoting
-    only the CRPS-zero one reads as models failing to read the report.
+    only the CRPS-zero one reads as models failing to read the report. Returns
+    None when the read-off horizon isn't in play, so callers can skip it outright.
     """
     if not results or results[0][0] != READ_OFF_HORIZON:
-        return
+        return None
     scored = []
     for c in corpus:
         if c["horizon"] != READ_OFF_HORIZON:
@@ -1240,20 +1250,18 @@ def print_read_off_caveat(
             if r is not None and r.percentiles is not None:
                 scored.append((r.percentiles, c["value"]))
     if not scored:
-        return
+        return None
     median = sum(1 for p, actual in scored if p["p50"] == actual) / len(scored)
     exact = sum(
         1 for p, actual in scored if all(v == actual for v in p.values())
     ) / len(scored)
-    print(
-        f"  H{READ_OFF_HORIZON} is a read-off, not a forecast:"
-        f" {median:.0%} of its forecasts put the median on the"
+    return (
+        f"H{READ_OFF_HORIZON} is a read-off, not a forecast:"
+        f" {median:.0%} of its forecasts put the median on the "
+        f"actual and {exact:.0%} collapse the whole interval onto it, so its rho"
+        " is mostly about "
+        "how confidently a known value is restated; treat it apart."
     )
-    print(
-        f"  actual and {exact:.0%} collapse the whole interval onto it, so its rho"
-        " is mostly about"
-    )
-    print("  how confidently a known value is restated; treat it apart.")
 
 
 def draw_horizon_correlation_axes(
@@ -1387,10 +1395,11 @@ def annotate_read_off(ax, rows: list[tuple]) -> None:
 
 
 def plot_eci_correlation_by_horizon(
+    report: MdReport,
     corpus: list[dict],
     responses: Responses,
     model_names: list[str],
-    outdir: Path = PLOTS_PATH,
+    outdir: Path,
 ) -> Path | None:
     """Plot the ECI x nCRPS Spearman correlation against horizon.
 
@@ -1411,15 +1420,18 @@ def plot_eci_correlation_by_horizon(
     results = correlate_by_horizon(eci_by_name(model_names), by_horizon, with_ci=True)
 
     if not results:
-        print(
-            "\nECI x nCRPS by horizon: too few models with an ECI score;"
+        report.text(
+            "ECI x nCRPS by horizon: too few models with an ECI score;"
             " skipping the plot."
         )
         return None
 
-    print("\nECI x nCRPS correlation by horizon (Spearman)")
-    print_horizon_correlations(results)
-    print_read_off_caveat(corpus, responses, model_names, results)
+    report.heading("ECI x nCRPS correlation by horizon (Spearman)")
+    lines = [format_horizon_correlations(results)]
+    caveat = read_off_caveat(corpus, responses, model_names, results)
+    if caveat:
+        lines.append(caveat)
+    report.text("\n\n".join(lines))
 
     outdir.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(9, 6))
@@ -1444,13 +1456,14 @@ def plot_eci_correlation_by_horizon(
     out = outdir / "eci_correlation_by_horizon.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
+    report.image(out)
     return out
 
 
-def print_predictor_comparison(
+def format_predictor_comparison(
     restricted: list[tuple[str, str, dict[str, float]]],
     by_horizon: dict[int, dict[str, float]],
-) -> None:
+) -> str:
     """Report how much more closely each predictor tracks nCRPS than the first.
 
     The per-coefficient intervals in the plot are marginal, and at this many
@@ -1458,26 +1471,27 @@ def print_predictor_comparison(
     because the predictors are strongly correlated with each other and share the
     nCRPS variable. This paired resampling asks the question those intervals
     cannot: holding the resampled model set fixed, which predictor tracks skill
-    more closely? Printed rather than plotted, so the figure stays one axes.
+    more closely? Reported as text rather than plotted, so the figure stays one
+    axes. Returns "" when there is only one predictor to compare.
     """
     if len(restricted) < 2:
-        return
+        return ""
     base_label, _color, base = restricted[0]
-    print(
-        f"\n  Correlation strength vs {base_label}: |rho_{base_label}| - |rho_other|,"
-    )
-    print(f"  paired bootstrap over models (positive favors {base_label})")
+    lines = [
+        f"Correlation strength vs {base_label}: |rho_{base_label}| - |rho_other|,",
+        f"paired bootstrap over models (positive favors {base_label})",
+    ]
     for label, _color, predictor in restricted[1:]:
         rows = compare_predictors_by_horizon(base, predictor, by_horizon)
         if not rows:
             continue
-        print(f"    vs {label}")
+        lines.append(f"  vs {label}")
         for h, r in sorted(rows.items()):
             # Flagged only where the interval clears zero, which is the actual
             # test; the sign of diff alone is not evidence of a difference.
             mark = "*" if r["lo"] > 0 or r["hi"] < 0 else ""
-            print(
-                f"      H{h:<4} diff={r['diff']:+.3f}"
+            lines.append(
+                f"    H{h:<4} diff={r['diff']:+.3f}"
                 f"  95% CI [{r['lo']:+.3f}, {r['hi']:+.3f}] {mark}"
             )
         # Whether any interval clears zero is read off the rows rather than
@@ -1488,38 +1502,42 @@ def print_predictor_comparison(
         n = next(iter(rows.values()))["n"]
         if signs and all(signs):
             if cleared:
-                print(
-                    f"      {base_label} leads at every horizon, and {cleared} of"
+                lines.append(
+                    f"    {base_label} leads at every horizon, and {cleared} of"
                     f" {len(rows)} intervals clear zero (n={n})."
                 )
             else:
-                print(
-                    f"      {base_label} leads at every horizon, but no interval"
+                lines.append(
+                    f"    {base_label} leads at every horizon, but no interval"
                     f" clears zero at n={n}, so the consistency"
-                    "\n      across horizons is the evidence rather than any one"
+                    " across horizons is the evidence rather than any one"
                     " horizon."
                 )
+    return "\n".join(lines)
 
 
-def print_tie_warnings(
+def format_tie_warnings(
     restricted: list[tuple[str, str, dict[str, float]]], min_distinct: int = 6
-) -> None:
+) -> str:
     """Flag a predictor too coarse for a rank correlation to resolve.
 
     Spearman works on ranks, so a predictor with many models tied has less
     resolution than its model count suggests, and its correlation is attenuated
     for a reason that is not about the world. Worth saying outright, because a
-    weak coefficient otherwise reads as a substantive finding.
+    weak coefficient otherwise reads as a substantive finding. Returns "" when
+    no predictor is too coarse.
     """
+    lines = []
     for label, _color, predictor in restricted:
         distinct = len(set(predictor.values()))
         if distinct < min_distinct and predictor:
-            print(
-                f"\n  {label}: only {distinct} distinct values across"
+            lines.append(
+                f"{label}: only {distinct} distinct values across"
                 f" {len(predictor)} models, so ties limit how much rank"
-                "\n  correlation it can show; read its weakness as partly"
+                " correlation it can show; read its weakness as partly"
                 " granularity, not only signal."
             )
+    return "\n".join(lines)
 
 
 def knowledge_predictor(model_names: list[str]) -> dict[str, float] | None:
@@ -1541,10 +1559,11 @@ def knowledge_predictor(model_names: list[str]) -> dict[str, float] | None:
 
 
 def plot_predictors_correlation_by_horizon(
+    report: MdReport,
     corpus: list[dict],
     responses: Responses,
     model_names: list[str],
-    outdir: Path = PLOTS_PATH,
+    outdir: Path,
 ) -> Path | None:
     """Compare ECI and knowledge-eval score as predictors of forecast skill.
 
@@ -1567,8 +1586,8 @@ def plot_predictors_correlation_by_horizon(
 
     knowledge = knowledge_predictor(model_names)
     if knowledge is None:
-        print(
-            "\nPredictor comparison by horizon: no cached knowledge-eval answers"
+        report.text(
+            "Predictor comparison by horizon: no cached knowledge-eval answers"
             " for these models; skipping the plot."
         )
         return None
@@ -1596,19 +1615,29 @@ def plot_predictors_correlation_by_horizon(
             series.append((label, color, results))
 
     if not series:
-        print(
-            f"\nPredictor comparison by horizon: only {len(shared)} model(s) have"
+        report.text(
+            f"Predictor comparison by horizon: only {len(shared)} model(s) have"
             " both an ECI score and knowledge-eval answers; skipping the plot."
         )
         return None
 
-    print(f"\nPredictors of nCRPS by horizon (Spearman, {len(shared)} shared models)")
+    report.heading(
+        f"Predictors of nCRPS by horizon (Spearman, {len(shared)} shared models)"
+    )
+    lines = []
     for label, _color, results in series:
-        print(f"  {label}")
-        print_horizon_correlations(results, indent="    ")
-    print_read_off_caveat(corpus, responses, model_names, series[0][2])
-    print_predictor_comparison(restricted, by_horizon)
-    print_tie_warnings(restricted)
+        lines.append(f"{label}")
+        lines.append(format_horizon_correlations(results, indent="  "))
+    caveat = read_off_caveat(corpus, responses, model_names, series[0][2])
+    if caveat:
+        lines.append(caveat)
+    comparison = format_predictor_comparison(restricted, by_horizon)
+    if comparison:
+        lines.append(comparison)
+    tie_warnings = format_tie_warnings(restricted)
+    if tie_warnings:
+        lines.append(tie_warnings)
+    report.text("\n\n".join(lines))
 
     outdir.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(10, 6.5))
@@ -1633,11 +1662,17 @@ def plot_predictors_correlation_by_horizon(
     out = outdir / "predictors_correlation_by_horizon.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
+    report.image(out)
     return out
 
 
 def plot_horizon_figures(
-    corpus: list[dict], responses: Responses, model_names: list[str], seed: int
+    report: MdReport,
+    corpus: list[dict],
+    responses: Responses,
+    model_names: list[str],
+    seed: int,
+    outdir: Path,
 ) -> list[Path]:
     """The horizon scatter over all runs, then split by whether disasters ran.
 
@@ -1698,13 +1733,15 @@ def plot_horizon_figures(
     ymax *= 1.08  # headroom so the topmost marker isn't clipped by the frame
 
     return [
-        plot_normalized_by_horizon(selected, responses, model_names, seed, subset, ymax)
+        plot_normalized_by_horizon(
+            report, selected, responses, model_names, seed, outdir, subset, ymax
+        )
         for subset, selected in selections
     ]
 
 
 def print_per_metric_horizon_tables(
-    corpus: list[dict], responses: Responses, model_names: list[str]
+    report: MdReport, corpus: list[dict], responses: Responses, model_names: list[str]
 ) -> None:
     """One models x horizons table of raw CRPS per metric.
 
@@ -1724,6 +1761,7 @@ def print_per_metric_horizon_tables(
             if r["metric"] == metric
         ]
         print_horizon_table(
+            report,
             scored,
             model_names,
             horizons,
@@ -1753,12 +1791,15 @@ def main() -> None:
     args = ap.parse_args()
 
     cfg = load_config(args)
+    label = cfg.get_analysis_label()
+    data_file = data_path(label)
+    outdir = plots_path(label)
 
     # Both failures are user error with an obvious fix — the gathering step
     # hasn't run, or hasn't run for this config — so say so plainly rather than
     # with a traceback.
     try:
-        corpus, responses, models = load_dataset()
+        corpus, responses, models = load_dataset(data_file)
         corpus, responses, models = select_for_config(
             corpus, responses, models, cfg, cfg.get_seed(args.seed)
         )
@@ -1768,34 +1809,39 @@ def main() -> None:
     print("=" * 70)
     print("MICROPOLIS WORLD — single city eval scores")
     print("=" * 70)
-    print(f"data:   {DATA_PATH}")
+    print(f"data:   {data_file}")
     print(f"config: {cfg.path}")
+    print(f"label:  {label}")
     print(f"{len(corpus)} questions x {len(models)} models")
 
-    print_crps_table(corpus, responses, models)
-    print_normalized_crps_table(corpus, responses, models)
-    print_normalized_horizon_table(corpus, responses, models)
+    report = MdReport()
+    print_crps_table(report, corpus, responses, models)
+    print_normalized_crps_table(report, corpus, responses, models)
+    print_normalized_horizon_table(report, corpus, responses, models)
     if args.per_metric:
-        print_per_metric_horizon_tables(corpus, responses, models)
+        print_per_metric_horizon_tables(report, corpus, responses, models)
     else:
-        print("\nPer-metric horizon tables omitted; pass --per-metric for them.")
+        report.text("Per-metric horizon tables omitted; pass --per-metric for them.")
 
     if args.plot:
-        # Written after the tables, but the correlations they report print as
-        # they are computed, so run them before the "Wrote" lines.
         eci_plots = [
-            plot_eci_vs_normalized(corpus, responses, models),
-            plot_eci_correlation_by_horizon(corpus, responses, models),
-            plot_predictors_correlation_by_horizon(corpus, responses, models),
+            plot_eci_vs_normalized(report, corpus, responses, models, outdir),
+            plot_eci_correlation_by_horizon(report, corpus, responses, models, outdir),
+            plot_predictors_correlation_by_horizon(
+                report, corpus, responses, models, outdir
+            ),
         ]
         print()
         for out in plot_horizon_figures(
-            corpus, responses, models, cfg.get_seed(args.seed)
+            report, corpus, responses, models, cfg.get_seed(args.seed), outdir
         ):
             print(f"Wrote {out}")
         for out in eci_plots:
             if out is not None:
                 print(f"Wrote {out}")
+
+    out_path = report.write(label_dir(label) / "analysis-crps.md", "Single city eval — CRPS")
+    print(out_path)
 
 
 if __name__ == "__main__":

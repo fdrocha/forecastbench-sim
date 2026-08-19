@@ -223,30 +223,33 @@ def test_forecast_questions_drops_only_the_read_off_horizon():
     assert [c["question_id"] for c in module.forecast_questions(corpus)] == ["b", "c"]
 
 
-def test_horizon_table_all_column_excludes_the_read_off(capsys):
+def test_horizon_table_all_column_excludes_the_read_off():
     """The "all" column pools horizons, so it must leave the read-off out.
 
     The read-off scores 0 for every model, so including it would pull "all"
     below the mean of the real horizons — here to 0.10 rather than 0.15.
     """
     module = load_module()
+    report = module.MdReport()
     scored = [
         ("m", module.READ_OFF_HORIZON, 0.0),
         ("m", 48, 0.1),
         ("m", 240, 0.2),
     ]
     module.print_horizon_table(
-        scored, ["m"], [module.READ_OFF_HORIZON, 48, 240], "t", "s", ".3f"
+        report, scored, ["m"], [module.READ_OFF_HORIZON, 48, 240], "t", "s", ".3f"
     )
-    out = capsys.readouterr().out
+    out = report.render(Path("."))
     row = next(ln for ln in out.splitlines() if ln.startswith("m "))
     assert "0.150" in row, row
     assert "0.100" not in row.split("0.150")[0], row
 
 
-def test_horizon_table_keeps_the_read_off_as_its_own_column(capsys):
+def test_horizon_table_keeps_the_read_off_as_its_own_column():
     module = load_module()
+    report = module.MdReport()
     module.print_horizon_table(
+        report,
         [("m", module.READ_OFF_HORIZON, 0.0), ("m", 48, 0.1)],
         ["m"],
         [module.READ_OFF_HORIZON, 48],
@@ -254,7 +257,7 @@ def test_horizon_table_keeps_the_read_off_as_its_own_column(capsys):
         "s",
         ".3f",
     )
-    out = capsys.readouterr().out
+    out = report.render(Path("."))
     assert f"H{module.READ_OFF_HORIZON}" in out
     assert "all*" in out
 

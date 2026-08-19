@@ -153,6 +153,6 @@ class TestBatchCacheHelpers:
         assert batch_id_for(other_scenario) == "kobe_s42_T240"
 
     def test_response_path_sanitizes_model_id(self):
-        path = response_path("bruce_s42_T240", "openai/gpt-4o-2024-05-13")
-        assert path.name == "response-openai_gpt-4o-2024-05-13.txt"
+        path = response_path("bruce_s42_T240", "openai/gpt-4o-2024-05-13", "abcd1234")
+        assert path.name == "response-openai_gpt-4o-2024-05-13-abcd1234.txt"
         assert path.parent.name == "bruce_s42_T240"
