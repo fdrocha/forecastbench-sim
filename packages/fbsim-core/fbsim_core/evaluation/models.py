@@ -54,6 +54,9 @@ def load_api_keys_from_gcp(project_id: str | None = None) -> None:
 
 # Models that don't support the temperature parameter.
 # Keep this separate from reasoning-token behavior.
+# NOTE: the default call path sends no temperature at all (provider-default
+# sampling is the benchmark protocol), so this set gates nothing by default;
+# it is only consulted when a caller passes an explicit temperature override.
 MODELS_WITHOUT_TEMPERATURE = {
     "o1", "o1-mini", "o1-preview",
     "o3", "o3-mini", "o3-pro",
@@ -150,17 +153,23 @@ class LiteLLMModel:
     def get_response(
         self,
         prompt: str,
-        temperature: float = 0.0,
+        temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> str:
-        """Synchronous call using LiteLLM's completion."""
+        """Synchronous call using LiteLLM's completion.
+
+        By default no temperature is sent, so every model samples at its
+        provider default (the benchmark protocol). Pass an explicit
+        temperature to override; the override is still withheld from models
+        that reject the parameter (MODELS_WITHOUT_TEMPERATURE).
+        """
         kwargs = {
             "model": self._litellm_model_id,
             "messages": [{"role": "user", "content": prompt}],
         }
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
-        if self.supports_temperature:
+        if temperature is not None and self.supports_temperature:
             kwargs["temperature"] = temperature
 
         response = completion(**kwargs)
@@ -169,17 +178,23 @@ class LiteLLMModel:
     async def get_response_async(
         self,
         prompt: str,
-        temperature: float = 0.0,
+        temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> str:
-        """Async call using LiteLLM's acompletion."""
+        """Async call using LiteLLM's acompletion.
+
+        By default no temperature is sent, so every model samples at its
+        provider default (the benchmark protocol). Pass an explicit
+        temperature to override; the override is still withheld from models
+        that reject the parameter (MODELS_WITHOUT_TEMPERATURE).
+        """
         kwargs = {
             "model": self._litellm_model_id,
             "messages": [{"role": "user", "content": prompt}],
         }
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
-        if self.supports_temperature:
+        if temperature is not None and self.supports_temperature:
             kwargs["temperature"] = temperature
 
         response = await acompletion(**kwargs)

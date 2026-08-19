@@ -87,7 +87,8 @@ def parse_prob(text: str) -> float | None:
 
 
 def chat(model, messages):
-    """Provider-agnostic chat. Env:
+    """Provider-agnostic chat. No temperature is ever sent: every model runs
+    at its provider default (uniform benchmark protocol). Env:
     CHAT_BASE_URL (default fireworks), CHAT_API_KEY (default FIREWORKS_API_KEY),
     CHAT_PROVIDER=openai|anthropic (default openai-compatible),
     CHAT_MAX_TOKENS (default: omitted for openai-compat, 16000 for anthropic)."""
@@ -96,8 +97,9 @@ def chat(model, messages):
     key = os.environ.get("CHAT_API_KEY") or os.environ["FIREWORKS_API_KEY"]
     mt = os.environ.get("CHAT_MAX_TOKENS")
     if provider == "anthropic":
+        # no temperature: provider-default sampling everywhere (protocol)
         body = {"model": model, "messages": messages,
-                "max_tokens": int(mt or 16000), "temperature": 1.0}
+                "max_tokens": int(mt or 16000)}
         req = urllib.request.Request(
             "https://api.anthropic.com/v1/messages",
             data=json.dumps(body).encode(),
@@ -109,7 +111,8 @@ def chat(model, messages):
         return "".join(b.get("text", "") for b in d.get("content", []))
     base = os.environ.get("CHAT_BASE_URL",
                           "https://api.fireworks.ai/inference/v1")
-    body = {"model": model, "messages": messages, "temperature": 1.0}
+    # no temperature: provider-default sampling everywhere (protocol)
+    body = {"model": model, "messages": messages}
     if mt:
         body["max_tokens"] = int(mt)
     elif "fireworks" in base:
