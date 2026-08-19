@@ -10,14 +10,25 @@ and select classes whose base rate falls in a target tail band (default 1-9%)
 with adequate support. Each game contributes one Bernoulli draw against the
 class base rate -> real ground-truth calibration data in the tail.
 
+Support is counted at GAME level by default (distinct games per class): each
+game contributes ~5 correlated per-civ instances per class, so instance counts
+overstate the evidence. Instance counts are still reported. Legacy
+instance-level selection is available via --support instances.
+
+--split-half partitions games into two halves by a deterministic, seedable
+hash of the game id (stable across runs and machines): classes are selected on
+half-A rate/support, and half-B base rates are emitted alongside as the
+scoring truth labels.
+
 Usage:
     uv run python worlds/freeciv/scripts/mine_lowprob_corpus.py \
-        --data-dir data/games --snapshot-turn 40 \
+        --data-dir data/games data/games_mc --snapshot-turn 40 \
         --rate-lo 0.01 --rate-hi 0.09 --min-n 30 --workers 8 \
         --out-dir data/lowprob
 """
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -25,6 +36,76 @@ from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 sys.path.insert(0, 'src')
+
+
+def split_half_of(game_id: str, split_seed: int) -> str:
+    """Deterministic half assignment ('A'/'B') by hash of game id.
+
+    Stable across runs and machines (sha256, not Python's salted hash);
+    change --split-seed to draw a different partition.
+    """
+    h = hashlib.sha256(f"{split_seed}:{game_id}".encode()).digest()
+    return "A" if int.from_bytes(h[:8], "big") % 2 == 0 else "B"
+
+
+def summarize_classes(records, split_seed=None):
+    """Group instance records into (template, target, horizon) class rows.
+
+    Each row reports instance counts (n, yes, base_rate) and game-level
+    support (n_games = distinct games contributing instances). When
+    split_seed is not None, per-half fields (n_a/yes_a/rate_a/n_games_a and
+    the _b equivalents) are added from the deterministic game-id split.
+    """
+    classes = defaultdict(list)
+    for rec in records:
+        classes[(rec["template_id"], rec["target"], rec["horizon"])].append(rec)
+
+    rows = []
+    for (tmpl, target, horizon), recs in classes.items():
+        n = len(recs)
+        yes = sum(1 for r in recs if r["ground_truth"])
+        row = {
+            "template_id": tmpl, "target": target, "horizon": horizon,
+            "n": n, "yes": yes, "base_rate": yes / n if n else 0.0,
+            "n_games": len({r["game_id"] for r in recs}),
+        }
+        if split_seed is not None:
+            for half in ("A", "B"):
+                sub = [r for r in recs
+                       if split_half_of(r["game_id"], split_seed) == half]
+                k = half.lower()
+                nh = len(sub)
+                yh = sum(1 for r in sub if r["ground_truth"])
+                row[f"n_{k}"] = nh
+                row[f"yes_{k}"] = yh
+                row[f"rate_{k}"] = yh / nh if nh else None
+                row[f"n_games_{k}"] = len({r["game_id"] for r in sub})
+        rows.append(row)
+    rows.sort(key=lambda x: x["base_rate"])
+    return rows
+
+
+def select_classes(class_rows, rate_lo, rate_hi, min_n, support, split_half):
+    """Tail-band selection.
+
+    support='games' (default) uses distinct-game counts as the criterion;
+    support='instances' is the legacy instance-count behavior. In split-half
+    mode the band and support threshold apply to half A only, and half B must
+    be non-empty (its rate is the scoring truth).
+    """
+    if split_half:
+        sup_key = "n_games_a" if support == "games" else "n_a"
+        return [
+            c for c in class_rows
+            if c[sup_key] >= min_n and c["rate_a"] is not None
+            and rate_lo <= c["rate_a"] <= rate_hi
+            and c["rate_b"] is not None
+        ]
+    sup_key = "n_games" if support == "games" else "n"
+    return [
+        c for c in class_rows
+        if c[sup_key] >= min_n and rate_lo <= c["base_rate"] <= rate_hi
+    ]
 
 
 def _target_key(template_id: str, params: dict) -> str:
@@ -89,18 +170,27 @@ def process_single_game(args: tuple):
 
 def main():
     ap = argparse.ArgumentParser(description="Mine low-probability FreeCiv question corpus")
-    ap.add_argument("--data-dir", default="data/games")
+    ap.add_argument("--data-dir", nargs="+", default=["data/games"],
+                    help="one or more game-data dirs (pooled)")
     ap.add_argument("--snapshot-turn", type=int, default=40)
     ap.add_argument("--rate-lo", type=float, default=0.01)
     ap.add_argument("--rate-hi", type=float, default=0.09)
-    ap.add_argument("--min-n", type=int, default=30, help="min games supporting a class")
+    ap.add_argument("--min-n", type=int, default=30,
+                    help="min support per class (see --support)")
+    ap.add_argument("--support", choices=["games", "instances"], default="games",
+                    help="selection support: distinct games (default) or "
+                         "question instances (legacy behavior)")
+    ap.add_argument("--split-half", action="store_true",
+                    help="select classes on half A of a deterministic game-id "
+                         "split; emit half-B base rates as scoring truth")
+    ap.add_argument("--split-seed", type=int, default=0,
+                    help="seed for the split-half game-id hash")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--out-dir", default="data/lowprob")
     ap.add_argument("--limit", type=int, default=None, help="cap #games (debug)")
     args = ap.parse_args()
 
-    data_dir = Path(args.data_dir)
-    files = sorted(data_dir.glob("*_data.json"))
+    files = [f for d in args.data_dir for f in sorted(Path(d).glob("*_data.json"))]
     if args.limit:
         files = files[: args.limit]
     print(f"Found {len(files)} game files; snapshot turn {args.snapshot_turn}")
@@ -121,37 +211,30 @@ def main():
     print(f"Total binary questions: {len(records)}")
 
     # Group into classes: (template, target, horizon)
-    classes = defaultdict(list)  # key -> list of records
-    for rec in records:
-        key = (rec["template_id"], rec["target"], rec["horizon"])
-        classes[key].append(rec)
+    class_rows = summarize_classes(
+        records, split_seed=args.split_seed if args.split_half else None)
 
-    class_rows = []
-    for (tmpl, target, horizon), recs in classes.items():
-        n = len(recs)
-        yes = sum(1 for r in recs if r["ground_truth"])
-        rate = yes / n if n else 0.0
-        class_rows.append({
-            "template_id": tmpl, "target": target, "horizon": horizon,
-            "n": n, "yes": yes, "base_rate": rate,
-        })
-    class_rows.sort(key=lambda x: x["base_rate"])
-
-    # Select tail classes
-    selected = [
-        c for c in class_rows
-        if c["n"] >= args.min_n and args.rate_lo <= c["base_rate"] <= args.rate_hi
-    ]
+    # Select tail classes (game-level support by default; half A in split mode)
+    selected = select_classes(class_rows, args.rate_lo, args.rate_hi,
+                              args.min_n, args.support, args.split_half)
     selected_keys = {(c["template_id"], c["target"], c["horizon"]) for c in selected}
 
-    # Instance-level corpus for selected classes, tagging each with its class base rate (true prob)
-    rate_by_key = {(c["template_id"], c["target"], c["horizon"]): c["base_rate"] for c in selected}
+    # Instance-level corpus for selected classes, tagging each with its class
+    # base rate (true prob). In split mode the scoring truth is the half-B
+    # rate (half A picked the class); the half-A rate rides along for QA.
+    sel_by_key = {(c["template_id"], c["target"], c["horizon"]): c for c in selected}
     corpus = []
     for rec in records:
         key = (rec["template_id"], rec["target"], rec["horizon"])
         if key in selected_keys:
             rec2 = dict(rec)
-            rec2["class_base_rate"] = rate_by_key[key]  # true low probability of the class
+            c = sel_by_key[key]
+            if args.split_half:
+                rec2["class_base_rate"] = c["rate_b"]  # scoring truth (held-out half)
+                rec2["class_base_rate_half_a"] = c["rate_a"]
+                rec2["split_half"] = split_half_of(rec["game_id"], args.split_seed)
+            else:
+                rec2["class_base_rate"] = c["base_rate"]  # true low probability of the class
             corpus.append(rec2)
 
     out_dir = Path(args.out_dir)
@@ -159,6 +242,9 @@ def main():
     meta = {
         "snapshot_turn": args.snapshot_turn, "n_games": len(files),
         "rate_band": [args.rate_lo, args.rate_hi], "min_n": args.min_n,
+        "support": args.support,
+        "split_half": args.split_half,
+        "split_seed": args.split_seed if args.split_half else None,
         "total_binary_questions": len(records),
         "n_classes_total": len(class_rows),
         "n_classes_selected": len(selected),
@@ -177,10 +263,17 @@ def main():
     print(f"\nSelected {len(selected)} tail classes "
           f"({args.rate_lo:.0%}-{args.rate_hi:.0%}), {len(corpus)} instances. "
           f"Wrote to {out_dir}/")
-    print("\nSelected classes (rate | n | template | horizon | target):")
-    for c in sorted(selected, key=lambda x: x["base_rate"]):
-        print(f"  {c['base_rate']:.3f}  n={c['n']:4d}  "
-              f"{c['template_id']:20s} {c['horizon']:3s}  {c['target']}")
+    if args.split_half:
+        print("\nSelected classes (rateA->rateB | gamesA/gamesB | template | horizon | target):")
+        for c in sorted(selected, key=lambda x: x["rate_a"]):
+            print(f"  {c['rate_a']:.3f}->{c['rate_b']:.3f}  "
+                  f"g={c['n_games_a']:3d}/{c['n_games_b']:3d}  "
+                  f"{c['template_id']:20s} {c['horizon']:3s}  {c['target']}")
+    else:
+        print("\nSelected classes (rate | games | n | template | horizon | target):")
+        for c in sorted(selected, key=lambda x: x["base_rate"]):
+            print(f"  {c['base_rate']:.3f}  g={c['n_games']:3d}  n={c['n']:4d}  "
+                  f"{c['template_id']:20s} {c['horizon']:3s}  {c['target']}")
 
 
 if __name__ == "__main__":
