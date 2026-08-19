@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
 """Score v2 natural-conditional elicitations against half-B ground truth.
 
-Primary metric: excess log loss KL(q || p_hat) in bits, with p_hat clipped to
-[0.001, 0.999]. q is the held-out half-B truth (p_yx for conditional stages,
-p_y for baseline calibration) and is never clipped. Secondary: squared error
-(p_hat - q)^2.
+Default mode (--loss kl): primary metric is excess log loss KL(q || p_hat) in
+bits, with p_hat clipped to [0.001, 0.999]. q is the held-out half-B truth
+(p_yx for conditional stages, p_y for baseline calibration) and is never
+clipped. Secondary: squared error (p_hat - q)^2 (same clipped p_hat).
 
-Skill keeps the v1 ladder CUS form, per band:
+Optional mode (--loss brier-single): plain Brier (p_hat - y)^2 against the
+single designated resolution continuation's 0/1 outcome (the reserved rollout
+emitted by natcond_cells_v2.py as resolution_outcome; excluded from both
+halves so this draw is independent of certification and MC truth). p_hat is
+NOT clipped here. Cells unresolved in the reserved rollout are skipped and
+counted. This option is natcond-specific — tail Section-2 items already
+resolve 0/1 per world natively and use their own scorer.
+
+Skill keeps the v1 ladder CUS form in both modes, per band:
   CUS = 1 - loss(updated) / loss(held baseline)
-where both losses are against the conditional truth q = half_b.p_yx — i.e.
-how much updating on the revealed fact beat holding the baseline forecast.
-Direction accuracy (certified effect cells only) is against the half-B delta:
+i.e. how much updating on the revealed fact beat holding the baseline
+forecast against the mode's truth. Direction accuracy (certified effect cells
+only) is mode-independent, against the half-B delta:
 correct iff (p_cond - p_base) * delta_B > 0.
 
 Confidence intervals: deterministic paired qid-cluster percentile bootstrap.
@@ -19,7 +27,7 @@ Usage:
   uv run python scripts/uplift_v2/natcond_score_v2.py \
       --cells tmp/natcond_v2/w01_cells.json \
       --results tmp/natcond_v2/elicit_w01_oss120.json \
-      --output tmp/natcond_v2/score_w01_oss120.json
+      --output tmp/natcond_v2/score_w01_oss120.json [--loss brier-single]
 """
 from __future__ import annotations
 
@@ -57,7 +65,20 @@ def sq_err(q: float, p: float) -> float:
     return (p - q) ** 2
 
 
-LOSSES = {"kl_bits": kl_bits, "sq": sq_err}
+def _truth_mc(row: dict) -> float:
+    return row["half_b"]["p_yx"]
+
+
+def _truth_single(row: dict) -> float:
+    return float(row["resolution_outcome"])
+
+
+# loss mode -> {metric name: (truth accessor, loss fn, clip predictions?)}
+MODE_METRICS = {
+    "kl": {"kl_bits": (_truth_mc, kl_bits, True),
+           "sq": (_truth_mc, sq_err, True)},
+    "brier-single": {"brier_single": (_truth_single, sq_err, False)},
+}
 
 
 def mean(values: list[float]) -> float:
@@ -120,14 +141,15 @@ def join_rows(cells: list[dict], payload: dict) -> tuple[list[dict], dict]:
     return rows, missing
 
 
-def band_metrics(rows: list[dict]) -> dict[str, Any] | None:
+def band_metrics(rows: list[dict], metrics: dict) -> dict[str, Any] | None:
     """Losses / CUS / direction for one band of joined rows."""
     if not rows:
         return None
     out: dict[str, Any] = {"n": len(rows)}
-    for name, loss in LOSSES.items():
-        updated = mean([loss(r["half_b"]["p_yx"], clip(r["pc"])) for r in rows])
-        held = mean([loss(r["half_b"]["p_yx"], clip(r["pb"])) for r in rows])
+    for name, (truth, loss, do_clip) in metrics.items():
+        prep = clip if do_clip else float
+        updated = mean([loss(truth(r), prep(r["pc"])) for r in rows])
+        held = mean([loss(truth(r), prep(r["pb"])) for r in rows])
         out[name] = {
             "loss_updated": updated,
             "loss_baseline": held,
@@ -151,17 +173,18 @@ def band_metrics(rows: list[dict]) -> dict[str, Any] | None:
     return out
 
 
-def cus_for_qids(rows_by_qid: dict, qids: list[str], loss_name: str) -> float:
+def cus_for_qids(rows_by_qid: dict, qids: list[str], spec: tuple) -> float:
+    truth, loss, do_clip = spec
+    prep = clip if do_clip else float
     num = den = 0.0
-    loss = LOSSES[loss_name]
     for qid in qids:
         for r in rows_by_qid.get(qid, ()):
-            num += loss(r["half_b"]["p_yx"], clip(r["pc"]))
-            den += loss(r["half_b"]["p_yx"], clip(r["pb"]))
+            num += loss(truth(r), prep(r["pc"]))
+            den += loss(truth(r), prep(r["pb"]))
     return 1 - num / den if den > 0 else float("nan")
 
 
-def bootstrap_ci(rows: list[dict], loss_name: str,
+def bootstrap_ci(rows: list[dict], spec: tuple,
                  replicates: int, seed: int) -> list[float] | None:
     """Deterministic paired qid-cluster percentile bootstrap of the CUS."""
     rows_by_qid: dict[str, list[dict]] = defaultdict(list)
@@ -174,16 +197,25 @@ def bootstrap_ci(rows: list[dict], loss_name: str,
     values = []
     for _ in range(replicates):
         sample = [rng.choice(qids) for _ in qids]
-        values.append(cus_for_qids(rows_by_qid, sample, loss_name))
+        values.append(cus_for_qids(rows_by_qid, sample, spec))
     finite = [v for v in values if math.isfinite(v)]
     if not finite:
         return None
     return [quantile(finite, 0.025), quantile(finite, 0.975)]
 
 
-def score(cells: list[dict], payload: dict,
-          bootstrap: int = 2000, seed: int = 20260818) -> dict[str, Any]:
+def score(cells: list[dict], payload: dict, bootstrap: int = 2000,
+          seed: int = 20260818, loss: str = "kl") -> dict[str, Any]:
+    metrics = MODE_METRICS[loss]
     rows, missing = join_rows(cells, payload)
+    if loss == "brier-single":
+        if not any("resolution_outcome" in r for r in rows):
+            raise RuntimeError(
+                "cells lack resolution_outcome — re-mine with the reserved "
+                "resolution continuation (natcond_cells_v2.py MIGRATION note)")
+        missing["no_resolution"] = sum(
+            1 for r in rows if r.get("resolution_outcome") is None)
+        rows = [r for r in rows if r.get("resolution_outcome") is not None]
     bands: dict[str, list[dict]] = {"overall": rows}
     for cls in ("effect", "placebo"):
         bands[cls] = [r for r in rows if r["cls"] == cls]
@@ -192,10 +224,11 @@ def score(cells: list[dict], payload: dict,
 
     report: dict[str, Any] = {
         "schema": "natcond_score_v2",
+        "loss_mode": loss,
         "mode": payload.get("mode"),
         "tag": payload.get("tag"),
         "model": payload.get("model"),
-        "clip": [CLIP_LO, CLIP_HI],
+        "clip": [CLIP_LO, CLIP_HI] if loss == "kl" else None,
         "n_cells": len(cells),
         "n_scored": len(rows),
         "missing": missing,
@@ -204,14 +237,14 @@ def score(cells: list[dict], payload: dict,
         "bands": {},
     }
     for name, band_rows in bands.items():
-        metrics = band_metrics(band_rows)
-        if metrics is None:
+        band = band_metrics(band_rows, metrics)
+        if band is None:
             continue
         if name in ("overall", "effect") and bootstrap > 0:
-            for loss_name in LOSSES:
-                metrics[loss_name]["cus_95pct_ci"] = bootstrap_ci(
-                    band_rows, loss_name, bootstrap, seed)
-        report["bands"][name] = metrics
+            for metric_name, spec in metrics.items():
+                band[metric_name]["cus_95pct_ci"] = bootstrap_ci(
+                    band_rows, spec, bootstrap, seed)
+        report["bands"][name] = band
     return report
 
 
@@ -219,6 +252,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cells", type=Path, required=True)
     ap.add_argument("--results", type=Path, required=True)
+    ap.add_argument("--loss", choices=sorted(MODE_METRICS), default="kl",
+                    help="kl: KL vs half-B MC truth (default); brier-single: "
+                         "plain Brier vs the reserved continuation's 0/1")
     ap.add_argument("--bootstrap", type=int, default=2000)
     ap.add_argument("--seed", type=int, default=20260818)
     ap.add_argument("--output", type=Path, required=True)
@@ -232,7 +268,7 @@ def main() -> None:
                 f"cell {cell.get('qid')}/{cell.get('event_id')} has no half_b "
                 f"truth — score_v2 needs cells from natcond_cells_v2.py")
 
-    report = score(cells, payload, args.bootstrap, args.seed)
+    report = score(cells, payload, args.bootstrap, args.seed, loss=args.loss)
     report["inputs"] = {"cells_sha256": sha256(args.cells),
                         "results_sha256": sha256(args.results)}
     args.output.parent.mkdir(parents=True, exist_ok=True)

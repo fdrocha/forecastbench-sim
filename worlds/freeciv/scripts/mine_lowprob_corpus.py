@@ -28,6 +28,7 @@ Usage:
 """
 
 import argparse
+import gzip
 import hashlib
 import json
 import sys
@@ -127,10 +128,12 @@ def process_single_game(args: tuple):
         from freeciv_world.world_reports.questions import (
             QuestionGenerator, QuestionResolver, REGISTRY, question_bank_to_dict,
         )
-        with open(data_file) as f:
+        opener = gzip.open if str(data_file).endswith(".gz") else open
+        with opener(data_file, "rt") as f:
             game_data = json.load(f)
 
-        game_id = game_data.get('metadata', {}).get('username', Path(data_file).stem)
+        game_id = game_data.get('metadata', {}).get(
+            'username', Path(data_file).name.split(".")[0])
         max_turn = game_data.get('metadata', {}).get('turn', 0)
         if snapshot_turn >= max_turn:
             return None
@@ -190,7 +193,10 @@ def main():
     ap.add_argument("--limit", type=int, default=None, help="cap #games (debug)")
     args = ap.parse_args()
 
-    files = [f for d in args.data_dir for f in sorted(Path(d).glob("*_data.json"))]
+    # plain or gzipped game files (the mined fleets land as *_data.json.gz)
+    files = [f for d in args.data_dir
+             for pat in ("*_data.json", "*_data.json.gz")
+             for f in sorted(Path(d).glob(pat))]
     if args.limit:
         files = files[: args.limit]
     print(f"Found {len(files)} game files; snapshot turn {args.snapshot_turn}")

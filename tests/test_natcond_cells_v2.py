@@ -25,6 +25,19 @@ def test_split_tags_fixed_halves_by_rollout_index():
     assert a3 == {"s1", "s10"}
 
 
+def test_reserved_tag_deterministic_and_excluded_from_halves():
+    assert cells_v2.reserved_tag(["s2", "s10", "s1"]) == "s1"
+    tags = [f"s{k}" for k in range(1, 1001)]
+    shuffled = tags[:]
+    random.Random(5).shuffle(shuffled)
+    assert cells_v2.reserved_tag(shuffled) == "s1"
+    # halves partition the REMAINING rollouts; the reserved draw is in neither
+    a, b = cells_v2.split_tags(set(tags) - {"s1"})
+    assert len(a) == 500 and len(b) == 499
+    assert "s1" not in a and "s1" not in b
+    assert a | b == set(tags) - {"s1"} and a.isdisjoint(b)
+
+
 def _write_fixture(tmp_path):
     """40 rollouts s1..s40; conditioning event = 'Benin discovered Alphabet'
     in window (60, 75] for members s1..s30 (15 per half). Questions:
@@ -105,8 +118,11 @@ def test_mine_world_split_half_certification(tmp_path):
     assert all(c["window"] == [60, 75] for c in cells)
 
     tags = [f"s{k}" for k in range(1, 41)]
-    half_a, half_b = cells_v2.split_tags(tags)
-    assert len(half_a) == len(half_b) == 20
+    res = cells_v2.reserved_tag(tags)
+    assert res == "s1"
+    half_a, half_b = cells_v2.split_tags(set(tags) - {res})
+    assert len(half_a) == 20 and len(half_b) == 19
+    assert res not in half_a and res not in half_b
 
     manifest = json.loads((arm / "manifest.json").read_text())
     for qid, cell in by_q.items():
@@ -137,12 +153,19 @@ def test_mine_world_split_half_certification(tmp_path):
     assert by_q["q0001"]["cls"] == "placebo"
     assert by_q["q0001"]["shrunk_abs_delta"] == 0.0  # |delta| < SE -> shrunk to 0
 
-    # designed values for the strong H1 cell (members all yes in both halves)
+    # designed values for the strong H1 cell (members all yes in both halves).
+    # s1 is reserved -> A = even seeds s2..s40 (20), B = odd s3..s39 (19).
     c = by_q["q0000"]
-    assert c["half_a"] == {**c["half_a"], "n": 20, "n_x": 15, "p_y": 0.75,
-                           "p_yx": 1.0, "delta": 0.25}
-    assert c["half_b"]["n"] == 19  # s40's null answer dropped
-    assert c["half_b"]["p_yx"] == 1.0
+    assert c["half_a"] == {**c["half_a"], "n": 19,  # s40's null answer dropped
+                           "n_x": 15, "p_y": round(15 / 19, 4), "p_yx": 1.0}
+    assert c["freq"] == 0.75  # 15 of 20 half-A rollouts are members
+    assert c["half_b"] == {**c["half_b"], "n": 19, "n_x": 14, "p_yx": 1.0,
+                           "p_y": round(14 / 19, 4)}
+    # reserved continuation: excluded above, emitted as the 0/1 Brier option
+    assert all(cell["resolution_rollout_id"] == "s1" for cell in cells)
+    assert by_q["q0000"]["resolution_outcome"] == 1  # s1 is a member -> True
+    assert by_q["q0001"]["resolution_outcome"] == 0  # 1 % 3 != 0
+    assert by_q["q0002"]["resolution_outcome"] == 1
     # horizon plumbing
     assert (by_q["q0000"]["horizon"], by_q["q0000"]["resolution_turn"]) == ("H1", 90)
     assert (by_q["q0001"]["horizon"], by_q["q0001"]["resolution_turn"]) == ("H2", 120)
@@ -154,6 +177,42 @@ def test_mine_world_split_half_certification(tmp_path):
         ("tech_within", "H2", "placebo", 1),
         ("tech_comparative", "H3", "effect", 1),
     }
+
+
+def test_lane_sharded_arm_matches_single_arm(tmp_path):
+    """A world split across laneNN/ shards (the mined-fleet layout) mines to
+    exactly the same cells as the equivalent single arm."""
+    arm, qpath, members = _write_fixture(tmp_path)
+    single = cells_v2.mine_world(
+        "w_test", str(arm), str(qpath), {"H1", "H2", "H3"},
+        [(60, 75)], 0.05, 0.95, 6, 6)
+
+    manifest = json.loads((arm / "manifest.json").read_text())
+    sharded = tmp_path / "w_sharded"
+    lanes = [[f"s{k}" for k in range(1, 15)],
+             [f"s{k}" for k in range(15, 29)],
+             [f"s{k}" for k in range(29, 41)]]
+    for i, lane_tags in enumerate(lanes):
+        lane = sharded / f"lane{i:02d}"
+        (lane / "rollouts").mkdir(parents=True)
+        lane_answers = {
+            qid: [r for r in recs if r["tag"] in lane_tags]
+            for qid, recs in manifest["answers"].items()}
+        (lane / "manifest.json").write_text(json.dumps(
+            {"config": {"game_id": "w_test", "rng_seeds": lane_tags},
+             "answers": lane_answers}))
+        for tag in lane_tags:
+            src = arm / "rollouts" / f"{tag}.json.gz"
+            (lane / "rollouts" / f"{tag}.json.gz").write_bytes(src.read_bytes())
+
+    assert cells_v2.manifest_paths(str(sharded)) == sorted(
+        sharded.glob("lane*/manifest.json"))
+    merged = cells_v2.load_answers(str(sharded))
+    assert merged == cells_v2.load_answers(str(arm))
+    sharded_cells = cells_v2.mine_world(
+        "w_test", str(sharded), str(qpath), {"H1", "H2", "H3"},
+        [(60, 75)], 0.05, 0.95, 6, 6)
+    assert sharded_cells == single and len(single) == 3
 
 
 def test_mine_world_enforces_nx_floor_both_halves(tmp_path):

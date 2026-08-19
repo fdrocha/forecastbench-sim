@@ -6,11 +6,19 @@ ground truth. v2 targets the mined fleets under tmp/mined/rollouts/<world>/
 (8 worlds x 1,000 rollouts, t60 -> t150) and adds:
 
   * horizons H1/H2/H3 (t90/t120/t150), taken from the world's question bank;
-  * split-half certification: rollouts are split into two fixed halves by
-    sorted rollout index (even index -> half A, odd -> half B; numeric-aware
-    sort of the s<seed> tags, deterministic across runs). Conditioning events
-    are selected and effect cells certified on half A only
-    (|delta_A| > 2*SE_A); half-B p_y / p_yx are emitted as scoring truth;
+  * ONE rollout per world is reserved as the designated "resolution
+    continuation": the lowest rollout index after numeric-aware sort,
+    deterministic. It is excluded from BOTH halves so the single resolution
+    draw never contaminates the certification or the probability truth; its
+    0/1 answers are emitted per cell (resolution_outcome) for optional plain
+    Brier scoring (natcond_score_v2.py --loss brier-single). This is
+    natcond-specific: tail Section-2 items already resolve 0/1 per world
+    natively and need no reserved draw;
+  * split-half certification: the REMAINING rollouts are split into two fixed
+    halves by sorted rollout index (even index -> half A, odd -> half B;
+    numeric-aware sort of the s<seed> tags, deterministic across runs).
+    Conditioning events are selected and effect cells certified on half A
+    only (|delta_A| > 2*SE_A); half-B p_y / p_yx are emitted as scoring truth;
   * a shrinkage diagnostic per cell, sqrt(max(delta_A^2 - SE_A^2, 0)) — the
     selection-debiased effect-size estimate (0 when the observed delta is
     within one SE of noise);
@@ -21,12 +29,21 @@ Cells keep the v1 schema (game_id, qid, question, event_id, event_kind,
 event_desc, window, freq, n_x, p_y, p_yx, delta, se_delta, cls — all carrying
 the half-A / certification values, so v1 consumers keep working) plus new
 fields: horizon, resolution_turn, template_id, half_a{...}, half_b{...},
-shrunk_abs_delta.
+shrunk_abs_delta, resolution_rollout_id, resolution_outcome (0/1 from the
+reserved continuation, null if unresolved there).
+
+MIGRATION: cells mined by revisions of this script without the reserved
+continuation used all rollouts in the halves; re-mine before scoring with
+--loss brier-single (half stats shift by one rollout).
 
 Arm dir layout (as written by scripts/causal_pilot.py): manifest.json with
 answers[qid] = [{"tag": ..., "answer": bool|null}], and rollouts/<tag>.json.gz
 serialized game_data with an "events" list. Flat <arm>/<tag>.json.gz files and
-bare event-list payloads are also accepted.
+bare event-list payloads are also accepted. LANE SHARDING (the mined fleets
+land as tmp/mined/rollouts/<world>/laneNN/, each lane a causal_pilot arm over
+a disjoint rng-seed range): a world dir without its own manifest.json but with
+lane*/manifest.json is merged across lanes — answers concatenate by tag
+(first occurrence wins on duplicates) and rollouts glob across lanes.
 
 Usage (single world):
   uv run python scripts/uplift_v2/natcond_cells_v2.py --game-id w01 \
@@ -100,6 +117,12 @@ def split_tags(tags) -> tuple[set, set]:
     return half_a, set(ordered) - half_a
 
 
+def reserved_tag(tags) -> str:
+    """The designated resolution continuation: lowest rollout index
+    (numeric-aware sort), deterministic across runs."""
+    return min(tags, key=_tag_sort_key)
+
+
 def half_stats(amap: dict, half_tags: set, members: set) -> dict | None:
     """p_y / p_yx / delta / se_delta over one half's answered rollouts.
 
@@ -125,16 +148,48 @@ def half_stats(amap: dict, half_tags: set, members: set) -> dict | None:
     }
 
 
+def manifest_paths(arm_dir: str) -> list[Path]:
+    """The arm's manifest(s): its own manifest.json, or one per lane shard."""
+    own = Path(arm_dir) / "manifest.json"
+    if own.exists():
+        return [own]
+    return sorted(Path(arm_dir).glob("lane*/manifest.json"))
+
+
+def load_answers(arm_dir: str) -> dict[str, dict]:
+    """answers[qid] -> {tag: bool}, nulls dropped, merged across lane shards
+    (lanes cover disjoint rng-seed ranges; first occurrence wins on any
+    duplicate tag)."""
+    paths = manifest_paths(arm_dir)
+    if not paths:
+        raise FileNotFoundError(
+            f"no manifest.json (or lane*/manifest.json) under {arm_dir}")
+    answers: dict[str, dict] = {}
+    for p in paths:
+        manifest = json.loads(p.read_text())
+        for qid, recs in manifest["answers"].items():
+            amap = answers.setdefault(qid, {})
+            for r in recs:
+                if r["answer"] is not None and r["tag"] not in amap:
+                    amap[r["tag"]] = r["answer"]
+    return answers
+
+
 def load_rollout_events(arm_dir: str) -> dict[str, list]:
-    """tag -> events list. Accepts <arm>/rollouts/*.json.gz or flat *.json.gz,
-    and either full game_data dicts (with an "events" key) or bare event lists."""
+    """tag -> events list. Accepts <arm>/rollouts/*.json.gz (or plain .json,
+    lane-sharded <arm>/lane*/rollouts/*.json.gz, or flat *.json.gz under the
+    arm dir), and either full game_data dicts (with an "events" key) or bare
+    event lists."""
     fps = (sorted(glob.glob(f"{arm_dir}/rollouts/*.json.gz"))
+           or sorted(glob.glob(f"{arm_dir}/rollouts/*.json"))
+           or sorted(glob.glob(f"{arm_dir}/lane*/rollouts/*.json.gz"))
            or sorted(glob.glob(f"{arm_dir}/*.json.gz")))
     rollouts = {}
     for fp in fps:
         tag = Path(fp).name.split(".")[0]
         try:
-            gd = json.load(gzip.open(fp, "rt"))
+            opener = gzip.open if fp.endswith(".gz") else open
+            gd = json.load(opener(fp, "rt"))
         except Exception:
             print(f"  !! skipping unreadable rollout {tag}")
             continue
@@ -161,9 +216,7 @@ def mine_world(game_id: str, arm_dir: str, questions_path: str,
                lo: float, hi: float, max_specific: int, max_vague: int) -> list[dict]:
     """Mine one world's cells. Event selection + certification on half A only;
     half B rides along as held-out scoring truth."""
-    manifest = json.loads((Path(arm_dir) / "manifest.json").read_text())
-    answers = {qid: {r["tag"]: r["answer"] for r in recs if r["answer"] is not None}
-               for qid, recs in manifest["answers"].items()}
+    answers = load_answers(arm_dir)
     qinfo = load_questions(questions_path, horizons)
     missing_hz = horizons - {qi["horizon"] for qi in qinfo.values()}
     if missing_hz:
@@ -177,13 +230,16 @@ def mine_world(game_id: str, arm_dir: str, questions_path: str,
                 civs.add(e["description"].split(" discovered ")[0])
     civs = sorted(c for c in civs if c not in ("Pirate",))
 
-    tags_a, tags_b = split_tags(rollouts)
+    # reserve the resolution continuation, then split the remaining rollouts
+    res_tag = reserved_tag(rollouts)
+    tags_a, tags_b = split_tags(set(rollouts) - {res_tag})
     n_a, n_b = len(tags_a), len(tags_b)
     min_nx_a = max(12, int(0.15 * n_a))
     min_nx_b = max(12, int(0.15 * n_b))
     lo = max(lo, min_nx_a / n_a) if n_a else lo  # freq band consistent with n_x floor
-    print(f"{game_id}: {len(rollouts)} rollouts (A={n_a}, B={n_b}), "
-          f"civs={civs}, min_nx A/B={min_nx_a}/{min_nx_b}, band=[{lo:.2f},{hi}]")
+    print(f"{game_id}: {len(rollouts)} rollouts (reserved={res_tag}, A={n_a}, "
+          f"B={n_b}), civs={civs}, min_nx A/B={min_nx_a}/{min_nx_b}, "
+          f"band=[{lo:.2f},{hi}]")
 
     events = []  # (kind, name, description, window, member_tags)
     # specific events: exact description within window; frequency measured on half A
@@ -237,6 +293,7 @@ def mine_world(game_id: str, arm_dir: str, questions_path: str,
             if not sa or not sb or sa["n_x"] < min_nx_a or sb["n_x"] < min_nx_b:
                 continue
             shrunk = math.sqrt(max(sa["delta"] ** 2 - sa["se_delta"] ** 2, 0.0))
+            res_ans = amap.get(res_tag)  # None if unresolved in that rollout
             cells.append({
                 # v1 fields (half-A / certification values)
                 "game_id": game_id, "qid": qid,
@@ -252,6 +309,9 @@ def mine_world(game_id: str, arm_dir: str, questions_path: str,
                 "template_id": qinfo[qid]["template_id"],
                 "half_a": sa, "half_b": sb,
                 "shrunk_abs_delta": round(shrunk, 4),
+                # designated single-continuation resolution (Brier option)
+                "resolution_rollout_id": res_tag,
+                "resolution_outcome": None if res_ans is None else int(res_ans),
             })
     for kind, eid, desc, w, mem in events:
         fa = len(set(mem) & tags_a) / n_a if n_a else 0.0
@@ -282,10 +342,15 @@ def main():
     ap.add_argument("--freq-band", default="0.15,0.65")
     ap.add_argument("--max-specific", type=int, default=6)
     ap.add_argument("--max-vague", type=int, default=6)
+    ap.add_argument("--smoke", action="store_true",
+                    help="label outputs as a smoke run over partial fleet data "
+                         "(not for scoring); stamps meta.smoke = true")
     ap.add_argument("--out", required=True)
     ap.add_argument("--summary-out", default=None,
                     help="default: <out stem>_summary.json")
     args = ap.parse_args()
+    if args.smoke:
+        print("== SMOKE RUN: partial fleet data; outputs are not for scoring ==")
     if bool(args.arm_dir) == bool(args.fleet_dir):
         ap.error("exactly one of --arm-dir / --fleet-dir is required")
     lo, hi = map(float, args.freq_band.split(","))
@@ -297,15 +362,15 @@ def main():
         worlds.append((args.game_id, args.arm_dir))
     else:
         for d in sorted(Path(args.fleet_dir).iterdir()):
-            if (d / "manifest.json").exists():
+            if d.is_dir() and manifest_paths(str(d)):
                 worlds.append((None, str(d)))
         if not worlds:
-            ap.error(f"no <world>/manifest.json under {args.fleet_dir}")
+            ap.error(f"no <world>/manifest.json (or lane shards) under {args.fleet_dir}")
 
     cells = []
     for game_id, arm_dir in worlds:
         if game_id is None:
-            cfg = json.loads((Path(arm_dir) / "manifest.json").read_text()).get("config", {})
+            cfg = json.loads(manifest_paths(arm_dir)[0].read_text()).get("config", {})
             game_id = cfg.get("game_id") or Path(arm_dir).name
         qpath = args.questions_pattern.format(game_id=game_id)
         cells.extend(mine_world(game_id, arm_dir, qpath, horizons, windows,
@@ -318,7 +383,9 @@ def main():
         Path(args.out).stem + "_summary.json"))
     json.dump({"meta": {"worlds": sorted({c["game_id"] for c in cells}),
                         "horizons": sorted(horizons), "windows": args.windows,
-                        "freq_band": [lo, hi], "split": "even-odd by rollout index",
+                        "freq_band": [lo, hi],
+                        "split": "reserve lowest index, then even-odd by rollout index",
+                        "smoke": args.smoke,
                         "n_cells": len(cells)},
                "counts": rows},
               open(summary_out, "w"), indent=1)

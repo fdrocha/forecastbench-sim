@@ -1,6 +1,8 @@
-"""Unit tests for natcond_score_v2.py: KL-bits loss, clipping, CUS, direction."""
+"""Unit tests for natcond_score_v2.py: KL-bits loss, clipping, CUS, direction,
+and the brier-single mode against the reserved resolution continuation."""
 import math
 
+import pytest
 from conftest import load_script
 
 scorer = load_script("scripts/uplift_v2/natcond_score_v2.py")
@@ -125,6 +127,63 @@ def test_bands_split_by_horizon_and_cls_and_missing_counted():
     assert "H2" not in report["bands"]  # its only cell was unscorable
     assert report["bands"]["effect"]["n"] == 1
     assert report["bands"]["placebo"]["n"] == 1
+
+
+def _cells_with_resolution():
+    cells = _cells()
+    outcomes = {("q1", "e1"): 1, ("q1", "e2"): 0, ("q2", "e1"): None}
+    for c in cells:
+        c["resolution_rollout_id"] = "s1"
+        c["resolution_outcome"] = outcomes[(c["qid"], c["event_id"])]
+    return cells
+
+
+def test_brier_single_math_and_unresolved_cells_skipped():
+    cells = _cells_with_resolution()
+    preds = {("q1", None): 0.30, ("q2", None): 0.80,
+             ("q1", "e1"): 0.60, ("q1", "e2"): 0.20, ("q2", "e1"): 0.50}
+    report = scorer.score(cells, _payload(_rows(preds)), bootstrap=0,
+                          loss="brier-single")
+    assert report["loss_mode"] == "brier-single"
+    assert report["clip"] is None
+    assert report["missing"]["no_resolution"] == 1  # q2/e1 unresolved in s1
+    m = report["bands"]["overall"]
+    assert m["n"] == 2
+    want_upd = ((0.60 - 1) ** 2 + (0.20 - 0) ** 2) / 2
+    want_base = ((0.30 - 1) ** 2 + (0.30 - 0) ** 2) / 2
+    assert abs(m["brier_single"]["loss_updated"] - want_upd) < 1e-12
+    assert abs(m["brier_single"]["loss_baseline"] - want_base) < 1e-12
+    assert abs(m["brier_single"]["cus"] - (1 - want_upd / want_base)) < 1e-12
+    # direction stays against the half-B delta (mode-independent)
+    assert m["direction"]["total"] == 1  # only q1/e1 survives the filter
+
+
+def test_brier_single_uses_unclipped_predictions():
+    cells = _cells_with_resolution()[:1]  # q1/e1, outcome 1
+    preds = {("q1", None): 0.50, ("q1", "e1"): 1.0}
+    report = scorer.score(cells, _payload(_rows(preds)), bootstrap=0,
+                          loss="brier-single")
+    # (1.0 - 1)^2 == 0 exactly; a clipped 0.999 would give 1e-6
+    assert report["bands"]["overall"]["brier_single"]["loss_updated"] == 0.0
+
+
+def test_brier_single_requires_migrated_cells():
+    cells = _cells()  # mined without the reserved continuation
+    preds = {("q1", None): 0.30, ("q2", None): 0.80,
+             ("q1", "e1"): 0.60, ("q1", "e2"): 0.20, ("q2", "e1"): 0.50}
+    with pytest.raises(RuntimeError, match="resolution_outcome"):
+        scorer.score(cells, _payload(_rows(preds)), bootstrap=0,
+                     loss="brier-single")
+
+
+def test_kl_mode_ignores_resolution_fields():
+    cells = _cells_with_resolution()
+    preds = {("q1", None): 0.30, ("q2", None): 0.80,
+             ("q1", "e1"): 0.60, ("q1", "e2"): 0.20, ("q2", "e1"): 0.50}
+    report = scorer.score(cells, _payload(_rows(preds)), bootstrap=0)
+    assert report["loss_mode"] == "kl"
+    assert report["bands"]["overall"]["n"] == 3  # unresolved cell still scored
+    assert "no_resolution" not in report["missing"]
 
 
 def test_samples_average_and_bootstrap_deterministic():
