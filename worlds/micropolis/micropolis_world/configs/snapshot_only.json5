@@ -1,21 +1,10 @@
-// Prompt variant: the world report carries the snapshot only, no time series.
+// Default parameters for the scripts in worlds/micropolis/scripts/.
 //
-// Identical to long-prompt.json5 apart from "snapshot_only_report" and the
-// label, so a run under this config differs from that one only in the prompt
-// and the two are directly comparable.
-//
-// Parsed as JSON5, so comments and trailing commas are allowed. See README.md
-// for which script reads which key; unused keys are ignored, so one config can
-// serve them all.
+// Parsed as JSON5, so comments and trailing commas are allowed. Any script run
+// without a config file argument uses this one. See README.md for which script
+// reads which key; unused keys are ignored, so one config can serve them all.
 {
-  "analysis_label" : "snapshot-only",
-
-  // Drop the HISTORY table from the world report, leaving the model the
-  // current state and nothing about how the city got there. CURRENT STATE
-  // already lists every HISTORY metric at the snapshot turn, so this removes
-  // the past turns only. Defaults to false everywhere it isn't set.
-  "snapshot_only_report": true,
-
+  "analysis_label" : "long-prompt",
   // RNG seed for the simulations. Override per-run with --seed.
   "seed": 42,
 
@@ -72,7 +61,7 @@
     // "openai/gpt-4.1-2025-04-14", // NOTE: only up to 4096 completion tokens
     // "openai/gpt-4o-2024-05-13", // NOTE: only up to 4096 completion tokens
     "openai/gpt-4.1-2025-04-14",
-    // "openai/gpt-4o-2024-05-13",
+    "openai/gpt-4o-2024-05-13",
     "openai/gpt-5-2025-08-07",
     "openai/gpt-5.6-luna",
     "openai/gpt-5.6-terra",
@@ -94,7 +83,7 @@
 
     "xai/grok-4.20-0309-non-reasoning",
     "xai/grok-4.20-0309-reasoning",
-//    "xai/grok-4.5",
+    "xai/grok-4.5",
     "xai/grok-4.6",
   ],
   "max_tokens": 30000,
