@@ -175,16 +175,18 @@ def load_answers(arm_dir: str) -> dict[str, dict]:
     return answers
 
 
-def load_rollout_events(arm_dir: str) -> dict[str, list]:
-    """tag -> events list. Accepts <arm>/rollouts/*.json.gz (or plain .json,
-    lane-sharded <arm>/lane*/rollouts/*.json.gz, or flat *.json.gz under the
-    arm dir), and either full game_data dicts (with an "events" key) or bare
-    event lists."""
+def load_rollout_events(arm_dir: str) -> tuple[dict[str, list], set[str]]:
+    """(tag -> events list, civ names). Accepts <arm>/rollouts/*.json.gz (or
+    plain .json, lane-sharded <arm>/lane*/rollouts/*.json.gz, or flat
+    *.json.gz under the arm dir), and either full game_data dicts (with an
+    "events" key) or bare event lists. Civ names come from the game_data
+    civilizations table when present (tech-event prefixes alone undercount:
+    mid-game, only the tech leaders emit tech_discovered events)."""
     fps = (sorted(glob.glob(f"{arm_dir}/rollouts/*.json.gz"))
            or sorted(glob.glob(f"{arm_dir}/rollouts/*.json"))
            or sorted(glob.glob(f"{arm_dir}/lane*/rollouts/*.json.gz"))
            or sorted(glob.glob(f"{arm_dir}/*.json.gz")))
-    rollouts = {}
+    rollouts, civs = {}, set()
     for fp in fps:
         tag = Path(fp).name.split(".")[0]
         try:
@@ -193,12 +195,31 @@ def load_rollout_events(arm_dir: str) -> dict[str, list]:
         except Exception:
             print(f"  !! skipping unreadable rollout {tag}")
             continue
-        rollouts[tag] = gd["events"] if isinstance(gd, dict) else gd
-    return rollouts
+        if isinstance(gd, dict):
+            rollouts[tag] = gd["events"]
+            for civ in gd.get("civilizations", {}).values():
+                if civ.get("name"):
+                    civs.add(civ["name"])
+        else:
+            rollouts[tag] = gd
+    return rollouts, civs
 
 
-def load_questions(questions_path: str, horizons: set[str]) -> dict[str, dict]:
-    """qid -> {question, horizon, resolution_turn, template_id} for kept horizons."""
+def world_questions_path(arm_dir: str, pattern: str, game_id: str) -> str:
+    """An arm's own questions.json wins (the mine_natcond_truth.py workdir
+    layout, where the bank carries derived H2/H3 questions); otherwise the
+    --questions-pattern is used."""
+    own = Path(arm_dir) / "questions.json"
+    return str(own) if own.exists() else pattern.format(game_id=game_id)
+
+
+def load_questions(questions_path: str,
+                   horizons: set[str]) -> tuple[dict[str, dict], set[str]]:
+    """(qid -> {question, horizon, resolution_turn, template_id} for kept
+    horizons, bank civ names). The bank's civilizations table is the set the
+    elicited model knows from the t60 report — vague predicates prefer it so
+    conditioning events stay referable (rollouts also contain per-rollout
+    civil-war spawn nations the report never mentions)."""
     qbank = json.loads(Path(questions_path).read_text())
     out = {}
     for q in qbank["questions"]:
@@ -208,7 +229,9 @@ def load_questions(questions_path: str, horizons: set[str]) -> dict[str, dict]:
                 "resolution_turn": q.get("resolution_turn"),
                 "template_id": q.get("template_id"),
             }
-    return out
+    bank_civs = {c.get("name") for c in qbank.get("civilizations", {}).values()
+                 if c.get("name")}
+    return out, bank_civs
 
 
 def mine_world(game_id: str, arm_dir: str, questions_path: str,
@@ -217,18 +240,18 @@ def mine_world(game_id: str, arm_dir: str, questions_path: str,
     """Mine one world's cells. Event selection + certification on half A only;
     half B rides along as held-out scoring truth."""
     answers = load_answers(arm_dir)
-    qinfo = load_questions(questions_path, horizons)
+    qinfo, bank_civs = load_questions(questions_path, horizons)
     missing_hz = horizons - {qi["horizon"] for qi in qinfo.values()}
     if missing_hz:
         print(f"  !! {game_id}: question bank has no {sorted(missing_hz)} questions")
 
-    rollouts = load_rollout_events(arm_dir)
-    civs = set()
-    for evs in rollouts.values():
+    rollouts, civs = load_rollout_events(arm_dir)
+    for evs in rollouts.values():  # fallback/extension via tech-event prefixes
         for e in evs:
             if e["type"] == "tech_discovered" and " discovered " in e["description"]:
                 civs.add(e["description"].split(" discovered ")[0])
-    civs = sorted(c for c in civs if c not in ("Pirate",))
+    drop = ("Pirate", "Barbarian")
+    civs = sorted(c for c in (bank_civs or civs) if c not in drop)
 
     # reserve the resolution continuation, then split the remaining rollouts
     res_tag = reserved_tag(rollouts)
@@ -336,7 +359,9 @@ def main():
     ap.add_argument("--fleet-dir", default=None,
                     help="parent dir; every subdir with a manifest.json is a world")
     ap.add_argument("--questions-pattern",
-                    default="data/questions_mc/{game_id}/questions.json")
+                    default="data/questions_mc/{game_id}/questions.json",
+                    help="fallback bank path; an arm's own questions.json "
+                         "(mine_natcond_truth.py workdir) takes precedence")
     ap.add_argument("--horizons", default=DEFAULT_HORIZONS)
     ap.add_argument("--windows", default="60-75,75-90")
     ap.add_argument("--freq-band", default="0.15,0.65")
@@ -372,7 +397,7 @@ def main():
         if game_id is None:
             cfg = json.loads(manifest_paths(arm_dir)[0].read_text()).get("config", {})
             game_id = cfg.get("game_id") or Path(arm_dir).name
-        qpath = args.questions_pattern.format(game_id=game_id)
+        qpath = world_questions_path(arm_dir, args.questions_pattern, game_id)
         cells.extend(mine_world(game_id, arm_dir, qpath, horizons, windows,
                                 lo, hi, args.max_specific, args.max_vague))
 

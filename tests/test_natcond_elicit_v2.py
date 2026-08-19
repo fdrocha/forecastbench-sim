@@ -52,6 +52,22 @@ def test_single_turn_prompt_contains_same_final_info():
     assert prompt.index("REPORT BODY") < prompt.index("The game has continued.")
 
 
+def test_resolution_criteria_render_per_horizon_turn():
+    # derived-qid cells carry their own resolution_turn; the rc string and
+    # single-turn prompt must state that turn, not t90
+    for rt, hz in ((90, "H1"), (120, "H2"), (150, "H3")):
+        cell = dict(CELL, qid=f"q0007_h{hz[1]}" if hz != "H1" else "q0007",
+                    horizon=hz, resolution_turn=rt,
+                    question=f"Will Benin lead at turn {rt}?")
+        base = elicit.build_base_prompt("R", cell["question"], rt)
+        single = elicit.build_single_turn_prompt("R", cell, rt)
+        want = (f"Resolves YES if the answer to the question is affirmative "
+                f"in the simulation state at turn {rt}")
+        assert want in base and want in single
+        assert f"at turn {90 if rt != 90 else 150}" not in base.split(
+            "Question Title:")[0]  # no stray other-horizon turn in the header
+
+
 def test_parse_prob():
     assert elicit.parse_prob("blah <probability>0.42</probability>") == 0.42
     assert elicit.parse_prob("<probability> 0.07 </probability>") == 0.07

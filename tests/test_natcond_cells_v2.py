@@ -59,7 +59,12 @@ def _write_fixture(tmp_path):
              "description": "Benin discovered Alphabet"},
         ]
         with gzip.open(arm / "rollouts" / f"{tag}.json.gz", "wt") as f:
-            json.dump({"metadata": {"turn": 150}, "events": events}, f)
+            json.dump({"metadata": {"turn": 150},
+                       "civilizations": {"0": {"name": "Benin"},
+                                         "1": {"name": "Jolof"},
+                                         "5": {"name": "Pirate"},
+                                         "6": {"name": "Barbarian"}},
+                       "events": events}, f)
 
     def rec(tag, answer):
         return {"tag": tag, "answer": answer}
@@ -177,6 +182,14 @@ def test_mine_world_split_half_certification(tmp_path):
         ("tech_within", "H2", "placebo", 1),
         ("tech_comparative", "H3", "effect", 1),
     }
+
+
+def test_civs_from_game_data_table_not_just_tech_events(tmp_path):
+    arm, _, _ = _write_fixture(tmp_path)
+    rollouts, civs = cells_v2.load_rollout_events(str(arm))
+    assert len(rollouts) == 40
+    # Jolof never techs in the events, but is in the civilizations table
+    assert civs == {"Benin", "Jolof", "Pirate", "Barbarian"}
 
 
 def test_lane_sharded_arm_matches_single_arm(tmp_path):
