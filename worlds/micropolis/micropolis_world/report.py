@@ -99,7 +99,12 @@ def _events_section(events_data: list[dict], cutoff_tick: int) -> list[str]:
     return lines
 
 
-def gen_world_report(sim: CitySimulation, turn: int, history_freq: int) -> str:
+def gen_world_report(
+    sim: CitySimulation,
+    turn: int,
+    history_freq: int,
+    snapshot_only: bool = False,
+) -> str:
     """Build the model-facing situation report for `sim` as of `turn`.
 
     Args:
@@ -107,6 +112,13 @@ def gen_world_report(sim: CitySimulation, turn: int, history_freq: int) -> str:
         turn: Index into sim.log_data for the snapshot. Everything after it
             (later log rows, later events) is excluded to avoid leakage.
         history_freq: Sample the metric history every this many turns.
+        snapshot_only: Omit the HISTORY table, leaving the model the current
+            state and nothing about how the city got there. CURRENT STATE
+            already carries every HISTORY metric at `turn` — both sections
+            iterate g.METRICS — so this drops the past turns only, which is
+            the point: it isolates what the time series is worth to a
+            forecaster. history_freq is then unused but still validated, so a
+            config that sets it nonsensically fails the same either way.
 
     As a side effect it saves the world report to disk and prints out the path to it.
     """
@@ -126,12 +138,16 @@ def gen_world_report(sim: CitySimulation, turn: int, history_freq: int) -> str:
             f"Disasters: {'enabled' if sim.disasters else 'disabled'}",
         ],
         _snapshot_section(row),
-        _history_section(sim.log_data, turn, history_freq),
-        _events_section(sim.events_data, row["tick"]),
     ]
+    if not snapshot_only:
+        sections.append(_history_section(sim.log_data, turn, history_freq))
+    sections.append(_events_section(sim.events_data, row["tick"]))
     report_text = "\n\n".join("\n".join(section) for section in sections)
 
-    report_path = sim.get_data_file_path(f"worldreportT{turn}", ext="txt")
+    # Suffixed so the two variants' reports sit side by side rather than the
+    # shorter one overwriting the full-history one for the same scenario/turn.
+    variant = "-snapshotonly" if snapshot_only else ""
+    report_path = sim.get_data_file_path(f"worldreportT{turn}{variant}", ext="txt")
     report_path.parent.mkdir(parents=True, exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(report_text)

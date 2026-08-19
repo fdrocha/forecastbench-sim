@@ -83,6 +83,17 @@ class Config:
             )
         return value
 
+    def get_bool_or(self, key: str, default: bool) -> bool:
+        """The boolean at `key`, or `default` if the config doesn't set it.
+
+        For flags added after configs were already in use: an absent key means
+        the old behavior rather than an error, so existing config files keep
+        working without having to name every new toggle.
+        """
+        if key not in self.data:
+            return default
+        return self.get_bool(key)
+
     def get_str(self, key: str) -> str:
         value = self._require(key)
         if not isinstance(value, str):

@@ -18,14 +18,29 @@ PERCENTILE_KEYS = ["p10", "p25", "p50", "p75", "p90"]
 # single city in each scenario is always entity 0.
 CITY_ENTITY_ID = 0
 
+# What the report gives the model to reason from. The snapshot-only variant has
+# no HISTORY table (see report.gen_world_report), so naming "trends" there would
+# point at something absent.
+_WITH_HISTORY_SOURCES = "the trends, events, and current state"
+_SNAPSHOT_ONLY_SOURCES = "the events and current state"
+
 PROMPT_PREAMBLE = """You are an expert superforecaster, familiar with the work of Tetlock and others. Your task is to forecast the evolution of a city in Micropolis, the open-source release of the original SimCity Classic simulation engine.
 
 The city below is running with no mayor: nothing is built, demolished, or rezoned, no tax or funding rates are changed, and no disasters are triggered manually — the simulation engine simply advances on its own from the state described. Disasters can be enabled or disabled and this will be stated in the game report.
-Base your forecasts primarily on the trends, events, and current state given in the game report, using your knowledge of the game's mechanics only to interpret and extrapolate what the report shows. Give calibrated
+Base your forecasts primarily on {sources} given in the game report, using your knowledge of the game's mechanics only to interpret and extrapolate what the report shows. Give calibrated
 percentiles that honestly reflect your uncertainty, remembering that an unmanaged city may continue on its current trajectory, plateau, or decline.
 Remember that if disasters are enabled, their random occurrence can shift the trajectory abruptly.
 
 """
+
+
+def prompt_preamble(snapshot_only_report: bool = False) -> str:
+    """The preamble, naming only the report sections the variant actually has."""
+    return PROMPT_PREAMBLE.format(
+        sources=(
+            _SNAPSHOT_ONLY_SOURCES if snapshot_only_report else _WITH_HISTORY_SOURCES
+        )
+    )
 
 
 def get_single_city_base_scenarios(
@@ -43,6 +58,7 @@ def build_corpus(
     snapshot_turns: list[int],
     horizons: list[int],
     history_freq: int,
+    snapshot_only_report: bool = False,
 ) -> list[dict]:
     resolver = QuestionResolver(REGISTRY)
     corpus = []
@@ -58,7 +74,10 @@ def build_corpus(
         scenario_id = sim.get_id_str()
         for SNAPSHOT_TURN in snapshot_turns:
             report_text = gen_world_report(
-                sim, turn=SNAPSHOT_TURN, history_freq=history_freq
+                sim,
+                turn=SNAPSHOT_TURN,
+                history_freq=history_freq,
+                snapshot_only=snapshot_only_report,
             )
             for H in horizons:
                 T = SNAPSHOT_TURN + H
@@ -109,7 +128,9 @@ def build_corpus(
     return corpus
 
 
-def build_batch_prompt_continuous(context: str, questions: list[dict]) -> str:
+def build_batch_prompt_continuous(
+    context: str, questions: list[dict], snapshot_only_report: bool = False
+) -> str:
     """Ask for one p10/p25/p50/p75/p90 quantile forecast per question.
 
     Every question in `questions` shares the game report in `context`, so the
@@ -118,6 +139,10 @@ def build_batch_prompt_continuous(context: str, questions: list[dict]) -> str:
     block match FreeCiv's build_continuous_batch_prompt, so responses from the
     two worlds are parsed the same way and scored on the same CRPS.
     parse_batch_percentiles reads the answers back.
+
+    `snapshot_only_report` says whether `context` was built without its HISTORY
+    table, which only changes which report sections the preamble points the
+    model at (see prompt_preamble).
     """
     n = len(questions)
     if n == 1:
@@ -144,7 +169,7 @@ def build_batch_prompt_continuous(context: str, questions: list[dict]) -> str:
             f"Provide one such line for each of the {n} questions, in order, "
             "replacing the example values with your actual percentile estimates."
         )
-    return f"""{PROMPT_PREAMBLE}
+    return f"""{prompt_preamble(snapshot_only_report)}
 
 ## Game report
 {context}

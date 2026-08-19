@@ -74,21 +74,24 @@ def gather_responses(
     corpus: list[dict],
     model_names: list[str],
     max_tokens: int,
+    snapshot_only_report: bool = False,
 ) -> Responses:
     """Prompt each model on each batch of questions, reusing cached responses.
 
     Cache files are named with the prompt's hash (see single_city.prompt_hash),
     so a response is only ever reused when it was gathered under the exact
-    prompt being asked now — a config change to horizons, templates or
-    history_freq changes the hash, which simply misses the cache rather than
-    risking a stale match. An empty reply — a reasoning model can burn the
-    whole token budget thinking — is not cached, so the next run retries it; a
-    non-empty reply is cached even when unparseable, since retrying greedy
-    decoding would return the same text.
+    prompt being asked now — a config change to horizons, templates,
+    history_freq or snapshot_only_report changes the hash, which simply misses
+    the cache rather than risking a stale match. An empty reply — a reasoning
+    model can burn the whole token budget thinking — is not cached, so the next
+    run retries it; a non-empty reply is cached even when unparseable, since
+    retrying greedy decoding would return the same text.
     """
     batches = group_into_batches(corpus)
     prompts = {
-        bid: build_batch_prompt_continuous(questions[0]["context"], questions)
+        bid: build_batch_prompt_continuous(
+            questions[0]["context"], questions, snapshot_only_report
+        )
         for bid, questions in batches.items()
     }
     phashes = {bid: prompt_hash(prompt) for bid, prompt in prompts.items()}
@@ -158,12 +161,18 @@ def main() -> None:
     label = cfg.get_analysis_label()
     models = args.models if args.models else cfg.get_str_list("models")
     out_path = data_path(label)
+    # Read once and passed to both build_corpus and gather_responses, so the
+    # report the corpus carries and the preamble the prompt names it with can
+    # never disagree about which variant this run is.
+    snapshot_only = cfg.get_bool_or("snapshot_only_report", False)
 
     print("=" * 70)
     print("MICROPOLIS WORLD — single city eval")
     print("=" * 70)
     print(f"config: {cfg.path}")
     print(f"label:  {label}")
+    if snapshot_only:
+        print("report: snapshot only (no HISTORY table)")
 
     scenarios = get_single_city_base_scenarios(
         seed=seed, cities=cfg.get_cities(), disasters=cfg.get_bool_list("disasters")
@@ -174,6 +183,7 @@ def main() -> None:
         cfg.get_int_list("snapshot_turns"),
         cfg.get_int_list("horizons"),
         cfg.get_int("history_freq"),
+        snapshot_only,
     )
 
     if args.dry_run:
@@ -182,7 +192,9 @@ def main() -> None:
 
     print("\nGathering model responses...")
     g.ensure_api_keys()
-    responses = gather_responses(corpus, models, cfg.get_int("max_tokens"))
+    responses = gather_responses(
+        corpus, models, cfg.get_int("max_tokens"), snapshot_only
+    )
     print("Done gathering")
 
     save_dataset(corpus, responses, models, out_path)

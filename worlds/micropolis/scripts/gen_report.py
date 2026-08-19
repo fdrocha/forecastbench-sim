@@ -32,6 +32,7 @@ def main() -> None:
     seed = cfg.get_seed(args.seed)
     report_turn = cfg.get_int("report_turn")
     history_freq = cfg.get_int("history_freq")
+    snapshot_only = cfg.get_bool_or("snapshot_only_report", False)
     scenarios = scenarios_from(cfg)
 
     for city, disasters in scenarios:
@@ -53,7 +54,14 @@ def main() -> None:
         print("=" * 70)
         print(f"{sim.get_id_str()} — turn {turn}")
         print("=" * 70)
-        print(gen_world_report(sim, turn=turn, history_freq=history_freq))
+        print(
+            gen_world_report(
+                sim,
+                turn=turn,
+                history_freq=history_freq,
+                snapshot_only=snapshot_only,
+            )
+        )
         print()
 
 

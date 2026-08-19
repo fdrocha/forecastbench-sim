@@ -38,6 +38,7 @@ def main() -> None:
         cfg.get_int_list("snapshot_turns"),
         cfg.get_int_list("horizons"),
         cfg.get_int("history_freq"),
+        cfg.get_bool_or("snapshot_only_report", False),
     )
 
     out = g.DATA_DIR / f"corpus-seed{seed}.json"

@@ -1,12 +1,23 @@
-// Default parameters for the scripts in worlds/micropolis/scripts/.
+// Prompt variant: the world report carries the snapshot only, no time series.
 //
-// Parsed as JSON5, so comments and trailing commas are allowed. Any script run
-// without a config file argument uses this one. See README.md for which script
-// reads which key; unused keys are ignored, so one config can serve them all.
+// Identical to long-prompt.json5 apart from "snapshot_only_report" and the
+// label, so a run under this config differs from that one only in the prompt
+// and the two are directly comparable.
+//
+// Parsed as JSON5, so comments and trailing commas are allowed. See README.md
+// for which script reads which key; unused keys are ignored, so one config can
+// serve them all.
 {
+  "analysis_label" : "snapshot-only",
+
+  // Drop the HISTORY table from the world report, leaving the model the
+  // current state and nothing about how the city got there. CURRENT STATE
+  // already lists every HISTORY metric at the snapshot turn, so this removes
+  // the past turns only. Defaults to false everywhere it isn't set.
+  "snapshot_only_report": true,
+
   // RNG seed for the simulations. Override per-run with --seed.
   "seed": 42,
-  "analysis_label" : "default",
 
   // Cities to run. Names come from module_globals.CITY_CHOICES.
   "cities": [
@@ -53,11 +64,6 @@
   // last logged turn), and how often the report includes historical data.
   "report_turn": -1,
   "history_freq": 4,
-
-  // Drop the HISTORY table from the world report, leaving only the snapshot
-  // values (which CURRENT STATE already lists) — a prompt variant for asking
-  // what the time series is worth. See configs/snapshot_only.json5.
-  "snapshot_only_report": false,
 
   // Models to prompt, in provider/name form, and the response token cap.
   // See README.md for the ForecastBench, frontier and pandemic model sets.
