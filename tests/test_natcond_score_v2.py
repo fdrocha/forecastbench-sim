@@ -27,8 +27,8 @@ def test_kl_bits_handles_degenerate_truth():
 
 
 def test_kl_penalizes_tail_odds_as_promised_in_prompt():
-    # "saying 1% when the truth is 10% is penalized far more than saying
-    #  30% when the truth is 39%"
+    # "saying 1% when the truth is 10% costs far more than saying 30% when
+    #  the truth is 39%"
     assert scorer.kl_bits(0.10, 0.01) > 5 * scorer.kl_bits(0.39, 0.30)
 
 

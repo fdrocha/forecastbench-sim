@@ -9,14 +9,18 @@ CELL = {"qid": "q0007", "event_id": "sp_1", "event_kind": "specific",
         "horizon": "H2", "resolution_turn": 120}
 
 
-def test_turn1_prompt_uses_closeness_scoring_not_brier():
+def test_turn1_prompt_uses_log_loss_scoring_not_brier():
     prompt = elicit.build_base_prompt("REPORT BODY", CELL["question"], 120)
     assert "Estimate the probability of YES as accurately as you can." in prompt
-    assert "We have re-run this world many times" in prompt
-    assert "closer is strictly better, from either side" in prompt
-    assert ("saying 1% when the truth is 10% is penalized far more than "
-            "saying 30% when the truth is 39%") in prompt
-    assert "Do not round to 0 or 1." in prompt
+    assert ("We have re-run this world many times, so the true probability "
+            "of this event is known.") in prompt
+    assert ("Your answer is scored by log loss against that true probability: "
+            "a perfect forecaster (one that reports the true probability) "
+            "sets the floor, and your penalty is your excess log loss above "
+            "it.") in prompt
+    assert ("Getting the odds right matters — saying 1% when the truth is "
+            "10% costs far more than saying 30% when the truth is 39%.") in prompt
+    assert "Do not report 0 or 1." in prompt
     assert "brier" not in prompt.lower()
     assert "MAXIMIZE" not in prompt
     # skeleton and per-cell resolution turn survive
@@ -33,8 +37,8 @@ def test_reveal_turn_wording():
         "to you: Benin discovered Feudalism. Given this news and everything "
         "you already knew, provide an updated forecast for the SAME question: "
         "Will Benin control the most cities at turn 120? The same scoring "
-        "applies: get as close as you can to the true probability given this "
-        "information. End with your updated probability in "
+        "applies: your excess log loss against the true probability given "
+        "this information. End with your updated probability in "
         "<probability> </probability> tags.")
     assert "suppose" not in msg.lower()  # v1 hypothetical wording is gone
 
@@ -45,7 +49,7 @@ def test_single_turn_prompt_contains_same_final_info():
             "revealed to you: Benin discovered Feudalism.") in prompt
     assert "Question Title: " + CELL["question"] in prompt
     assert "REPORT BODY" in prompt
-    assert "closer is strictly better, from either side" in prompt
+    assert "your penalty is your excess log loss above it" in prompt
     assert "at turn 120" in prompt
     assert "suppose" not in prompt.lower()
     # the reveal is additional background, after the report

@@ -2,9 +2,11 @@
 """Multi-turn natural-conditional elicitation, v2 (REVEAL wording).
 
 Differences from natcond_elicit.py (v1):
-  * Turn 1 uses closeness scoring language (we score distance to the true
-    probability over re-runs of the world), replacing the Brier paragraph of
-    the OpenForecaster prompt. The rest of the prompt skeleton is unchanged.
+  * Turn 1 uses excess-log-loss scoring language (the true probability over
+    re-runs of the world is known; the perfect forecaster sets the floor and
+    the penalty is the excess log loss above it), replacing the Brier
+    paragraph of the OpenForecaster prompt. The rest of the prompt skeleton
+    is unchanged.
   * Turn 2 REVEALS a fact about the continued game ("The game has continued.
     One fact about turns a-b has been revealed to you: ...") instead of the
     v1 "suppose that" hypothetical, and restates the question.
@@ -38,8 +40,9 @@ from collections import defaultdict
 from pathlib import Path
 
 # OpenForecaster binary prompt skeleton (build_of_dataset.OF_BINARY_PROMPT)
-# with the Brier scoring paragraph replaced by closeness scoring: the truth is
-# a probability (many re-runs of the world), so distance is what counts.
+# with the Brier scoring paragraph replaced by excess-log-loss scoring: the
+# truth is a probability (many re-runs of the world), and the penalty is the
+# excess log loss above the perfect forecaster's floor.
 OF_BINARY_PROMPT_V2 = """You will be asked a binary forecasting question. You have to come up with the best estimate for whether the event asked in the question happens or happened. Please provide your reasoning before stating how likely is the event asked in the question to happen (your confidence of it resolving YES).
 
 Question Title: {question_title}
@@ -48,7 +51,7 @@ Resolution Criteria: {resolution_criteria}
 
 Think step by step about the information provided, reason about uncertainty and put your final confidence for the event asked in the question to resolve YES in <probability> </probability> tags. The probability should be a number between 0 and 1.
 
-Estimate the probability of YES as accurately as you can. We have re-run this world many times, so we know the true probability of this event. You will be scored on how close your probability is to the true probability — closer is strictly better, from either side. Getting the odds right matters: saying 1% when the truth is 10% is penalized far more than saying 30% when the truth is 39%. Do not round to 0 or 1.
+Estimate the probability of YES as accurately as you can. We have re-run this world many times, so the true probability of this event is known. Your answer is scored by log loss against that true probability: a perfect forecaster (one that reports the true probability) sets the floor, and your penalty is your excess log loss above it. Getting the odds right matters — saying 1% when the truth is 10% costs far more than saying 30% when the truth is 39%. Do not report 0 or 1.
 
 Your final answer should be the probability that the event asked will resolve to YES and your response SHOULD STRICTLY END with <probability> </probability> tags."""
 
@@ -57,7 +60,7 @@ REVEAL_TEMPLATE = (
     "The game has continued. One fact about turns {a}-{b} has been revealed "
     "to you: {event}. Given this news and everything you already knew, "
     "provide an updated forecast for the SAME question: {question} "
-    "The same scoring applies: get as close as you can to the true "
+    "The same scoring applies: your excess log loss against the true "
     "probability given this information. End with your updated probability "
     "in <probability> </probability> tags.")
 
