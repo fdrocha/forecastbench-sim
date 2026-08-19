@@ -117,3 +117,21 @@ def test_elicit_chat_sends_no_temperature_anthropic(monkeypatch):
     assert "temperature" not in body
     assert body["max_tokens"] == 16000
     assert "anthropic.com" in captured["url"]
+
+
+# The Sections 1-2 live eval paths must not pass an explicit temperature —
+# provider-default sampling is the benchmark protocol. (Legacy one-off run_*
+# scripts are historical records and are exempt.)
+LIVE_EVAL_PATHS = (
+    "worlds/freeciv/freeciv_world/evaluation/parallel_evaluator.py",
+    "worlds/freeciv/scripts/evaluate_llm_forecasts_parallel.py",
+    "worlds/pandemic/pandemic_world/scale_eval.py",
+    "scripts/uplift_v2/natcond_elicit_v2.py",
+)
+
+
+def test_live_eval_paths_pass_no_temperature_kwarg():
+    from conftest import ROOT
+    for rel in LIVE_EVAL_PATHS:
+        src = (ROOT / rel).read_text()
+        assert "temperature=" not in src and '"temperature"' not in src, rel
