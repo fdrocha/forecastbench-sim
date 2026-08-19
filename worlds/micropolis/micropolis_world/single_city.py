@@ -189,28 +189,49 @@ def scenario_history(scenario_id: str, seed: int) -> list[dict] | None:
     return sim.log_data
 
 
-def git_commit_note() -> str:
+def git_commit_note(repo: Path | None = None, count_untracked: bool = True) -> str:
     """The short commit hash HEAD is at, flagged '(dirty)' if the tree differs.
 
     Recorded at the top of every analysis report: the tables and figures are
     computed from code, and a report generated mid-edit should say so rather
     than imply it came from a clean, identifiable commit.
+
+    `repo` is the working directory to ask about, defaulting to this process's.
+    `count_untracked` treats untracked files as making the tree dirty, which is
+    right for this repo — a new, not-yet-added source file can change the
+    numbers — and wrong for the engine checkout, where build and run artifacts
+    sit untracked permanently and would pin the flag on forever.
     """
+    status = ["git", "status", "--porcelain"]
+    if not count_untracked:
+        status.append("--untracked-files=no")
     try:
         commit = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             capture_output=True,
             text=True,
             check=True,
+            cwd=repo,
         ).stdout.strip()
         dirty = bool(
             subprocess.run(
-                ["git", "status", "--porcelain"], capture_output=True, text=True
+                status, capture_output=True, text=True, cwd=repo
             ).stdout.strip()
         )
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (subprocess.CalledProcessError, FileNotFoundError, NotADirectoryError):
         return "unknown (not a git checkout, or git is unavailable)"
     return f"{commit} (dirty)" if dirty else commit
+
+
+def engine_commit_note() -> str:
+    """git_commit_note for the MicropolisCore checkout the sims are run with.
+
+    The engine decides the trajectories every question resolves against, so it
+    is as much a part of a result's provenance as this repo is. Untracked files
+    are ignored: the checkout carries build output and sim-runs directories that
+    are not part of the engine's source.
+    """
+    return git_commit_note(g.MICROPOLIS_APP_PATH, count_untracked=False)
 
 
 class MdReport:
@@ -263,9 +284,18 @@ class MdReport:
         )
 
     def write(self, path: Path, title: str) -> Path:
-        """Write the accumulated report to `path`, with a title and commit note."""
+        """Write the accumulated report to `path`, with a title and commit notes.
+
+        Both repos are named: this one produced the tables, and the engine
+        checkout produced the trajectories they score against, so neither alone
+        identifies what a report came from.
+        """
         path.parent.mkdir(parents=True, exist_ok=True)
-        header = f"# {title}\n\ngenerated at commit {git_commit_note()}"
+        header = (
+            f"# {title}\n\n"
+            f"generated at forecastbench-sim commit {git_commit_note()}\n"
+            f"Micropolis engine commit {engine_commit_note()}"
+        )
         path.write_text(header + "\n\n" + self.render(path.parent))
         return path
 
