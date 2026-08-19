@@ -11,16 +11,16 @@ CELL = {"qid": "q0007", "event_id": "sp_1", "event_kind": "specific",
 
 def test_turn1_prompt_uses_log_loss_scoring_not_brier():
     prompt = elicit.build_base_prompt("REPORT BODY", CELL["question"], 120)
-    assert "Estimate the probability of YES as accurately as you can." in prompt
-    assert ("We have re-run this world many times, so the true probability "
-            "of this event is known.") in prompt
-    assert ("Your answer is scored by log loss against that true probability: "
-            "a perfect forecaster (one that reports the true probability) "
-            "sets the floor, and your penalty is your excess log loss above "
-            "it.") in prompt
-    assert ("Getting the odds right matters — saying 1% when the truth is "
-            "10% costs far more than saying 30% when the truth is 39%.") in prompt
-    assert "Do not report 0 or 1." in prompt
+    assert ("Estimate the probability of YES as accurately as you can. "
+            "We have re-run this world many times, so the true probability "
+            "of this event is known. Your answer is scored by log loss "
+            "against that true probability. Getting the odds right matters: "
+            "errors at extreme odds are penalized more heavily. "
+            "Do not report 0 or 1.") in prompt
+    # v3 removed the perfect-forecaster floor clause and the concrete
+    # 1%/10% example (anchoring)
+    assert "floor" not in prompt.lower()
+    assert "10%" not in prompt and "39%" not in prompt
     assert "brier" not in prompt.lower()
     assert "MAXIMIZE" not in prompt
     # skeleton and per-cell resolution turn survive
@@ -37,7 +37,7 @@ def test_reveal_turn_wording():
         "to you: Benin discovered Feudalism. Given this news and everything "
         "you already knew, provide an updated forecast for the SAME question: "
         "Will Benin control the most cities at turn 120? The same scoring "
-        "applies: your excess log loss against the true probability given "
+        "applies: log loss against the true probability given "
         "this information. End with your updated probability in "
         "<probability> </probability> tags.")
     assert "suppose" not in msg.lower()  # v1 hypothetical wording is gone
@@ -49,7 +49,7 @@ def test_single_turn_prompt_contains_same_final_info():
             "revealed to you: Benin discovered Feudalism.") in prompt
     assert "Question Title: " + CELL["question"] in prompt
     assert "REPORT BODY" in prompt
-    assert "your penalty is your excess log loss above it" in prompt
+    assert "scored by log loss against that true probability" in prompt
     assert "at turn 120" in prompt
     assert "suppose" not in prompt.lower()
     # the reveal is additional background, after the report
