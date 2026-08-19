@@ -1,5 +1,5 @@
 {
- "frozen": "2026-08-19T07:20Z",
+ "frozen": "2026-08-19T08:05Z (tail v1.1)",
  "sources": {
   "worlds": "306 full-length (seeds 1000-1305), tmp/mined/worlds",
   "rollouts": "8 anchor worlds x 1000 (seed0/345/355: one failed tag substituted by valid s6001, documented)",
@@ -17,15 +17,19 @@
   }
  },
  "tail": {
-  "classes_measured": 577,
-  "selected_band_0.005_0.05_minA20": 13,
-  "question_instances": 5364,
-  "split_seed": 11
+  "world_set": "300 (6 early-victory excluded, quarantined)",
+  "classes_measured": 539,
+  "selected_band_0.005_0.05_minA20": 10,
+  "question_instances": 3684,
+  "independent_game_draws": "~830",
+  "split_seed": 11,
+  "supersedes": "306-world pass"
  },
  "file_sha256_16": {
   "natcond_curated.json": "1354237afc48ba55",
-  "lowprob_questions.json": "ada5271dcd5d2d2c",
-  "lowprob_selected_classes.json": "04be38ba96200aa9",
-  "truth_report.json": "ce18b9fc0e882478"
+  "lowprob_questions.json": "afab0d6dfb4757c8",
+  "lowprob_selected_classes.json": "444a2c96627c95b9",
+  "truth_report.json": "ce18b9fc0e882478",
+  "FREEZE_MANIFEST.json": "9b3ee8f209025cf3"
  }
 }
