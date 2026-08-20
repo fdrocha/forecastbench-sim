@@ -4,7 +4,8 @@
 // without a config file argument uses this one. See README.md for which script
 // reads which key; unused keys are ignored, so one config can serve them all.
 {
-  "analysis_label" : "long-prompt",
+  "analysis_label" : "snapshot-only-prompt",
+  "snapshot_only_report" : true,
   // RNG seed for the simulations. Override per-run with --seed.
   "seed": 42,
 
@@ -60,31 +61,33 @@
     // "openai/gpt-3.5-turbo-16k", //  NOTE: only up to 4096 completion tokens
     // "openai/gpt-4.1-2025-04-14", // NOTE: only up to 4096 completion tokens
     // "openai/gpt-4o-2024-05-13", // NOTE: only up to 4096 completion tokens
+    //"openai/gpt-4o-2024-05-13",
+
+
     "openai/gpt-4.1-2025-04-14",
-    "openai/gpt-4o-2024-05-13",
     "openai/gpt-5-2025-08-07",
-    "openai/gpt-5.6-luna",
-    "openai/gpt-5.6-terra",
+    //"openai/gpt-5.6-luna",
+    //"openai/gpt-5.6-terra",
     "openai/gpt-5.6-sol",
 
     "google/gemini-2.5-flash",
-    "google/gemini-2.5-pro",
-    "google/gemini-3.1-pro-preview",
+    //"google/gemini-2.5-pro",
+    //"google/gemini-3.1-pro-preview",
     "google/gemini-3.7-flash",
 
 
-    "mistral/mistral-small-2603",
-    "mistral/mistral-medium-2604",
-    "mistral/mistral-large-2512",
+    "//mistral/mistral-small-2603",
+    //"mistral/mistral-medium-2604",
+    //"mistral/mistral-large-2512",
 
-    "anthropic/claude-haiku-4-5-20251001",
+    //"anthropic/claude-haiku-4-5-20251001",
     "anthropic/claude-sonnet-4-5-20250929",
     "anthropic/claude-opus-4-5-20251101",
 
-    "xai/grok-4.20-0309-non-reasoning",
-    "xai/grok-4.20-0309-reasoning",
-    "xai/grok-4.5",
-    "xai/grok-4.6",
+    //"xai/grok-4.20-0309-non-reasoning",
+    //"xai/grok-4.20-0309-reasoning",
+    //"xai/grok-4.5",
+    //"xai/grok-4.6",
   ],
   "max_tokens": 30000,
 }

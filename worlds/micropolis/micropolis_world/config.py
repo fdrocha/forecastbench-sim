@@ -187,12 +187,6 @@ def add_config_args(ap: argparse.ArgumentParser, default: Path | None = None) ->
         default=default,
         help=f"JSON5 config file (default: {default or DEFAULT_CONFIG_PATH})",
     )
-    ap.add_argument(
-        "--seed",
-        type=int,
-        default=None,
-        help="Override the 'seed' parameter from the config file",
-    )
 
 
 def load_config(args: argparse.Namespace) -> Config:

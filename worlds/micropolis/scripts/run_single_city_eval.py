@@ -157,7 +157,7 @@ def main() -> None:
     args = ap.parse_args()
 
     cfg = load_config(args)
-    seed = cfg.get_seed(args.seed)
+    seed = cfg.get_seed()
     label = cfg.get_analysis_label()
     models = args.models if args.models else cfg.get_str_list("models")
     out_path = data_path(label)
