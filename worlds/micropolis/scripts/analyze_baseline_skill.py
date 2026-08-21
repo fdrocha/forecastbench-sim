@@ -127,6 +127,7 @@ def plot_suffix(kind: str) -> str:
     """
     return "-sigma" if kind == "sigma" else ""
 
+
 # A skill score of exactly 1 is the baseline's own score, so it is the reference
 # every axis and table is read against.
 BASELINE_SKILL = 1.0
@@ -534,7 +535,9 @@ def print_skill_by_horizon(
         model_names, key=lambda m: (overall.get((m,)) is None, overall.get((m,)) or 0.0)
     )
 
-    report.heading("Skill vs baseline by model and horizon (below 1 beats the baseline)")
+    report.heading(
+        "Skill vs baseline by model and horizon (below 1 beats the baseline)"
+    )
     report.text(
         f"{split_note(split)}\n\n{baseline_note(kind)}\n\n"
         "horizons are turns past the snapshot; "
@@ -1065,7 +1068,9 @@ def plot_horizon_figures(
     ylim = (min(limits + [BASELINE_SKILL]) / 1.3, max(limits + [BASELINE_SKILL]) * 1.3)
 
     return [
-        plot_skill_by_horizon(report, selected, model_names, kind, split, outdir, subset, ylim)
+        plot_skill_by_horizon(
+            report, selected, model_names, kind, split, outdir, subset, ylim
+        )
         for subset, selected in grouped.items()
     ]
 
@@ -1097,7 +1102,9 @@ def run_split(
         return []
     figures = [
         plot_eci_vs_skill(report, selected, model_names, kind, split, outdir),
-        plot_eci_correlation_by_horizon(report, selected, model_names, kind, split, outdir),
+        plot_eci_correlation_by_horizon(
+            report, selected, model_names, kind, split, outdir
+        ),
         plot_predictors_correlation_by_horizon(
             report, selected, model_names, kind, split, outdir
         ),
@@ -1131,7 +1138,7 @@ def main() -> None:
     args = ap.parse_args()
 
     cfg = load_config(args)
-    seed = cfg.get_seed(args.seed)
+    seed = cfg.get_seed()
     label = cfg.get_analysis_label()
     data_file = data_path(label)
     outdir = out_dir(label)
@@ -1186,7 +1193,9 @@ def main() -> None:
 
     written = []
     for split in SPLITS:
-        written += run_split(report, rows, models, args.baseline, split, args.plot, outdir)
+        written += run_split(
+            report, rows, models, args.baseline, split, args.plot, outdir
+        )
 
     if written:
         print()
@@ -1195,7 +1204,8 @@ def main() -> None:
 
     md_name = f"analysis-skill{plot_suffix(args.baseline)}.md"
     out_path = report.write(
-        label_dir(label) / md_name, f"Single city eval — skill vs baseline ({args.baseline})"
+        label_dir(label) / md_name,
+        f"Single city eval — skill vs baseline ({args.baseline})",
     )
     print(out_path)
 
