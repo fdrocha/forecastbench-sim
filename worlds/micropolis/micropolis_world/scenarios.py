@@ -58,6 +58,7 @@ def build_corpus(
     snapshot_turns: list[int],
     horizons: list[int],
     history_freq: int,
+    label: str,
     snapshot_only_report: bool = False,
 ) -> list[dict]:
     resolver = QuestionResolver(REGISTRY)
@@ -77,6 +78,7 @@ def build_corpus(
                 sim,
                 turn=SNAPSHOT_TURN,
                 history_freq=history_freq,
+                label=label,
                 snapshot_only=snapshot_only_report,
             )
             for H in horizons:

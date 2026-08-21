@@ -103,6 +103,7 @@ def gen_world_report(
     sim: CitySimulation,
     turn: int,
     history_freq: int,
+    label: str,
     snapshot_only: bool = False,
 ) -> str:
     """Build the model-facing situation report for `sim` as of `turn`.
@@ -112,6 +113,10 @@ def gen_world_report(
         turn: Index into sim.log_data for the snapshot. Everything after it
             (later log rows, later events) is excluded to avoid leakage.
         history_freq: Sample the metric history every this many turns.
+        label: The config's label, which names the file this is saved to. Every
+            config gets its own report file, so two prompt variants — or any
+            other pair of configs that build the report differently — sit side
+            by side instead of one overwriting the other.
         snapshot_only: Omit the HISTORY table, leaving the model the current
             state and nothing about how the city got there. CURRENT STATE
             already carries every HISTORY metric at `turn` — both sections
@@ -144,12 +149,23 @@ def gen_world_report(
     sections.append(_events_section(sim.events_data, row["tick"]))
     report_text = "\n\n".join("\n".join(section) for section in sections)
 
-    # Suffixed so the two variants' reports sit side by side rather than the
-    # shorter one overwriting the full-history one for the same scenario/turn.
-    variant = "-snapshotonly" if snapshot_only else ""
-    report_path = sim.get_data_file_path(f"worldreportT{turn}{variant}", ext="txt")
+    # Labelled rather than suffixed by variant: what goes into a report depends
+    # on more than snapshot_only (history_freq, and whatever a later variant
+    # adds), so keying the file by the config that produced it keeps any two
+    # configs' reports side by side instead of one overwriting the other.
+    report_path = sim.get_data_file_path(f"worldreport-{label}-T{turn}", ext="txt")
     report_path.parent.mkdir(parents=True, exist_ok=True)
+    # Read before writing so the message can say whether this run actually
+    # changed the report — the interesting case when re-running after a config
+    # or engine change, which a bare "Saved" would hide.
+    previous = report_path.read_text(encoding="utf-8") if report_path.exists() else None
+    if previous is None:
+        status = "(new)"
+    elif previous == report_text:
+        status = "(unchanged)"
+    else:
+        status = "(CHANGED)"
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(report_text)
-    print(f"gen_report: Saved world report to {report_path}")
+    print(f"gen_report: Saved world report to {report_path} {status}")
     return report_text

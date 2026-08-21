@@ -179,6 +179,7 @@ def main() -> None:
         cfg.get_int_list("snapshot_turns"),
         cfg.get_int_list("horizons"),
         cfg.get_int("history_freq"),
+        label,
         snapshot_only,
     )
 

@@ -30,6 +30,7 @@ def main() -> None:
 
     cfg = load_config(args)
     seed = cfg.get_seed(args.seed)
+    label = cfg.get_label(args.label)
 
     scenarios = get_single_city_base_scenarios(
         seed=seed,
@@ -41,6 +42,7 @@ def main() -> None:
         cfg.get_int_list("snapshot_turns"),
         cfg.get_int_list("horizons"),
         cfg.get_int("history_freq"),
+        label,
         cfg.get_bool_or("snapshot_only_report", False),
     )
 

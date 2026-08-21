@@ -34,6 +34,7 @@ def main() -> None:
     report_turn = cfg.get_int("report_turn")
     history_freq = cfg.get_int("history_freq")
     snapshot_only = cfg.get_bool_or("snapshot_only_report", False)
+    label = cfg.get_label(args.label)
     scenarios = scenarios_from(cfg, args.cities, args.disasters)
 
     for city, disasters in scenarios:
@@ -60,6 +61,7 @@ def main() -> None:
                 sim,
                 turn=turn,
                 history_freq=history_freq,
+                label=label,
                 snapshot_only=snapshot_only,
             )
         )
