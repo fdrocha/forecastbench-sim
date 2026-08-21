@@ -3,6 +3,7 @@
 .settings/
 .ipynb_checkpoints/
 .claude/
+.worktreeinclude
 
 # Generated files
 plot_game_scores/
