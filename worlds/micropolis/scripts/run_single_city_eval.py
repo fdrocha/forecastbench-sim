@@ -27,7 +27,8 @@ Usage:
     scripts/run_single_city_eval.py my_config.json --seed 7
     scripts/run_single_city_eval.py my_config.json --dry-run
     scripts/run_single_city_eval.py --models openai/gpt-4o xai/grok-4-0709
-    scripts/run_single_city_eval.py --cities kyoto bruce --seed 7
+    scripts/run_single_city_eval.py --cities kyoto bruce --disasters false
+    scripts/run_single_city_eval.py --label kyoto_only --cities kyoto
 
 --models overrides the config's list; see data/micropolis/available_models.md
 for what each provider offers.
@@ -147,20 +148,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     add_config_args(ap)
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument(
-        "--models",
-        nargs="+",
-        metavar="MODEL",
-        default=None,
-        help="Model ids to prompt, overriding the config's 'models' list. "
-        "Ids are in provider/name form; see data/micropolis/available_models.md",
-    )
     args = ap.parse_args()
 
     cfg = load_config(args)
     seed = cfg.get_seed(args.seed)
-    label = cfg.get_analysis_label()
-    models = args.models if args.models else cfg.get_str_list("models")
+    label = cfg.get_label(args.label)
+    models = cfg.get_models(args.models)
     out_path = data_path(label)
     # Read once and passed to both build_corpus and gather_responses, so the
     # report the corpus carries and the preamble the prompt names it with can
@@ -178,7 +171,7 @@ def main() -> None:
     scenarios = get_single_city_base_scenarios(
         seed=seed,
         cities=cfg.get_cities(args.cities),
-        disasters=cfg.get_bool_list("disasters"),
+        disasters=cfg.get_disasters(args.disasters),
     )
     print(f"\nRunning {len(scenarios)} with seed={seed}; building corpus...")
     corpus = build_corpus(

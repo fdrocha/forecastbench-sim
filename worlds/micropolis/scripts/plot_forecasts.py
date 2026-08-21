@@ -3,7 +3,7 @@
 
 One figure per scenario, carrying every snapshot taken from it and every horizon
 asked from those snapshots. Reads
-data/micropolis/single_city/{analysis_label}/data.json, written by
+data/micropolis/single_city/{label}/data.json, written by
 scripts/run_single_city_eval.py, and the simulation logs the questions came
 from; prompts no models.
 
@@ -12,7 +12,7 @@ disasters, snapshot_turns and horizons — so one gathered dataset can be plotte
 many ways. Naming anything the dataset lacks is an error, not a smaller figure.
 
 Writes one figure per scenario to
-data/micropolis/single_city/{analysis_label}/plots/forecasts/, panelled by
+data/micropolis/single_city/{label}/plots/forecasts/, panelled by
 metric.
 
 Defaults to the forecasts_plots.json5 config, which subsets the models to a
@@ -22,7 +22,7 @@ Usage:
     scripts/plot_forecasts.py
     scripts/plot_forecasts.py subset.json5
     scripts/plot_forecasts.py micropolis_world/configs/default.json5
-    scripts/plot_forecasts.py --cities kyoto
+    scripts/plot_forecasts.py --cities kyoto --models openai/gpt-5.6-sol
 """
 
 import argparse
@@ -327,7 +327,7 @@ def main() -> None:
     args = ap.parse_args()
 
     cfg = load_config(args)
-    label = cfg.get_analysis_label()
+    label = cfg.get_label(args.label)
     data_file = data_path(label)
     outdir = forecasts_path(label)
 
@@ -337,7 +337,14 @@ def main() -> None:
     try:
         corpus, responses, models = load_dataset(data_file)
         corpus, responses, models = select_for_config(
-            corpus, responses, models, cfg, cfg.get_seed(args.seed), args.cities
+            corpus,
+            responses,
+            models,
+            cfg,
+            cfg.get_seed(args.seed),
+            cities=args.cities,
+            disasters=args.disasters,
+            models=args.models,
         )
     except (FileNotFoundError, DatasetError) as e:
         sys.exit(f"[error] {e}")

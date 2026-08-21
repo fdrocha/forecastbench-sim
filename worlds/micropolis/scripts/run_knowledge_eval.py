@@ -38,14 +38,6 @@ DEFAULT_CONFIG = CONFIG_DIR / "knowledge_eval.json5"
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     add_config_args(ap)
-    ap.add_argument(
-        "--models",
-        nargs="+",
-        metavar="MODEL",
-        default=None,
-        help="Model ids to prompt, overriding the config's 'models' list. "
-        "Ids are in provider/name form; see data/micropolis/available_models.md",
-    )
     args = ap.parse_args()
 
     print("=" * 70)
@@ -56,7 +48,7 @@ def main() -> None:
     if args.config is None:
         args.config = DEFAULT_CONFIG
     cfg = load_config(args)
-    models = args.models if args.models else cfg.get_str_list("models")
+    models = cfg.get_models(args.models)
     max_tokens = cfg.get_int("max_tokens")
 
     print(f"config: {cfg.path}")

@@ -2,10 +2,11 @@
 
 Every script takes an optional config file path as its first positional argument
 and reads all of its non-flag parameters from there; behavior toggles
-(--dry-run, --quiet, --plot) stay on the command line, as do --seed and
---cities, which override the two parameters that most often vary run to run.
-Omitting the path falls back to configs/default.json5, or to whatever a script
-passes as add_config_args(default=...) when its own needs differ.
+(--dry-run, --quiet, --plot) stay on the command line, as do --seed, --cities,
+--disasters, --models and --label, which override the parameters that most
+often vary run to run. Omitting the path falls back to configs/default.json5,
+or to whatever a script passes as add_config_args(default=...) when its own
+needs differ.
 
 A script asks for the keys it needs via Config.get* and errors out if one is
 missing, so a single config file can carry the union of every script's
@@ -161,29 +162,66 @@ class Config:
             )
         return cities
 
+    def get_disasters(self, override: list[bool] | None = None) -> list[bool]:
+        """The 'disasters' list, or override when one was passed on the command line."""
+        if override is not None:
+            return override
+        return self.get_bool_list("disasters")
+
+    def get_models(self, override: list[str] | None = None) -> list[str]:
+        """The 'models' list, or override when one was passed on the command line.
+
+        Model ids are not validated against a known set the way cities are:
+        the providers add and retire names constantly, so the only real check
+        is whether the call succeeds.
+        """
+        if override is not None:
+            return override
+        return self.get_str_list("models")
+
     def get_seed(self, override: int | None = None) -> int:
         """The 'seed', or override when one was passed on the command line."""
         return override if override is not None else self.get_int("seed")
 
-    def get_analysis_label(self) -> str:
-        """The 'analysis_label', or the config file's stem if it has none.
+    def get_label(self, override: str | None = None) -> str:
+        """The 'label', or the config file's stem if it has none.
 
         Names the single-city eval's per-run output directory, so every config
-        gets a distinct one even without setting the key explicitly.
+        gets a distinct one even without setting the key explicitly. `override`
+        is a --label from the command line, which wins over both.
         """
-        value = self.data.get("analysis_label")
+        if override is not None:
+            return override
+        value = self.data.get("label")
         if value is None:
             return self.path.stem
         if not isinstance(value, str):
             raise ConfigError(
-                f"parameter 'analysis_label' in {self.path} must be a string, "
-                f"got {value!r}"
+                f"parameter 'label' in {self.path} must be a string, got {value!r}"
             )
         return value
 
 
+def _bool_arg(value: str) -> bool:
+    """Parse a --disasters entry, so `--disasters true false` reads as a list.
+
+    argparse's own bool() would make every non-empty string True, silently
+    turning `--disasters false` into a disasters-on run.
+    """
+    if value.lower() in ("true", "yes", "on", "1"):
+        return True
+    if value.lower() in ("false", "no", "off", "0"):
+        return False
+    raise argparse.ArgumentTypeError(f"expected true or false, got {value!r}")
+
+
 def add_config_args(ap: argparse.ArgumentParser, default: Path | None = None) -> None:
-    """Add the config-file and the seed/cities override arguments every script takes.
+    """Add the config-file argument and the parameter overrides every script takes.
+
+    The overrides — --seed, --cities, --disasters, --models, --label — are the
+    parameters that most often vary run to run, so they are worth a flag even
+    though everything else comes from the config file. A script that reads none
+    of them still gets the flags; they are simply unused.
 
     `default` names the config to use when the positional argument is omitted,
     for a script whose natural default is not default.json5. Passed here rather
@@ -209,6 +247,29 @@ def add_config_args(ap: argparse.ArgumentParser, default: Path | None = None) ->
         default=None,
         help="City names to run, overriding the config's 'cities' list. "
         f"One or more of: {', '.join(g.CITY_CHOICES)}",
+    )
+    ap.add_argument(
+        "--disasters",
+        nargs="+",
+        metavar="BOOL",
+        type=_bool_arg,
+        default=None,
+        help="Disaster settings to run each city under, overriding the config's "
+        "'disasters' list. 'true false' runs both variants of every city",
+    )
+    ap.add_argument(
+        "--models",
+        nargs="+",
+        metavar="MODEL",
+        default=None,
+        help="Model ids to prompt, overriding the config's 'models' list. "
+        "Ids are in provider/name form; see data/micropolis/available_models.md",
+    )
+    ap.add_argument(
+        "--label",
+        default=None,
+        help="Name of the output directory under data/micropolis/single_city/, "
+        "overriding the config's 'label'",
     )
 
 
@@ -241,14 +302,17 @@ def main_with_config(main: Callable[[], None]) -> Callable[[], None]:
 
 
 def scenarios_from(
-    cfg: Config, cities: list[str] | None = None
+    cfg: Config,
+    cities: list[str] | None = None,
+    disasters: list[bool] | None = None,
 ) -> list[tuple[str, bool]]:
     """The (city, disasters) pairs a run covers: cities x disasters.
 
-    `cities` overrides the config's list, for a --cities on the command line.
+    `cities` and `disasters` override the config's lists, for a --cities or
+    --disasters on the command line.
     """
     return [
-        (city, disasters)
+        (city, dis)
         for city in cfg.get_cities(cities)
-        for disasters in cfg.get_bool_list("disasters")
+        for dis in cfg.get_disasters(disasters)
     ]

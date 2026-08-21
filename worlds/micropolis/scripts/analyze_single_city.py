@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run python3
 """Score the single city eval: CRPS tables by metric and by horizon.
 
-Reads data/micropolis/single_city/{analysis_label}/data.json, written by
+Reads data/micropolis/single_city/{label}/data.json, written by
 scripts/run_single_city_eval.py. Prompts no models and runs no simulations, so
 it is cheap to re-run while changing how the numbers are presented.
 
@@ -10,7 +10,7 @@ disasters, snapshot_turns and horizons — so one gathered dataset can be viewed
 many ways. Naming anything the dataset lacks is an error, not a smaller table.
 
 Writes every table and figure to one Markdown report,
-data/micropolis/single_city/{analysis_label}/analysis-crps.md, rather than to
+data/micropolis/single_city/{label}/analysis-crps.md, rather than to
 stdout: normalized CRPS against horizon, over all runs and restricted to the
 runs with and without disasters; forecast skill against ECI; and the
 correlation of each against horizon, both for ECI alone and comparing ECI to
@@ -22,7 +22,8 @@ Usage:
     scripts/analyze_single_city.py subset.json5
     scripts/analyze_single_city.py --per-metric
     scripts/analyze_single_city.py --no-plot
-    scripts/analyze_single_city.py --cities kyoto
+    scripts/analyze_single_city.py --cities kyoto --disasters false
+    scripts/analyze_single_city.py --models openai/gpt-5.6-sol --label myrun
 
 The per-metric horizon tables are one table per metric and so are the bulk of the
 output; --per-metric opts into them.
@@ -1792,7 +1793,7 @@ def main() -> None:
     args = ap.parse_args()
 
     cfg = load_config(args)
-    label = cfg.get_analysis_label()
+    label = cfg.get_label(args.label)
     data_file = data_path(label)
     outdir = plots_path(label)
 
@@ -1802,7 +1803,14 @@ def main() -> None:
     try:
         corpus, responses, models = load_dataset(data_file)
         corpus, responses, models = select_for_config(
-            corpus, responses, models, cfg, cfg.get_seed(args.seed), args.cities
+            corpus,
+            responses,
+            models,
+            cfg,
+            cfg.get_seed(args.seed),
+            cities=args.cities,
+            disasters=args.disasters,
+            models=args.models,
         )
     except (FileNotFoundError, DatasetError) as e:
         sys.exit(f"[error] {e}")

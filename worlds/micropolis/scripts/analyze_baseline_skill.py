@@ -44,9 +44,9 @@ baseline resolves it exactly by construction, and a ratio against a zero
 denominator says nothing.
 
 Writes a Markdown report to
-data/micropolis/single_city/{analysis_label}/analysis-skill.md (--baseline
+data/micropolis/single_city/{label}/analysis-skill.md (--baseline
 plain) or analysis-skill-sigma.md (--baseline sigma, the default), with plots
-in data/micropolis/single_city/{analysis_label}/plots/with_baseline/. The two
+in data/micropolis/single_city/{label}/plots/with_baseline/. The two
 baselines' plots are also distinguished by a -sigma suffix, so running both
 never overwrites the other's figures. Only the paths written and the report's
 own path are printed to stdout.
@@ -123,7 +123,7 @@ def plot_suffix(kind: str) -> str:
     "plain" keeps the original, unsuffixed names — it was the only variant
     before --baseline existed — so only "sigma" (the default today) is tagged;
     otherwise the two variants' figures would silently overwrite each other
-    whenever both are plotted against the same analysis_label.
+    whenever both are plotted against the same label.
     """
     return "-sigma" if kind == "sigma" else ""
 
@@ -1139,14 +1139,21 @@ def main() -> None:
 
     cfg = load_config(args)
     seed = cfg.get_seed(args.seed)
-    label = cfg.get_analysis_label()
+    label = cfg.get_label(args.label)
     data_file = data_path(label)
     outdir = out_dir(label)
 
     try:
         corpus, responses, models = load_dataset(data_file)
         corpus, responses, models = select_for_config(
-            corpus, responses, models, cfg, seed, args.cities
+            corpus,
+            responses,
+            models,
+            cfg,
+            seed,
+            cities=args.cities,
+            disasters=args.disasters,
+            models=args.models,
         )
     except (FileNotFoundError, DatasetError) as e:
         sys.exit(f"[error] {e}")

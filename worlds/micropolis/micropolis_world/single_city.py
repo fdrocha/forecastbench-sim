@@ -22,14 +22,14 @@ from .config import Config, scenarios_from
 from .knowledge_eval.runner import prompt_hash
 
 # Batch prompts and raw model responses are cached here, shared across every
-# analysis_label: the cache filename already carries the prompt's hash (see
+# label: the cache filename already carries the prompt's hash (see
 # batch_dir), so two labels asking an identical prompt reuse the same cached
 # response rather than paying for it twice.
 OUT_DIR = g.DATA_DIR / "single_city"
 
 
 def label_dir(label: str) -> Path:
-    """Where one analysis_label's dataset, plots and reports are written.
+    """Where one label's dataset, plots and reports are written.
 
     Kept apart per label — unlike OUT_DIR's shared cache — so runs made under
     different prompt variants never overwrite each other's output.
@@ -305,17 +305,20 @@ class DatasetError(Exception):
 
 
 def scenario_ids_from(
-    cfg: Config, seed: int, cities: list[str] | None = None
+    cfg: Config,
+    seed: int,
+    cities: list[str] | None = None,
+    disasters: list[bool] | None = None,
 ) -> list[str]:
     """The scenario ids a config's cities x disasters cross product names.
 
     Built through CitySimulation so the ids match the ones build_corpus wrote;
-    constructing one runs nothing, it only holds the parameters. `cities`
-    overrides the config's list, for a --cities on the command line.
+    constructing one runs nothing, it only holds the parameters. `cities` and
+    `disasters` override the config's lists, for the matching command-line flags.
     """
     return [
-        CitySimulation(city_name=city, seed=seed, disasters=disasters).get_id_str()
-        for city, disasters in scenarios_from(cfg, cities)
+        CitySimulation(city_name=city, seed=seed, disasters=dis).get_id_str()
+        for city, dis in scenarios_from(cfg, cities, disasters)
     ]
 
 
@@ -325,7 +328,10 @@ def select_for_config(
     model_names: list[str],
     cfg: Config,
     seed: int,
+    *,
     cities: list[str] | None = None,
+    disasters: list[bool] | None = None,
+    models: list[str] | None = None,
 ) -> tuple[list[dict], Responses, list[str]]:
     """Narrow a dataset to what `cfg` asks for, or fail saying what is missing.
 
@@ -333,10 +339,12 @@ def select_for_config(
     horizons — without re-prompting. Anything the config names that the dataset
     lacks is an error rather than a silently smaller table, since a missing
     model or city would otherwise look like a legitimately empty result.
-    `cities` overrides the config's list, for a --cities on the command line.
+    `cities`, `disasters` and `models` override the config's lists, for the
+    matching command-line flags; keyword-only, since three same-shaped list
+    arguments in a row are easy to pass in the wrong order.
     """
-    wanted_models = cfg.get_str_list("models")
-    wanted_scenarios = scenario_ids_from(cfg, seed, cities)
+    wanted_models = cfg.get_models(models)
+    wanted_scenarios = scenario_ids_from(cfg, seed, cities, disasters)
     wanted_snapshots = cfg.get_int_list("snapshot_turns")
     wanted_horizons = cfg.get_int_list("horizons")
 
