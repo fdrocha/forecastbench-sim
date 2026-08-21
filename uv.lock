@@ -1887,7 +1887,6 @@ dependencies = [
     { name = "numpy" },
     { name = "python-dotenv" },
     { name = "scipy" },
-    { name = "tqdm" },
 ]
 
 [package.optional-dependencies]
@@ -1904,7 +1903,6 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "scipy" },
-    { name = "tqdm" },
 ]
 provides-extras = ["dev"]
 

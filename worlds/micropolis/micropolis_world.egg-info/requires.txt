@@ -4,7 +4,6 @@ numpy
 scipy
 matplotlib
 python-dotenv>=1.0.1
-tqdm
 
 [dev]
 pytest

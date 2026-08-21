@@ -3,6 +3,7 @@ micropolis_world/__init__.py
 micropolis_world/city_sim.py
 micropolis_world/config.py
 micropolis_world/module_globals.py
+micropolis_world/plot_labels.py
 micropolis_world/plot_sim.py
 micropolis_world/report.py
 micropolis_world/scenarios.py
@@ -17,4 +18,9 @@ micropolis_world/knowledge_eval/__init__.py
 micropolis_world/knowledge_eval/runner.py
 micropolis_world/knowledge_eval/scoring.py
 micropolis_world/knowledge_eval/statements.py
+tests/test_baseline_skill.py
+tests/test_determinism_check.py
+tests/test_knowledge_scoring.py
+tests/test_plot_repeats.py
 tests/test_single_city_batching.py
+tests/test_single_city_tables.py

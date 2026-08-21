@@ -61,7 +61,6 @@ from micropolis_world.single_city import (
     response_path,
     save_dataset,
 )
-from tqdm import tqdm
 
 
 def group_into_batches(corpus: list[dict]) -> dict[str, list[dict]]:
@@ -97,11 +96,11 @@ def gather_responses(
         for bid, questions in batches.items()
     }
     phashes = {bid: prompt_hash(prompt) for bid, prompt in prompts.items()}
+    ppaths = {bid: prompt_path(bid, phashes[bid]) for bid in prompts}
     for bid, prompt in prompts.items():
-        ppath = prompt_path(bid, phashes[bid])
-        if not ppath.exists():
+        if not ppaths[bid].exists():
             batch_dir(bid).mkdir(parents=True, exist_ok=True)
-            ppath.write_text(prompt)
+            ppaths[bid].write_text(prompt)
 
     models = get_models(model_names)
     rpaths = {
@@ -119,11 +118,15 @@ def gather_responses(
     nmodels = len(models)
     for model_idx, (model_name, model) in enumerate(zip(model_names, models)):
         print(f"Prompting {model_name} ({model_idx + 1}/{nmodels})")
-        for bid, questions in tqdm(batches.items()):
+        for bid, questions in batches.items():
             rpath = rpaths[(bid, model_name)]
             if rpath.exists():
                 raw = rpath.read_text()
             else:
+                # One line per call rather than a progress bar: a batch can take
+                # minutes, and naming the prompt file makes it possible to see
+                # exactly what was sent while the run is still going.
+                print(f"  {model_name} <- {ppaths[bid]}")
                 # prompt_model rather than model.get_response, because the
                 # finish reason is what distinguishes a model that answered
                 # badly from one that never got to answer at all.
