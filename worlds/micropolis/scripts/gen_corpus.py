@@ -7,6 +7,7 @@ each question template at every horizon.
 Usage:
     scripts/gen_corpus.py
     scripts/gen_corpus.py my_config.json --seed 7
+    scripts/gen_corpus.py --cities kyoto bruce
 """
 
 import argparse
@@ -31,7 +32,9 @@ def main() -> None:
     seed = cfg.get_seed(args.seed)
 
     scenarios = get_single_city_base_scenarios(
-        seed=seed, cities=cfg.get_cities(), disasters=cfg.get_bool_list("disasters")
+        seed=seed,
+        cities=cfg.get_cities(args.cities),
+        disasters=cfg.get_bool_list("disasters"),
     )
     corpus = build_corpus(
         scenarios,

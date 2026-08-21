@@ -1138,7 +1138,7 @@ def main() -> None:
     args = ap.parse_args()
 
     cfg = load_config(args)
-    seed = cfg.get_seed()
+    seed = cfg.get_seed(args.seed)
     label = cfg.get_analysis_label()
     data_file = data_path(label)
     outdir = out_dir(label)
@@ -1146,7 +1146,7 @@ def main() -> None:
     try:
         corpus, responses, models = load_dataset(data_file)
         corpus, responses, models = select_for_config(
-            corpus, responses, models, cfg, seed
+            corpus, responses, models, cfg, seed, args.cities
         )
     except (FileNotFoundError, DatasetError) as e:
         sys.exit(f"[error] {e}")

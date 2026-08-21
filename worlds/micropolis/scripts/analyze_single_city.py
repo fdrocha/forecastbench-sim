@@ -22,6 +22,7 @@ Usage:
     scripts/analyze_single_city.py subset.json5
     scripts/analyze_single_city.py --per-metric
     scripts/analyze_single_city.py --no-plot
+    scripts/analyze_single_city.py --cities kyoto
 
 The per-metric horizon tables are one table per metric and so are the bulk of the
 output; --per-metric opts into them.
@@ -1801,7 +1802,7 @@ def main() -> None:
     try:
         corpus, responses, models = load_dataset(data_file)
         corpus, responses, models = select_for_config(
-            corpus, responses, models, cfg, cfg.get_seed(args.seed)
+            corpus, responses, models, cfg, cfg.get_seed(args.seed), args.cities
         )
     except (FileNotFoundError, DatasetError) as e:
         sys.exit(f"[error] {e}")

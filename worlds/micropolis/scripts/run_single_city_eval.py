@@ -27,6 +27,7 @@ Usage:
     scripts/run_single_city_eval.py my_config.json --seed 7
     scripts/run_single_city_eval.py my_config.json --dry-run
     scripts/run_single_city_eval.py --models openai/gpt-4o xai/grok-4-0709
+    scripts/run_single_city_eval.py --cities kyoto bruce --seed 7
 
 --models overrides the config's list; see data/micropolis/available_models.md
 for what each provider offers.
@@ -157,7 +158,7 @@ def main() -> None:
     args = ap.parse_args()
 
     cfg = load_config(args)
-    seed = cfg.get_seed()
+    seed = cfg.get_seed(args.seed)
     label = cfg.get_analysis_label()
     models = args.models if args.models else cfg.get_str_list("models")
     out_path = data_path(label)
@@ -175,7 +176,9 @@ def main() -> None:
         print("report: snapshot only (no HISTORY table)")
 
     scenarios = get_single_city_base_scenarios(
-        seed=seed, cities=cfg.get_cities(), disasters=cfg.get_bool_list("disasters")
+        seed=seed,
+        cities=cfg.get_cities(args.cities),
+        disasters=cfg.get_bool_list("disasters"),
     )
     print(f"\nRunning {len(scenarios)} with seed={seed}; building corpus...")
     corpus = build_corpus(

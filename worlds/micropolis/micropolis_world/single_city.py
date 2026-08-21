@@ -304,15 +304,18 @@ class DatasetError(Exception):
     """The dataset on disk doesn't cover what the config asked for."""
 
 
-def scenario_ids_from(cfg: Config, seed: int) -> list[str]:
+def scenario_ids_from(
+    cfg: Config, seed: int, cities: list[str] | None = None
+) -> list[str]:
     """The scenario ids a config's cities x disasters cross product names.
 
     Built through CitySimulation so the ids match the ones build_corpus wrote;
-    constructing one runs nothing, it only holds the parameters.
+    constructing one runs nothing, it only holds the parameters. `cities`
+    overrides the config's list, for a --cities on the command line.
     """
     return [
         CitySimulation(city_name=city, seed=seed, disasters=disasters).get_id_str()
-        for city, disasters in scenarios_from(cfg)
+        for city, disasters in scenarios_from(cfg, cities)
     ]
 
 
@@ -322,6 +325,7 @@ def select_for_config(
     model_names: list[str],
     cfg: Config,
     seed: int,
+    cities: list[str] | None = None,
 ) -> tuple[list[dict], Responses, list[str]]:
     """Narrow a dataset to what `cfg` asks for, or fail saying what is missing.
 
@@ -329,9 +333,10 @@ def select_for_config(
     horizons — without re-prompting. Anything the config names that the dataset
     lacks is an error rather than a silently smaller table, since a missing
     model or city would otherwise look like a legitimately empty result.
+    `cities` overrides the config's list, for a --cities on the command line.
     """
     wanted_models = cfg.get_str_list("models")
-    wanted_scenarios = scenario_ids_from(cfg, seed)
+    wanted_scenarios = scenario_ids_from(cfg, seed, cities)
     wanted_snapshots = cfg.get_int_list("snapshot_turns")
     wanted_horizons = cfg.get_int_list("horizons")
 

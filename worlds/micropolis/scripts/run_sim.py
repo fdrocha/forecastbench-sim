@@ -8,6 +8,7 @@ Usage:
     scripts/run_sim.py
     scripts/run_sim.py my_config.json
     scripts/run_sim.py my_config.json --seed 7 --quiet --no-plot
+    scripts/run_sim.py --cities kyoto bruce
 """
 
 import argparse
@@ -38,7 +39,7 @@ def main() -> None:
     cfg = load_config(args)
     seed = cfg.get_seed(args.seed)
     turns = cfg.get_int("turns")
-    scenarios = scenarios_from(cfg)
+    scenarios = scenarios_from(cfg, args.cities)
 
     for i, (city, disasters) in enumerate(scenarios):
         sim = CitySimulation(city_name=city, seed=seed, disasters=disasters)

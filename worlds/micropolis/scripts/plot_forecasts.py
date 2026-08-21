@@ -22,6 +22,7 @@ Usage:
     scripts/plot_forecasts.py
     scripts/plot_forecasts.py subset.json5
     scripts/plot_forecasts.py micropolis_world/configs/default.json5
+    scripts/plot_forecasts.py --cities kyoto
 """
 
 import argparse
@@ -336,7 +337,7 @@ def main() -> None:
     try:
         corpus, responses, models = load_dataset(data_file)
         corpus, responses, models = select_for_config(
-            corpus, responses, models, cfg, cfg.get_seed(args.seed)
+            corpus, responses, models, cfg, cfg.get_seed(args.seed), args.cities
         )
     except (FileNotFoundError, DatasetError) as e:
         sys.exit(f"[error] {e}")

@@ -7,6 +7,7 @@ Loads each sim's log/events files from disk (does not run the sim), for every
 Usage:
     scripts/gen_report.py
     scripts/gen_report.py my_config.json --seed 7
+    scripts/gen_report.py --cities kyoto
 """
 
 import argparse
@@ -33,7 +34,7 @@ def main() -> None:
     report_turn = cfg.get_int("report_turn")
     history_freq = cfg.get_int("history_freq")
     snapshot_only = cfg.get_bool_or("snapshot_only_report", False)
-    scenarios = scenarios_from(cfg)
+    scenarios = scenarios_from(cfg, args.cities)
 
     for city, disasters in scenarios:
         sim = CitySimulation(city_name=city, seed=seed, disasters=disasters)

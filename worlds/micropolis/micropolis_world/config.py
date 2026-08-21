@@ -2,9 +2,10 @@
 
 Every script takes an optional config file path as its first positional argument
 and reads all of its non-flag parameters from there; behavior toggles
-(--dry-run, --quiet, --plot) stay on the command line. Omitting the path falls
-back to configs/default.json5, or to whatever a script passes as
-add_config_args(default=...) when its own needs differ.
+(--dry-run, --quiet, --plot) stay on the command line, as do --seed and
+--cities, which override the two parameters that most often vary run to run.
+Omitting the path falls back to configs/default.json5, or to whatever a script
+passes as add_config_args(default=...) when its own needs differ.
 
 A script asks for the keys it needs via Config.get* and errors out if one is
 missing, so a single config file can carry the union of every script's
@@ -141,13 +142,21 @@ class Config:
             )
         return value
 
-    def get_cities(self) -> list[str]:
-        """The 'cities' list, validated against the known Micropolis city names."""
-        cities = self.get_str_list("cities")
+    def get_cities(self, override: list[str] | None = None) -> list[str]:
+        """The 'cities' list, or override when one was passed on the command line.
+
+        Either way the names are validated against the known Micropolis cities,
+        so a typo on the command line fails the same way one in a config does.
+        """
+        if override is not None:
+            cities, source = override, "--cities"
+        else:
+            cities = self.get_str_list("cities")
+            source = f"parameter 'cities' in {self.path}"
         unknown = [c for c in cities if c not in g.CITY_CHOICES]
         if unknown:
             raise ConfigError(
-                f"parameter 'cities' in {self.path} contains unknown "
+                f"{source} names unknown "
                 f"{'city' if len(unknown) == 1 else 'cities'}: {', '.join(unknown)}"
             )
         return cities
@@ -174,7 +183,7 @@ class Config:
 
 
 def add_config_args(ap: argparse.ArgumentParser, default: Path | None = None) -> None:
-    """Add the config-file and seed-override arguments shared by every script.
+    """Add the config-file and the seed/cities override arguments every script takes.
 
     `default` names the config to use when the positional argument is omitted,
     for a script whose natural default is not default.json5. Passed here rather
@@ -186,6 +195,20 @@ def add_config_args(ap: argparse.ArgumentParser, default: Path | None = None) ->
         nargs="?",
         default=default,
         help=f"JSON5 config file (default: {default or DEFAULT_CONFIG_PATH})",
+    )
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Seed to run at, overriding the config's 'seed'",
+    )
+    ap.add_argument(
+        "--cities",
+        nargs="+",
+        metavar="CITY",
+        default=None,
+        help="City names to run, overriding the config's 'cities' list. "
+        f"One or more of: {', '.join(g.CITY_CHOICES)}",
     )
 
 
@@ -217,10 +240,15 @@ def main_with_config(main: Callable[[], None]) -> Callable[[], None]:
     return wrapper
 
 
-def scenarios_from(cfg: Config) -> list[tuple[str, bool]]:
-    """The (city, disasters) pairs a run covers: cities x disasters."""
+def scenarios_from(
+    cfg: Config, cities: list[str] | None = None
+) -> list[tuple[str, bool]]:
+    """The (city, disasters) pairs a run covers: cities x disasters.
+
+    `cities` overrides the config's list, for a --cities on the command line.
+    """
     return [
         (city, disasters)
-        for city in cfg.get_cities()
+        for city in cfg.get_cities(cities)
         for disasters in cfg.get_bool_list("disasters")
     ]

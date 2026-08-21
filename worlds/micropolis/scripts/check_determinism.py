@@ -18,6 +18,7 @@ Usage:
     scripts/check_determinism.py
     scripts/check_determinism.py my_config.json5 --repeats 5 --plot
     scripts/check_determinism.py --repeats 3 --turns 200 --keep
+    scripts/check_determinism.py --cities kyoto --seed 7
 """
 
 import argparse
@@ -232,7 +233,7 @@ def main() -> None:
 
     cfg = load_config(args)
     seed = cfg.get_seed(args.seed)
-    scenarios = scenarios_from(cfg)
+    scenarios = scenarios_from(cfg, args.cities)
 
     workdir = Path(tempfile.mkdtemp(prefix="micropolis-determinism-"))
     print("=" * 70)
