@@ -77,6 +77,16 @@ class Config:
             )
         return value
 
+    def get_int_or(self, key: str, default: int) -> int:
+        """The integer at `key`, or `default` if the config doesn't set it.
+
+        Same reasoning as get_bool_or: a parameter added after configs were
+        already in use should not turn every existing config into an error.
+        """
+        if key not in self.data:
+            return default
+        return self.get_int(key)
+
     def get_bool(self, key: str) -> bool:
         value = self._require(key)
         if not isinstance(value, bool):

@@ -57,6 +57,10 @@
   "report_turn": -1,
   "history_freq": 4,
 
+  // Cap the HISTORY table at this many rows, keeping the most recent ones.
+  // -1 keeps the whole history.
+  "history_length": -1,
+
   // Drop the HISTORY table from the world report, leaving only the snapshot
   // values (which CURRENT STATE already lists) — a prompt variant for asking
   // what the time series is worth. See configs/snapshot_only.json5.

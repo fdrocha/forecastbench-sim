@@ -35,19 +35,37 @@ def _snapshot_section(row: dict) -> list[str]:
     return lines
 
 
-def _history_section(log_data: list[dict], turn: int, history_freq: int) -> list[str]:
+def _history_section(
+    log_data: list[dict], turn: int, history_freq: int, history_length: int = -1
+) -> list[str]:
     """Metric history sampled every history_freq turns, ending on the snapshot turn.
 
     Counted back from the snapshot so the last row is always the state the
-    forecast is made from. Turn 0 is added when the stride steps over it, so the
-    table always shows where the city started as well as where it stands.
+    forecast is made from. Turn 0 is added when the stride steps over it, so an
+    untruncated table always shows where the city started as well as where it
+    stands.
+
+    history_length caps the table at that many rows, keeping the most recent
+    ones; -1 keeps every sampled turn. Truncating drops turn 0 along with the
+    rest of the early history — the point of a capped window is to show only a
+    recent slice, and pinning the start would leave a misleading gap — so the
+    header says the table is a window rather than the whole run.
     """
     turns = sorted(set(range(turn, -1, -history_freq)) | {0})
+    truncated = 0 < history_length < len(turns)
+    if truncated:
+        turns = turns[-history_length:]
     header = ["Turn"] + [g.METRIC_LABELS.get(m, m) for m in g.METRICS]
     rows = [[str(t)] + [str(log_data[t][m]) for m in g.METRICS] for t in turns]
-    return [f"HISTORY (every {history_freq} turns)", "", ",".join(header)] + [
-        ",".join(row) for row in rows
-    ]
+    if truncated:
+        n = len(turns)
+        title = (
+            f"HISTORY (most recent {n} sample{'' if n == 1 else 's'}, "
+            f"every {history_freq} turns)"
+        )
+    else:
+        title = f"HISTORY (every {history_freq} turns)"
+    return [title, "", ",".join(header)] + [",".join(row) for row in rows]
 
 
 def _events_section(events_data: list[dict], cutoff_tick: int) -> list[str]:
@@ -105,6 +123,7 @@ def gen_world_report(
     history_freq: int,
     label: str,
     snapshot_only: bool = False,
+    history_length: int = -1,
 ) -> str:
     """Build the model-facing situation report for `sim` as of `turn`.
 
@@ -124,6 +143,8 @@ def gen_world_report(
             the point: it isolates what the time series is worth to a
             forecaster. history_freq is then unused but still validated, so a
             config that sets it nonsensically fails the same either way.
+        history_length: Cap the HISTORY table at this many rows, keeping the
+            most recent ones. -1 (the default) keeps every sampled turn.
 
     As a side effect it saves the world report to disk and prints out the path to it.
     """
@@ -135,6 +156,10 @@ def gen_world_report(
         )
     if history_freq < 1:
         raise ValueError(f"history_freq must be >= 1, got {history_freq}")
+    if history_length == 0 or history_length < -1:
+        raise ValueError(
+            f"history_length must be -1 (unlimited) or >= 1, got {history_length}"
+        )
 
     row = sim.log_data[turn]
     sections = [
@@ -145,14 +170,17 @@ def gen_world_report(
         _snapshot_section(row),
     ]
     if not snapshot_only:
-        sections.append(_history_section(sim.log_data, turn, history_freq))
+        sections.append(
+            _history_section(sim.log_data, turn, history_freq, history_length)
+        )
     sections.append(_events_section(sim.events_data, row["tick"]))
     report_text = "\n\n".join("\n".join(section) for section in sections)
 
     # Labelled rather than suffixed by variant: what goes into a report depends
-    # on more than snapshot_only (history_freq, and whatever a later variant
-    # adds), so keying the file by the config that produced it keeps any two
-    # configs' reports side by side instead of one overwriting the other.
+    # on more than snapshot_only (history_freq, history_length, and whatever a
+    # later variant adds), so keying the file by the config that produced it
+    # keeps any two configs' reports side by side instead of one overwriting
+    # the other.
     report_path = sim.get_data_file_path(f"worldreport-{label}-T{turn}", ext="txt")
     report_path.parent.mkdir(parents=True, exist_ok=True)
     # Read before writing so the message can say whether this run actually

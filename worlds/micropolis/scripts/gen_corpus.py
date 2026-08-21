@@ -44,6 +44,7 @@ def main() -> None:
         cfg.get_int("history_freq"),
         label,
         cfg.get_bool_or("snapshot_only_report", False),
+        cfg.get_int_or("history_length", -1),
     )
 
     out = g.DATA_DIR / f"corpus-seed{seed}.json"

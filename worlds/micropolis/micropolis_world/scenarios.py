@@ -60,6 +60,7 @@ def build_corpus(
     history_freq: int,
     label: str,
     snapshot_only_report: bool = False,
+    history_length: int = -1,
 ) -> list[dict]:
     resolver = QuestionResolver(REGISTRY)
     corpus = []
@@ -80,6 +81,7 @@ def build_corpus(
                 history_freq=history_freq,
                 label=label,
                 snapshot_only=snapshot_only_report,
+                history_length=history_length,
             )
             for H in horizons:
                 T = SNAPSHOT_TURN + H

@@ -82,11 +82,11 @@ def gather_responses(
     Cache files are named with the prompt's hash (see single_city.prompt_hash),
     so a response is only ever reused when it was gathered under the exact
     prompt being asked now — a config change to horizons, templates,
-    history_freq or snapshot_only_report changes the hash, which simply misses
-    the cache rather than risking a stale match. An empty reply — a reasoning
-    model can burn the whole token budget thinking — is not cached, so the next
-    run retries it; a non-empty reply is cached even when unparseable, since
-    retrying greedy decoding would return the same text.
+    history_freq, history_length or snapshot_only_report changes the hash, which
+    simply misses the cache rather than risking a stale match. An empty reply —
+    a reasoning model can burn the whole token budget thinking — is not cached,
+    so the next run retries it; a non-empty reply is cached even when
+    unparseable, since retrying greedy decoding would return the same text.
     """
     batches = group_into_batches(corpus)
     prompts = {
@@ -184,6 +184,7 @@ def main() -> None:
         cfg.get_int("history_freq"),
         label,
         snapshot_only,
+        cfg.get_int_or("history_length", -1),
     )
 
     if args.dry_run:

@@ -33,6 +33,7 @@ def main() -> None:
     seed = cfg.get_seed(args.seed)
     report_turn = cfg.get_int("report_turn")
     history_freq = cfg.get_int("history_freq")
+    history_length = cfg.get_int_or("history_length", -1)
     snapshot_only = cfg.get_bool_or("snapshot_only_report", False)
     label = cfg.get_label(args.label)
     scenarios = scenarios_from(cfg, args.cities, args.disasters)
@@ -63,6 +64,7 @@ def main() -> None:
                 history_freq=history_freq,
                 label=label,
                 snapshot_only=snapshot_only,
+                history_length=history_length,
             )
         )
         print()
