@@ -60,6 +60,8 @@ from micropolis_world.single_city import (
     prompt_path,
     response_path,
     save_dataset,
+    save_usage,
+    usage_path,
 )
 
 
@@ -129,11 +131,19 @@ def gather_responses(
                 print(f"  {model_name} <- {ppaths[bid]}")
                 # prompt_model rather than model.get_response, because the
                 # finish reason is what distinguishes a model that answered
-                # badly from one that never got to answer at all.
-                raw, finish_reason = g.prompt_model(model, prompts[bid], max_tokens)
-                g.warn_if_truncated(model_name, finish_reason, max_tokens)
+                # badly from one that never got to answer at all, and the usage
+                # is what it cost either way.
+                resp = g.prompt_model(model, prompts[bid], max_tokens)
+                raw = resp.text
+                # Printed even for an empty reply: the call was still billed,
+                # and with nothing cached this is the only report of that spend.
+                print(f"    {resp.usage.describe()}")
+                g.warn_if_truncated(model_name, resp.finish_reason, max_tokens)
                 if raw:
                     rpath.write_text(raw)
+                    # Written only alongside a kept response, so the pair never
+                    # disagrees about whether the call needs paying for again.
+                    save_usage(usage_path(bid, model_name, phashes[bid]), resp.usage)
             # The same question_id appears once per model, so name both.
             labels = [f"{model_name} {q['question_id']}" for q in questions]
             percentile_sets = parse_batch_percentiles(raw, labels)

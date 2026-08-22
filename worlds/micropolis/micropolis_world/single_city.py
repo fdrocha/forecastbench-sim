@@ -20,6 +20,7 @@ from . import module_globals as g
 from .city_sim import CitySimulation
 from .config import Config, scenarios_from
 from .knowledge_eval.runner import prompt_hash
+from .usage import CallUsage
 
 # Batch prompts and raw model responses are cached here, shared across every
 # label: the cache filename already carries the prompt's hash (see
@@ -98,6 +99,37 @@ def prompt_path(batch_id: str, phash: str) -> Path:
 def response_path(batch_id: str, model_id: str, phash: str) -> Path:
     # Model ids are provider/name; the slash would nest a directory.
     return batch_dir(batch_id) / f"response-{model_id.replace('/', '_')}-{phash}.txt"
+
+
+def usage_path(batch_id: str, model_id: str, phash: str) -> Path:
+    """Tokens and cost of the call that produced the matching response file.
+
+    A cached response is never re-fetched, so what it cost has to be recorded
+    when it is first paid or it is lost on every later run. Written beside the
+    response and keyed the same way, so the pair stays together — note the slug
+    must match response_path's exactly, or the sidecar lands next to nothing.
+    """
+    return batch_dir(batch_id) / f"usage-{model_id.replace('/', '_')}-{phash}.json"
+
+
+def save_usage(path: Path, usage: CallUsage) -> None:
+    """Record one call's tokens and cost at `path`."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(usage.to_dict(), indent=2))
+
+
+def load_usage(path: Path) -> CallUsage | None:
+    """The recorded usage for a cached response, or None if unavailable.
+
+    Absent for every response cached before cost tracking existed, so a missing
+    or unreadable file is an ordinary "cost unknown", not an error.
+    """
+    if not path.exists():
+        return None
+    try:
+        return CallUsage.from_dict(json.loads(path.read_text()))
+    except (ValueError, TypeError):
+        return None
 
 
 def save_dataset(

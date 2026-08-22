@@ -6,6 +6,7 @@ shuffles it with a fixed seed, and appends the numbered result to the preamble.
 
 import base64
 import hashlib
+import json
 import random
 import re
 from collections import Counter
@@ -15,6 +16,7 @@ from dataclasses import dataclass
 
 from .. import module_globals as g
 from ..module_globals import prompt_model, warn_if_truncated
+from ..usage import CallUsage
 from .statements import false_statements, honeypot_statements, true_statements
 
 SHUFFLE_SEED = 20260807
@@ -124,6 +126,39 @@ def response_path(model_id: str, phash: str) -> Path:
     return OUT_DIR / f"response-{model_slug(model_id)}-{phash}.txt"
 
 
+def usage_path(model_id: str, phash: str) -> Path:
+    """Tokens and cost of the call that produced the matching response file.
+
+    A cached response is never re-fetched, so what it cost has to be recorded
+    when it is first paid or it is lost on every later run. The slug must match
+    response_path's, or the sidecar lands next to nothing.
+    """
+    return OUT_DIR / f"usage-{model_slug(model_id)}-{phash}.json"
+
+
+def save_usage(model_id: str, phash: str, usage: CallUsage) -> None:
+    """Record one call's tokens and cost beside its cached response."""
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    usage_path(model_id, phash).write_text(
+        json.dumps(usage.to_dict(), indent=2), encoding="utf-8"
+    )
+
+
+def load_usage(model_id: str, phash: str) -> CallUsage | None:
+    """The recorded usage for a cached response, or None if unavailable.
+
+    Absent for every response cached before cost tracking existed, so a missing
+    or unreadable file is an ordinary "cost unknown", not an error.
+    """
+    path = usage_path(model_id, phash)
+    if not path.exists():
+        return None
+    try:
+        return CallUsage.from_dict(json.loads(path.read_text(encoding="utf-8")))
+    except (ValueError, TypeError):
+        return None
+
+
 def cached_response(model_id: str, phash: str) -> str | None:
     """The saved response for this model and prompt, or None if not cached.
 
@@ -227,13 +262,19 @@ def get_model_answers(
         else:
             print(f"{model_name}: prompting...")
             try:
-                raw, finish_reason = prompt_model(model, prompt, max_tokens)
+                resp = prompt_model(model, prompt, max_tokens)
             except Exception as e:  # noqa: BLE001
                 print(f"  request failed for {model_name}: {e}")
                 continue
 
-            print(f"  finish_reason: {finish_reason}")
-            warn_if_truncated(model_name, finish_reason, max_tokens)
+            raw = resp.text
+            print(f"  finish_reason: {resp.finish_reason}")
+            # Printed before the blank-reply check below: a model that spent its
+            # whole budget thinking still billed for it, and this is the only
+            # place that spend is ever reported — there's no response to cache
+            # it beside, so it isn't recorded on disk.
+            print(f"  {resp.usage.describe()}")
+            warn_if_truncated(model_name, resp.finish_reason, max_tokens)
 
             if raw is None or not raw.strip():
                 print(
@@ -243,6 +284,9 @@ def get_model_answers(
 
             out_path = response_path(model_name, phash)
             out_path.write_text(raw, encoding="utf-8")
+            # Alongside the response, and only when the response is kept, so the
+            # two never disagree about whether this call happened.
+            save_usage(model_name, phash, resp.usage)
             print(f"  saved response to {out_path}")
 
         answers = parse_response(raw)

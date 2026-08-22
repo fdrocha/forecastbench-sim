@@ -1,9 +1,12 @@
 """Defines some global variables used throughout the Micropolis world."""
 
 import os
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+from .usage import LLMResponse, usage_from_response
 
 PKG_DIR = Path(__file__).resolve().parent.parent  # forecastbench-sim/worlds/micropolis
 FBS_DIR = PKG_DIR.parent.parent  # forecastbench-sim
@@ -40,13 +43,16 @@ def ensure_api_keys() -> None:
     _keys_loaded = True
 
 
-def prompt_model(model, prompt: str, max_tokens: int) -> tuple[str | None, str | None]:
-    """Send `prompt` to `model`, returning its text and the finish reason.
+def prompt_model(model, prompt: str, max_tokens: int) -> LLMResponse:
+    """Send `prompt` to `model`, returning its text, finish reason and cost.
 
-    LiteLLMModel.get_response() returns only the text, but the finish reason is
-    what explains an empty reply: a reasoning model can spend the whole token
-    budget thinking and stop at "length" with nothing written, which is a
-    successful call the caller would otherwise see as a silent blank.
+    LiteLLMModel.get_response() returns only the text, discarding the two
+    things needed to explain and price an empty reply: the finish reason, and
+    the tokens the provider charged for producing nothing. A reasoning model
+    can spend the whole budget thinking and stop at "length" with nothing
+    written — a successful, billed call the caller would otherwise see as a
+    silent blank. So the call is made here instead, and the whole response is
+    read before it is dropped.
 
     Mirrors get_response()'s handling of the parameters some models reject.
     """
@@ -70,8 +76,16 @@ def prompt_model(model, prompt: str, max_tokens: int) -> tuple[str | None, str |
         # rather than greedy and will vary between runs.
         print(f"  [warning] {model.id} does not support temperature; omitting it")
 
-    choice = completion(**kwargs).choices[0]
-    return choice.message.content, choice.finish_reason
+    start = time.perf_counter()
+    response = completion(**kwargs)
+    latency_ms = (time.perf_counter() - start) * 1000
+
+    choice = response.choices[0]
+    return LLMResponse(
+        text=choice.message.content,
+        finish_reason=choice.finish_reason,
+        usage=usage_from_response(response, model.id, latency_ms),
+    )
 
 
 def warn_if_truncated(
