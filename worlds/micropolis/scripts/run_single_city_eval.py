@@ -153,12 +153,14 @@ def gather_responses(
                         # Reported, not counted: a model litellm has no price for
                         # would otherwise be summed into the total as free.
                         nunpriced += 1
-                        print("  cost unknown", flush=True)
+                        print(f"  cost unknown, {resp.usage.tokens()}", flush=True)
                     else:
                         # Cents: a single batch is a fraction of a cent to a few
                         # cents, which dollars would print as 0.00.
                         model_cost += cost
-                        print(f"  {cost * 100:.3f}c", flush=True)
+                        print(
+                            f"  {cost * 100:.3f}c, {resp.usage.tokens()}", flush=True
+                        )
                 raw = resp.text
                 g.warn_if_truncated(model_name, resp.finish_reason, max_tokens)
                 if raw:

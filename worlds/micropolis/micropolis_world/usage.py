@@ -64,15 +64,26 @@ class CallUsage:
         """
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
-    def describe(self) -> str:
-        """One-line human summary, for a progress line next to a call."""
-        cost = "cost unknown" if self.cost_usd is None else f"${self.cost_usd:.4f}"
-        parts = [cost, f"{self.input_tokens} in", f"{self.output_tokens} out"]
+    def tokens(self) -> str:
+        """The token counts as one phrase, for a progress line next to a call.
+
+        Only input and output are always shown; the rest appear when the
+        provider reported them as nonzero, so a plain call stays a short line
+        and a reasoning or cache-hitting one says so.
+        """
+        parts = [f"{self.input_tokens} in", f"{self.output_tokens} out"]
         if self.reasoning_tokens:
             parts.append(f"{self.reasoning_tokens} reasoning")
         if self.cached_input_tokens:
             parts.append(f"{self.cached_input_tokens} cached")
+        if self.cache_write_tokens:
+            parts.append(f"{self.cache_write_tokens} cache write")
         return ", ".join(parts)
+
+    def describe(self) -> str:
+        """One-line human summary, cost first."""
+        cost = "cost unknown" if self.cost_usd is None else f"${self.cost_usd:.4f}"
+        return f"{cost}, {self.tokens()}"
 
 
 @dataclass(frozen=True, slots=True)

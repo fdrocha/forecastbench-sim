@@ -170,6 +170,42 @@ def test_describe_says_unknown_rather_than_zero():
     assert "$0.0500" in CallUsage(model_id="x", cost_usd=0.05).describe()
 
 
+def test_tokens_always_reports_input_and_output():
+    got = CallUsage(model_id="x", input_tokens=2433, output_tokens=1638).tokens()
+    assert got == "2433 in, 1638 out"
+
+
+def test_tokens_omits_what_the_provider_reported_as_zero():
+    """Anthropic sends explicit zeros for these; a plain call stays a short line."""
+    got = CallUsage(
+        model_id="x",
+        input_tokens=1,
+        output_tokens=2,
+        reasoning_tokens=0,
+        cached_input_tokens=0,
+        cache_write_tokens=0,
+    ).tokens()
+    assert got == "1 in, 2 out"
+
+
+def test_tokens_reports_reasoning_when_there_was_any():
+    got = CallUsage(
+        model_id="x", input_tokens=1, output_tokens=900, reasoning_tokens=850
+    ).tokens()
+    assert got == "1 in, 900 out, 850 reasoning"
+
+
+def test_tokens_reports_cache_activity_when_there_was_any():
+    got = CallUsage(
+        model_id="x",
+        input_tokens=5,
+        output_tokens=2,
+        cached_input_tokens=4000,
+        cache_write_tokens=120,
+    ).tokens()
+    assert got == "5 in, 2 out, 4000 cached, 120 cache write"
+
+
 # --- prompt_model ------------------------------------------------------------
 
 
