@@ -9,7 +9,9 @@ it lazily — so the scoring and analysis scripts can read recorded usage withou
 pulling in litellm.
 """
 
+import json
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -104,6 +106,26 @@ class LLMResponse:
     text: str | None
     finish_reason: str | None
     usage: CallUsage
+
+
+def save_usage(path: Path, usage: CallUsage) -> None:
+    """Record one call's tokens and cost at `path`."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(usage.to_dict(), indent=2), encoding="utf-8")
+
+
+def load_usage(path: Path) -> CallUsage | None:
+    """The recorded usage at `path`, or None if it is absent or unreadable.
+
+    Absent for every response cached before cost tracking existed, so a missing
+    or malformed file is an ordinary "cost unknown", not an error.
+    """
+    if not path.exists():
+        return None
+    try:
+        return CallUsage.from_dict(json.loads(path.read_text(encoding="utf-8")))
+    except (ValueError, TypeError):
+        return None
 
 
 def _detail(obj: Any, *names: str) -> int | None:

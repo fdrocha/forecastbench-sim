@@ -20,7 +20,7 @@ from . import module_globals as g
 from .city_sim import CitySimulation
 from .config import Config, scenarios_from
 from .knowledge_eval.runner import prompt_hash
-from .usage import CallUsage
+from .usage import load_usage, save_usage  # noqa: F401 - re-exported for the scripts
 
 # Batch prompts and raw model responses are cached here, shared across every
 # label: the cache filename already carries the prompt's hash (see
@@ -78,6 +78,14 @@ def batch_id_for(question: dict) -> str:
     return f"{question['scenario_id']}_T{question['snapshot_turn']}"
 
 
+def group_into_batches(corpus: list[dict]) -> dict[str, list[dict]]:
+    """Group corpus questions by batch_id, preserving corpus order."""
+    batches: dict[str, list[dict]] = {}
+    for c in corpus:
+        batches.setdefault(batch_id_for(c), []).append(c)
+    return batches
+
+
 def batch_dir(batch_id: str) -> Path:
     """Where a batch's prompt and raw model responses are cached.
 
@@ -112,24 +120,6 @@ def usage_path(batch_id: str, model_id: str, phash: str) -> Path:
     return batch_dir(batch_id) / f"usage-{model_id.replace('/', '_')}-{phash}.json"
 
 
-def save_usage(path: Path, usage: CallUsage) -> None:
-    """Record one call's tokens and cost at `path`."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(usage.to_dict(), indent=2))
-
-
-def load_usage(path: Path) -> CallUsage | None:
-    """The recorded usage for a cached response, or None if unavailable.
-
-    Absent for every response cached before cost tracking existed, so a missing
-    or unreadable file is an ordinary "cost unknown", not an error.
-    """
-    if not path.exists():
-        return None
-    try:
-        return CallUsage.from_dict(json.loads(path.read_text()))
-    except (ValueError, TypeError):
-        return None
 
 
 def save_dataset(

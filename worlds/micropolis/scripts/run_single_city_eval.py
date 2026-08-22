@@ -54,8 +54,8 @@ from micropolis_world.single_city import (
     ResponseId,
     Responses,
     batch_dir,
-    batch_id_for,
     data_path,
+    group_into_batches,
     prompt_hash,
     prompt_path,
     response_path,
@@ -63,14 +63,6 @@ from micropolis_world.single_city import (
     save_usage,
     usage_path,
 )
-
-
-def group_into_batches(corpus: list[dict]) -> dict[str, list[dict]]:
-    """Group corpus questions by batch_id, preserving corpus order."""
-    batches: dict[str, list[dict]] = {}
-    for c in corpus:
-        batches.setdefault(batch_id_for(c), []).append(c)
-    return batches
 
 
 def gather_responses(

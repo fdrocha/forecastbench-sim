@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from .. import module_globals as g
 from ..module_globals import prompt_model, warn_if_truncated
 from ..usage import CallUsage
+from ..usage import load_usage as read_usage
+from ..usage import save_usage as write_usage
 from .statements import false_statements, honeypot_statements, true_statements
 
 SHUFFLE_SEED = 20260807
@@ -138,25 +140,12 @@ def usage_path(model_id: str, phash: str) -> Path:
 
 def save_usage(model_id: str, phash: str, usage: CallUsage) -> None:
     """Record one call's tokens and cost beside its cached response."""
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    usage_path(model_id, phash).write_text(
-        json.dumps(usage.to_dict(), indent=2), encoding="utf-8"
-    )
+    write_usage(usage_path(model_id, phash), usage)
 
 
 def load_usage(model_id: str, phash: str) -> CallUsage | None:
-    """The recorded usage for a cached response, or None if unavailable.
-
-    Absent for every response cached before cost tracking existed, so a missing
-    or unreadable file is an ordinary "cost unknown", not an error.
-    """
-    path = usage_path(model_id, phash)
-    if not path.exists():
-        return None
-    try:
-        return CallUsage.from_dict(json.loads(path.read_text(encoding="utf-8")))
-    except (ValueError, TypeError):
-        return None
+    """The recorded usage for a cached response, or None if unavailable."""
+    return read_usage(usage_path(model_id, phash))
 
 
 def cached_response(model_id: str, phash: str) -> str | None:
