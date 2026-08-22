@@ -120,6 +120,8 @@ def gather_responses(
     nmodels = len(models)
     for model_idx, (model_name, model) in enumerate(zip(model_names, models)):
         print(f"Prompting {model_name} ({model_idx + 1}/{nmodels})")
+        model_cost = 0.0
+        nunpriced = 0
         for bid, questions in batches.items():
             rpath = rpaths[(bid, model_name)]
             if rpath.exists():
@@ -127,17 +129,37 @@ def gather_responses(
             else:
                 # One line per call rather than a progress bar: a batch can take
                 # minutes, and naming the prompt file makes it possible to see
-                # exactly what was sent while the run is still going.
-                print(f"  {model_name} <- {ppaths[bid]}")
+                # exactly what was sent while the run is still going. Left
+                # unterminated and flushed so the path is visible while the call
+                # is in flight and its cost lands on the same line.
+                print(f"  {model_name} <- {ppaths[bid]}", end="", flush=True)
                 # prompt_model rather than model.get_response, because the
                 # finish reason is what distinguishes a model that answered
                 # badly from one that never got to answer at all, and the usage
                 # is what it cost either way.
-                resp = g.prompt_model(model, prompts[bid], max_tokens)
+                resp = None
+                try:
+                    resp = g.prompt_model(model, prompts[bid], max_tokens)
+                finally:
+                    # Close the line whatever happened, so a failure's traceback
+                    # never runs on from the end of the prompt path. Flushed for
+                    # the same reason: the traceback goes to stderr unbuffered,
+                    # so an unflushed newline on a redirected stdout would still
+                    # let the two collide.
+                    cost = None if resp is None else resp.usage.cost_usd
+                    if resp is None:
+                        print(flush=True)
+                    elif cost is None:
+                        # Reported, not counted: a model litellm has no price for
+                        # would otherwise be summed into the total as free.
+                        nunpriced += 1
+                        print("  cost unknown", flush=True)
+                    else:
+                        # Cents: a single batch is a fraction of a cent to a few
+                        # cents, which dollars would print as 0.00.
+                        model_cost += cost
+                        print(f"  {cost * 100:.3f}c", flush=True)
                 raw = resp.text
-                # Printed even for an empty reply: the call was still billed,
-                # and with nothing cached this is the only report of that spend.
-                print(f"    {resp.usage.describe()}")
                 g.warn_if_truncated(model_name, resp.finish_reason, max_tokens)
                 if raw:
                     rpath.write_text(raw)
@@ -153,6 +175,12 @@ def gather_responses(
                     percentiles=percentiles,
                     response_text=raw,
                 )
+        # What this run paid for this model. Cached batches cost nothing, so a
+        # fully cached model reports $0.00 rather than what it originally cost.
+        total = f"${model_cost:.2f}"
+        if nunpriced:
+            total += f" + {nunpriced} call(s) litellm could not price"
+        print(f"  {model_name} total: {total}")
     return responses
 
 
