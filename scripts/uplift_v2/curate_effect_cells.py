@@ -8,7 +8,7 @@ Selection (effect cells only, certified on half A):
     - per event (per world): <= MAX_PER_EVENT  (stops one conquest event
                               dominating, cf. seed2 pilot skew)
     - per template family:  <= MAX_PER_TEMPLATE
-  aiming for AT LEAST MIN_PER_HORIZON cells at each of H1/H2/H3 (a horizon
+  aiming for AT LEAST MIN_PER_HORIZON cells at each horizon present (a horizon
   quota pass runs first so long horizons are not crowded out by H1's larger
   certified pool).
 
@@ -31,7 +31,7 @@ from collections import Counter, defaultdict
 MAX_PER_WORLD = 45
 MAX_PER_EVENT = 8       # per (world, event_id)
 MAX_PER_TEMPLATE = 70
-MIN_PER_HORIZON = 50
+MIN_PER_HORIZON = 40
 
 
 def is_quasi(c: dict) -> bool:
@@ -85,7 +85,9 @@ def pick(cells: list[dict], target: int) -> list[dict]:
         h_ct[c.get("horizon", "H1")] += 1
 
     # pass 1: horizon quotas, rank order within horizon
-    for hz in ("H3", "H2", "H1"):  # scarcest first
+    horizons_present = sorted({c.get("horizon", "H1") for c in cells},
+                              key=lambda h: -int(h[1:]))  # scarcest (longest) first
+    for hz in horizons_present:
         for c in ranked:
             if h_ct[hz] >= MIN_PER_HORIZON or len(chosen) >= target:
                 break
