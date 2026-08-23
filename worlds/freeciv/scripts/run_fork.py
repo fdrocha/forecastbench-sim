@@ -25,6 +25,9 @@ Modification format:
     gold_add:player_id:amount    - Add gold to player's treasury
     government:player_id:name    - Set player's government (e.g., Republic)
     tech:player_id:tech_id       - Grant technology by ID
+    rng_seed:seed                - Pin the fork's game RNG to a specific seed
+                                   (default: saved RNG state is cleared so the
+                                   engine reseeds freshly per fork)
 
 Output:
     logs/recordings/{seed}fork{name}/savegames/ — Fork savegames
@@ -69,13 +72,23 @@ def parse_modification(mod_str: str) -> dict:
     """
     parts = mod_str.split(":")
 
+    mod_type = parts[0].lower()
+
+    # rng_seed is not player-specific: "rng_seed:SEED"
+    if mod_type == "rng_seed":
+        if len(parts) != 2:
+            raise ValueError(
+                f"Invalid modification format: {mod_str}. "
+                "Expected format: rng_seed:seed"
+            )
+        return {"type": "rng_seed", "value": int(parts[1])}
+
     if len(parts) < 3:
         raise ValueError(
             f"Invalid modification format: {mod_str}. "
             "Expected format: type:player_id:value"
         )
 
-    mod_type = parts[0].lower()
     player_id = int(parts[1])
 
     if mod_type == "gold":
@@ -109,6 +122,10 @@ def parse_modification(mod_str: str) -> dict:
 def modification_to_name(mod: dict) -> str:
     """Convert a modification dict to a name-friendly string."""
     mod_type = mod["type"]
+
+    if mod_type == "rng_seed":
+        return f"rng{mod['value']}"
+
     player_id = mod["player_id"]
 
     if mod_type == "gold":

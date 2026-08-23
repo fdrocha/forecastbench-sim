@@ -713,13 +713,19 @@ class CivController(CivPropController):
             raise RuntimeError(
                 f'The loaded game is saved by another user: {load_username}. Your username is {self.clstate.username}.')
         self.ws_client.send_message(f'/load {save_name}')
+        # Force XZ autosaves immediately after load: fork servers otherwise
+        # write .sav.zst autosaves, which are unparseable wherever the zstd
+        # binary is missing (the savegame-blind serialization failure mode).
+        self.ws_client.send_message('/set compresstype XZ')
         self.ws_client.send_message('/set pingtimeout 720')
         self.ws_client.send_message(f"/set victories {fc_args['victories']}")
         self.ws_client.send_message(f"/set endvictory {fc_args['endvictory']}")
         self.ws_client.send_message(f"/set advisor {fc_args['advisor']}")
-        if fc_args['debug.take_player']:
-            self.clstate.aitoggle_player(fc_args['debug.take_player'])
-            self.clstate.take_player(fc_args['debug.take_player'])
+        # NOTE: no /take + /aitoggle here. The load auto-reattaches this
+        # connection to the player whose username= matches (forks rewrite it
+        # via SavegameModifier.set_player_name), and the player keeps the AI
+        # flag stored in the savegame. The old aitoggle+take dance briefly
+        # made the player human, wiping its AI research goal (A_UNSET).
 
         requests.post(
             f"http://{self.host}:{fc_web_args['port']}/gamesetting?openchatbox={fc_args['openchatbox']}")
@@ -910,6 +916,9 @@ class CivController(CivPropController):
 
         packet['message'] = message
         fc_logger.info(f'chat_msg: {packet}')
+        if event == E_SETTING:
+            # Server confirmations for /set commands ack pending settings.
+            self.clstate.ack_setting_from_message(message)
         if event != E_SETTING and event != E_CONNECTION:
             self.game_ctrl.add_chat_message(message)
 
