@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""Derive H2/H3 questions deterministically from a world's H1 bank.
+"""Derive H2-H5 questions deterministically from a world's H1 bank.
 
-We deliberately do NOT generate fresh H2/H3 questions with the unseeded
+We deliberately do NOT generate fresh H2-H5 questions with the unseeded
 QuestionGenerator (its target sampling is nondeterministic run-to-run).
-Instead every H1 question is re-emitted at resolution turns 120 (H2) and 150
-(H3): same template, target, and subject civs. The qid scheme keeps the
-horizon family linked with the H1 qid as the family key:
+Instead every H1 question is re-emitted at resolution turns 120 (H2), 150
+(H3), 180 (H4), and 210 (H5): same template, target, and subject civs (the
+production fleet rolls forks out to t210, so all five horizons resolve). The
+qid scheme keeps the horizon family linked with the H1 qid as the family key:
 
-    q0007 (H1, t90)  ->  q0007_h2 (H2, t120),  q0007_h3 (H3, t150)
+    q0007 (H1, t90)  ->  q0007_h2 (H2, t120),  ...,  q0007_h5 (H5, t210)
 
 "turn {rt}" occurrences in the question text and the parameters'
 resolution_turn are rewritten; the base game's H1 "resolution" field is
 dropped from derived questions (their truth comes from rollouts). Output is
 deterministic and idempotent: derived questions are always regenerated from
-the H1 originals (never re-derived from _h2/_h3), so running the script on
-its own output changes nothing. Non-H1 questions that are not our derivations
-pass through untouched.
+the H1 originals (never re-derived from _h2.._h5), so running the script on
+its own output changes nothing — including output produced by the earlier
+H2/H3-only revision of this script. Non-H1 questions that are not our
+derivations pass through untouched.
 
 Usage:
   uv run python scripts/uplift_v2/derive_horizon_bank.py \
@@ -30,8 +32,10 @@ import json
 import re
 from pathlib import Path
 
-DERIVED_HORIZONS = {"H2": 120, "H3": 150}
-_SUFFIX_RE = re.compile(r"^(?P<base>.+)_h[23]$")
+DERIVED_HORIZONS = {"H2": 120, "H3": 150, "H4": 180, "H5": 210}
+_SUFFIX_RE = re.compile(
+    r"^(?P<base>.+)_h[%s]$"
+    % "".join(sorted(h[1:].lower() for h in DERIVED_HORIZONS)))
 
 
 def family_qid(qid: str) -> str:

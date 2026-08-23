@@ -1,4 +1,4 @@
-"""Unit tests for the deterministic H2/H3 bank derivation and truth helpers."""
+"""Unit tests for the deterministic H2-H5 bank derivation and truth helpers."""
 import copy
 import json
 
@@ -33,13 +33,20 @@ def _bank():
     }
 
 
+def test_five_horizon_bank():
+    assert derive.DERIVED_HORIZONS == {"H2": 120, "H3": 150,
+                                       "H4": 180, "H5": 210}
+
+
 def test_qid_scheme_and_family_key():
     out = derive.derive_bank(_bank())
     qids = [q["question_id"] for q in out["questions"]]
     assert qids == ["q0007", "q0010", "q9000",
-                    "q0007_h2", "q0010_h2", "q0007_h3", "q0010_h3"]
-    assert derive.family_qid("q0007_h2") == "q0007"
-    assert derive.family_qid("q0007_h3") == "q0007"
+                    "q0007_h2", "q0010_h2", "q0007_h3", "q0010_h3",
+                    "q0007_h4", "q0010_h4", "q0007_h5", "q0010_h5"]
+    # every derived horizon links back to the H1 qid as the family key
+    for hz in derive.DERIVED_HORIZONS:
+        assert derive.family_qid(f"q0007_h{hz[1:].lower()}") == "q0007"
     assert derive.family_qid("q0007") == "q0007"
     assert derive.family_qid("q9000") == "q9000"
 
@@ -59,6 +66,16 @@ def test_derivation_rewrites_turn_and_drops_base_resolution():
     assert h3["resolution_turn"] == 150 and h3["horizon"] == "H3"
     assert "by turn 150?" in h3["question_text"]
     assert h3["parameters"]["snapshot_turn"] == 60  # non-resolution turns kept
+    h4 = by_id["q0007_h4"]
+    assert h4["horizon"] == "H4" and h4["resolution_turn"] == 180
+    assert h4["question_text"] == (
+        "Will Benin have more technologies than Jolof at turn 180?")
+    assert h4["parameters"]["resolution_turn"] == 180
+    assert "resolution" not in h4
+    h5 = by_id["q0010_h5"]
+    assert h5["horizon"] == "H5" and h5["resolution_turn"] == 210
+    assert "by turn 210?" in h5["question_text"]
+    assert h5["parameters"]["resolution_turn"] == 210
     # H1 originals untouched, organic H7 untouched
     src = _bank()
     assert by_id["q0007"] == src["questions"][0]
@@ -75,16 +92,45 @@ def test_deterministic_and_idempotent():
     assert json.dumps(twice, sort_keys=True) == json.dumps(once, sort_keys=True)
 
 
+def test_rederiving_legacy_h2h3_output_widens_cleanly():
+    """A bank written by the H2/H3-only revision re-derives to the exact
+    5-horizon bank: old derivations are regenerated, never re-derived."""
+    b = _bank()
+    legacy = derive.derive_bank(copy.deepcopy(b), {"H2": 120, "H3": 150})
+    assert [q["question_id"] for q in legacy["questions"]] == [
+        "q0007", "q0010", "q9000",
+        "q0007_h2", "q0010_h2", "q0007_h3", "q0010_h3"]
+    widened = derive.derive_bank(legacy)
+    assert widened == derive.derive_bank(b)
+    assert widened["derived_horizons"] == derive.DERIVED_HORIZONS
+
+
+def test_parse_horizons_subset():
+    assert truth.parse_horizons("H2,H3,H4,H5") == derive.DERIVED_HORIZONS
+    assert truth.parse_horizons("H1,H2,H3") == {"H2": 120, "H3": 150}  # H1 skipped
+    assert truth.parse_horizons("H4") == {"H4": 180}
+    try:
+        truth.parse_horizons("H2,H9")
+    except ValueError as e:
+        assert "H9" in str(e)
+    else:
+        raise AssertionError("unknown horizon must raise")
+
+
 def test_dead_derived_qids_guard():
     answers = {
         "q0007_h2": [{"tag": "s1", "answer": True}, {"tag": "s2", "answer": None}],
         "q0010_h2": [{"tag": "s1", "answer": None}, {"tag": "s2", "answer": None}],
         "q0007_h3": [{"tag": "s1", "answer": False}],
+        "q0007_h4": [{"tag": "s1", "answer": True}],
+        # H5 past a legacy fleet's last serialized turn: null everywhere
+        "q0007_h5": [{"tag": "s1", "answer": None}, {"tag": "s2", "answer": None}],
         "q0007": [{"tag": "s1", "answer": None}],  # H1 is never in scope
     }
     dead = truth.dead_derived_qids(
-        answers, {"q0007_h2", "q0010_h2", "q0007_h3", "q9999_h2"})
-    assert dead == ["q0010_h2"]
+        answers, {"q0007_h2", "q0010_h2", "q0007_h3", "q0007_h4",
+                  "q0007_h5", "q9999_h2"})
+    assert dead == ["q0007_h5", "q0010_h2"]
     assert "q0010_h2" in answers  # reported, not deleted (resume consistency)
 
 

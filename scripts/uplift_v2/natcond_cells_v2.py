@@ -3,9 +3,11 @@
 
 v1 (natcond_cells.py) mined H1-only cells from one archived arm with pooled
 ground truth. v2 targets the mined fleets under tmp/mined/rollouts/<world>/
-(8 worlds x 1,000 rollouts, t60 -> t150) and adds:
+(8 worlds x 1,000 rollouts, t60 -> t150 on the legacy fleets; the production
+fleet rolls to t210) and adds:
 
-  * horizons H1/H2/H3 (t90/t120/t150), taken from the world's question bank;
+  * horizons H1-H5 (t90/t120/t150/t180/t210), taken from the world's
+    question bank (legacy t150 fleets carry only H1-H3; --horizons trims);
   * ONE rollout per world is reserved as the designated "resolution
     continuation": the lowest rollout index after numeric-aware sort,
     deterministic. It is excluded from BOTH halves so the single resolution
@@ -64,7 +66,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-DEFAULT_HORIZONS = "H1,H2,H3"
+DEFAULT_HORIZONS = "H1,H2,H3,H4,H5"
 SPECIFIC_EVENT_TYPES = ("tech_discovered", "government_change", "wonder_completed")
 
 

@@ -45,6 +45,8 @@ def _write_fixture(tmp_path):
       q0001 H2: exact independence pattern (seed % 3 == 0) -> placebo
       q0002 H3: strong effect again (checks horizon plumbing)
       q0003 H7: must be filtered out by the horizon set
+      q0004 H4 (t180): strong effect (production-fleet horizon plumbing)
+      q0005 H5 (t210): independence pattern -> placebo
     """
     arm = tmp_path / "w_test"
     (arm / "rollouts").mkdir(parents=True)
@@ -74,10 +76,12 @@ def _write_fixture(tmp_path):
         "q0001": [rec(t, int(t[1:]) % 3 == 0) for t in tags],
         "q0002": [rec(t, t in members) for t in tags],
         "q0003": [rec(t, True) for t in tags],
+        "q0004": [rec(t, t in members) for t in tags],
+        "q0005": [rec(t, int(t[1:]) % 3 == 0) for t in tags],
     }
     (arm / "manifest.json").write_text(json.dumps(
         {"config": {"game_id": "w_test", "snapshot_turn": 60,
-                    "resolution_turns": [90, 120, 150]},
+                    "resolution_turns": [90, 120, 150, 180, 210]},
          "answers": answers}))
 
     questions = [
@@ -93,6 +97,12 @@ def _write_fixture(tmp_path):
         {"question_id": "q0003", "template_id": "tech_comparative",
          "horizon": "H7", "resolution_turn": 300,
          "question_text": "Out-of-scope horizon."},
+        {"question_id": "q0004", "template_id": "tech_comparative",
+         "horizon": "H4", "resolution_turn": 180,
+         "question_text": "Will A beat B at turn 180?"},
+        {"question_id": "q0005", "template_id": "tech_within",
+         "horizon": "H5", "resolution_turn": 210,
+         "question_text": "Will C discover D by turn 210?"},
     ]
     qpath = tmp_path / "questions.json"
     qpath.write_text(json.dumps({"questions": questions}))
@@ -111,14 +121,22 @@ def _expected_half(amap, half, members):
             "se_delta": round(se, 4)}
 
 
+HORIZONS = set(cells_v2.DEFAULT_HORIZONS.split(","))
+
+
+def test_default_horizons_cover_h1_to_h5():
+    assert cells_v2.DEFAULT_HORIZONS == "H1,H2,H3,H4,H5"
+
+
 def test_mine_world_split_half_certification(tmp_path):
     arm, qpath, members = _write_fixture(tmp_path)
     cells = cells_v2.mine_world(
-        "w_test", str(arm), str(qpath), {"H1", "H2", "H3"},
+        "w_test", str(arm), str(qpath), HORIZONS,
         [(60, 75)], 0.05, 0.95, 6, 6)
 
     by_q = {c["qid"]: c for c in cells}
-    assert set(by_q) == {"q0000", "q0001", "q0002"}  # H7 filtered out
+    assert set(by_q) == {"q0000", "q0001", "q0002",
+                         "q0004", "q0005"}  # H7 filtered out
     assert all(c["event_desc"] == "Benin discovered Alphabet" for c in cells)
     assert all(c["window"] == [60, 75] for c in cells)
 
@@ -152,10 +170,12 @@ def test_mine_world_split_half_certification(tmp_path):
             cell["delta"] ** 2 - cell["se_delta"] ** 2, 0.0)), 4)
         assert cell["shrunk_abs_delta"] == want_shrunk
 
-    # the two designed-strong cells certify as effects, the null as placebo
+    # the designed-strong cells certify as effects, the nulls as placebo
     assert by_q["q0000"]["cls"] == "effect"
     assert by_q["q0002"]["cls"] == "effect"
+    assert by_q["q0004"]["cls"] == "effect"
     assert by_q["q0001"]["cls"] == "placebo"
+    assert by_q["q0005"]["cls"] == "placebo"
     assert by_q["q0001"]["shrunk_abs_delta"] == 0.0  # |delta| < SE -> shrunk to 0
 
     # designed values for the strong H1 cell (members all yes in both halves).
@@ -171,16 +191,22 @@ def test_mine_world_split_half_certification(tmp_path):
     assert by_q["q0000"]["resolution_outcome"] == 1  # s1 is a member -> True
     assert by_q["q0001"]["resolution_outcome"] == 0  # 1 % 3 != 0
     assert by_q["q0002"]["resolution_outcome"] == 1
-    # horizon plumbing
+    assert by_q["q0004"]["resolution_outcome"] == 1
+    assert by_q["q0005"]["resolution_outcome"] == 0
+    # horizon plumbing (incl. the production-fleet t180/t210 horizons)
     assert (by_q["q0000"]["horizon"], by_q["q0000"]["resolution_turn"]) == ("H1", 90)
     assert (by_q["q0001"]["horizon"], by_q["q0001"]["resolution_turn"]) == ("H2", 120)
     assert (by_q["q0002"]["horizon"], by_q["q0002"]["resolution_turn"]) == ("H3", 150)
+    assert (by_q["q0004"]["horizon"], by_q["q0004"]["resolution_turn"]) == ("H4", 180)
+    assert (by_q["q0005"]["horizon"], by_q["q0005"]["resolution_turn"]) == ("H5", 210)
 
     rows = cells_v2.summarize(cells)
     assert {(r["template_id"], r["horizon"], r["cls"], r["cells"]) for r in rows} == {
         ("tech_comparative", "H1", "effect", 1),
         ("tech_within", "H2", "placebo", 1),
         ("tech_comparative", "H3", "effect", 1),
+        ("tech_comparative", "H4", "effect", 1),
+        ("tech_within", "H5", "placebo", 1),
     }
 
 
@@ -197,7 +223,7 @@ def test_lane_sharded_arm_matches_single_arm(tmp_path):
     exactly the same cells as the equivalent single arm."""
     arm, qpath, members = _write_fixture(tmp_path)
     single = cells_v2.mine_world(
-        "w_test", str(arm), str(qpath), {"H1", "H2", "H3"},
+        "w_test", str(arm), str(qpath), HORIZONS,
         [(60, 75)], 0.05, 0.95, 6, 6)
 
     manifest = json.loads((arm / "manifest.json").read_text())
@@ -223,9 +249,9 @@ def test_lane_sharded_arm_matches_single_arm(tmp_path):
     merged = cells_v2.load_answers(str(sharded))
     assert merged == cells_v2.load_answers(str(arm))
     sharded_cells = cells_v2.mine_world(
-        "w_test", str(sharded), str(qpath), {"H1", "H2", "H3"},
+        "w_test", str(sharded), str(qpath), HORIZONS,
         [(60, 75)], 0.05, 0.95, 6, 6)
-    assert sharded_cells == single and len(single) == 3
+    assert sharded_cells == single and len(single) == 5
 
 
 def test_mine_world_enforces_nx_floor_both_halves(tmp_path):
@@ -241,6 +267,6 @@ def test_mine_world_enforces_nx_floor_both_halves(tmp_path):
         with gzip.open(arm / "rollouts" / f"{tag}.json.gz", "wt") as f:
             json.dump({"events": events}, f)
     cells = cells_v2.mine_world(
-        "w_test", str(arm), str(qpath), {"H1", "H2", "H3"},
+        "w_test", str(arm), str(qpath), HORIZONS,
         [(60, 75)], 0.0, 1.0, 6, 6)
     assert cells == []

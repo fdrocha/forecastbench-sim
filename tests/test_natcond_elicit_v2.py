@@ -58,8 +58,10 @@ def test_single_turn_prompt_contains_same_final_info():
 
 def test_resolution_criteria_render_per_horizon_turn():
     # derived-qid cells carry their own resolution_turn; the rc string and
-    # single-turn prompt must state that turn, not t90
-    for rt, hz in ((90, "H1"), (120, "H2"), (150, "H3")):
+    # single-turn prompt must state that turn, not t90 (H4/H5 = the
+    # production-fleet t180/t210 horizons)
+    for rt, hz in ((90, "H1"), (120, "H2"), (150, "H3"),
+                   (180, "H4"), (210, "H5")):
         cell = dict(CELL, qid=f"q0007_h{hz[1]}" if hz != "H1" else "q0007",
                     horizon=hz, resolution_turn=rt,
                     question=f"Will Benin lead at turn {rt}?")
