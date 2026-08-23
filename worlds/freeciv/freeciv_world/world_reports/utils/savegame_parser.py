@@ -4,11 +4,72 @@ This module extracts complete game state from Freeciv .sav files,
 which contain data for ALL players without fog-of-war limitations.
 """
 
+import io
+import logging
+import lzma
 import re
 import requests
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import subprocess
+
+logger = logging.getLogger('freeciv_world.savegame_parser')
+
+# ---------------------------------------------------------------------------
+# Savegame coverage tracking (see FBSIM_REQUIRE_SAVEGAME_COVERAGE)
+#
+# Serialization silently degrading to the embassy-gated player view (because
+# per-turn savegames were missing or unparseable) is what produced the "dark
+# world" corpus. Every savegame extraction attempt is recorded here, keyed by
+# recording_dir, so the serializer can stamp a `savegame_coverage` fraction
+# into its metadata and hard-fail when coverage is incomplete.
+# ---------------------------------------------------------------------------
+
+# {recording_dir: {turn: 'parsed' | 'missing' | 'failed'}}
+_savegame_coverage: Dict[str, Dict[int, str]] = {}
+
+
+def reset_savegame_coverage(recording_dir: str) -> None:
+    """Clear tracked savegame-extraction outcomes for a recording directory."""
+    _savegame_coverage[str(recording_dir)] = {}
+
+
+def note_savegame_status(recording_dir: str, turn: int, status: str) -> None:
+    """Record the outcome of a savegame extraction attempt for one turn.
+
+    A turn that ever parsed successfully stays 'parsed' (repeat calls for the
+    same turn are common during serialization).
+    """
+    log = _savegame_coverage.setdefault(str(recording_dir), {})
+    if log.get(turn) != 'parsed':
+        log[turn] = status
+
+
+def compute_savegame_coverage(recording_dir: str, expected_turns: List[int]) -> Dict[str, object]:
+    """Compute the fraction of expected turns whose savegame parsed.
+
+    Args:
+        recording_dir: Recording directory the serialization ran over
+        expected_turns: Turns the serialization covered (state turns)
+
+    Returns:
+        Dict with keys: coverage (float 0..1), expected (int), parsed (int),
+        missing_turns (list), failed_turns (list). Turns never attempted are
+        counted as missing.
+    """
+    log = _savegame_coverage.get(str(recording_dir), {})
+    expected = sorted(set(expected_turns))
+    parsed = [t for t in expected if log.get(t) == 'parsed']
+    failed = [t for t in expected if log.get(t) == 'failed']
+    missing = [t for t in expected if log.get(t) not in ('parsed', 'failed')]
+    coverage = (len(parsed) / len(expected)) if expected else 0.0
+    return {
+        'coverage': coverage,
+        'expected': len(expected),
+        'parsed': len(parsed),
+        'missing_turns': missing,
+        'failed_turns': failed,
+    }
 
 
 def list_server_savegames(username: str, host: str = 'localhost', port: int = 8080) -> List[str]:
@@ -124,23 +185,49 @@ def decompress_savegame_content(savegame_content: bytes, filename: str) -> str:
         Decompressed savegame content as string
     """
     if filename.endswith('.zst'):
-        # Use zstd to decompress
-        result = subprocess.run(
-            ['zstd', '-d', '-c'],
-            input=savegame_content,
-            capture_output=True,
-            check=True
-        )
-        return result.stdout.decode('utf-8')
+        # Use the zstd binary when available, falling back to the pure-python
+        # `zstandard` package. The fallback is load-bearing: pods without the
+        # zstd binary previously made every .sav.zst unparseable, silently
+        # degrading serialization to the embassy-gated player view.
+        try:
+            result = subprocess.run(
+                ['zstd', '-d', '-c'],
+                input=savegame_content,
+                capture_output=True,
+                check=True
+            )
+            return result.stdout.decode('utf-8')
+        except (FileNotFoundError, OSError, subprocess.CalledProcessError) as e:
+            logger.warning(
+                f"zstd binary decompression unavailable/failed for {filename} "
+                f"({e!r}); falling back to python zstandard")
+            try:
+                import zstandard
+            except ImportError as import_err:
+                raise RuntimeError(
+                    f"Cannot decompress {filename}: zstd binary failed ({e!r}) "
+                    f"and the python 'zstandard' package is not installed"
+                ) from import_err
+            # stream_reader handles frames without a content-size header
+            # (zstd CLI default), which one-shot decompress() rejects.
+            dctx = zstandard.ZstdDecompressor()
+            with dctx.stream_reader(io.BytesIO(savegame_content)) as reader:
+                return reader.read().decode('utf-8')
     elif filename.endswith('.xz'):
-        # Use xz to decompress
-        result = subprocess.run(
-            ['xz', '-d', '-c'],
-            input=savegame_content,
-            capture_output=True,
-            check=True
-        )
-        return result.stdout.decode('utf-8')
+        # Use the xz binary when available, falling back to stdlib lzma.
+        try:
+            result = subprocess.run(
+                ['xz', '-d', '-c'],
+                input=savegame_content,
+                capture_output=True,
+                check=True
+            )
+            return result.stdout.decode('utf-8')
+        except (FileNotFoundError, OSError, subprocess.CalledProcessError) as e:
+            logger.warning(
+                f"xz binary decompression unavailable/failed for {filename} "
+                f"({e!r}); falling back to python lzma")
+            return lzma.decompress(savegame_content).decode('utf-8')
     else:
         # Uncompressed
         return savegame_content.decode('utf-8')
@@ -1099,11 +1186,13 @@ def extract_complete_data_from_savegame(username: str, turn: int, host: str = 'l
     # Find savegame in local recordings directory
     savegame_name = find_local_savegame_for_turn(username, turn, recording_dir)
     if not savegame_name:
+        note_savegame_status(recording_dir, turn, 'missing')
         return None
 
     # Load from local directory
     result = load_local_savegame(savegame_name, recording_dir)
     if not result:
+        note_savegame_status(recording_dir, turn, 'missing')
         return None
 
     savegame_bytes, actual_filename = result
@@ -1125,6 +1214,7 @@ def extract_complete_data_from_savegame(username: str, turn: int, host: str = 'l
         scores = parse_player_scores(content)
         player_states = parse_player_states_for_conditional(content)
 
+        note_savegame_status(recording_dir, turn, 'parsed')
         return {
             'production': production,
             'science': science,
@@ -1138,9 +1228,16 @@ def extract_complete_data_from_savegame(username: str, turn: int, host: str = 'l
         }
 
     except Exception as e:
-        print(f"Error parsing savegame {actual_filename}: {e}")
-        import traceback
-        traceback.print_exc()
+        # NEVER swallow this silently: a failed parse means serialization
+        # degrades to the embassy-gated player view (frozen civs, no wonders,
+        # empty diplomacy). Log loudly and record the failure so the
+        # savegame_coverage stamp (and FBSIM_REQUIRE_SAVEGAME_COVERAGE) see it.
+        note_savegame_status(recording_dir, turn, 'failed')
+        logger.error(
+            f"Savegame parse FAILED for turn {turn} ({actual_filename}): {e!r}. "
+            f"Extraction will degrade to the embassy-gated player view for this turn.",
+            exc_info=True)
+        print(f"ERROR: savegame parse failed for turn {turn} ({actual_filename}): {e!r}")
         return None
 
 

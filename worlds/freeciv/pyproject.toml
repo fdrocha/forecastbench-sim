@@ -28,6 +28,9 @@ dependencies = [
     "litellm>=1.80.0,<1.82",
     "google-cloud-secret-manager>=2.16.0",
     "datasets>=3.1.0",
+    # Pure-python .sav.zst decompression fallback: savegames must stay
+    # parseable even on hosts without the zstd binary (dark-world incident).
+    "zstandard>=0.22",
 ]
 
 [project.optional-dependencies]

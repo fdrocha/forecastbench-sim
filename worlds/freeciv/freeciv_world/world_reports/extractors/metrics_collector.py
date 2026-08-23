@@ -4,13 +4,18 @@ This module extracts all world report data from state files and savegames,
 organizing it into a flat, metric-based structure.
 """
 
+import os
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from collections import defaultdict
 
 from ..utils import metrics
 from ..utils.event_detector import EventDetector
-from ..utils.savegame_parser import get_savegame_data_for_report
+from ..utils.savegame_parser import (
+    get_savegame_data_for_report,
+    reset_savegame_coverage,
+    compute_savegame_coverage,
+)
 
 # Diplomatic state constants (from player_const.py)
 DS_ARMISTICE = 0
@@ -99,6 +104,11 @@ class MetricsCollector:
         sorted_turns = sorted(states.keys())
         max_turn = max(sorted_turns)
 
+        # Start a fresh savegame-coverage log for this serialization
+        recording_dir = getattr(config, 'recording_dir', None)
+        if recording_dir:
+            reset_savegame_coverage(recording_dir)
+
         print("  Collecting metadata...")
         metadata = self.collect_metadata(states, config)
 
@@ -130,6 +140,31 @@ class MetricsCollector:
         # Note: collect_diplomacy_from_states is buggy - state['dipl'] only contains
         # the controlled player's relationships, not all pairwise diplomatic states.
         diplomacy = self.collect_diplomacy(states, config, civilizations)
+
+        # Stamp savegame coverage into the serialization metadata. A turn
+        # counts as covered only if its savegame was found AND parsed; missing
+        # or failed turns silently degrade extraction to the embassy-gated
+        # player view, which is exactly the dark-world failure mode.
+        if recording_dir:
+            cov = compute_savegame_coverage(recording_dir, sorted_turns)
+            metadata["savegame_coverage"] = cov["coverage"]
+            metadata["savegame_turns_expected"] = cov["expected"]
+            metadata["savegame_turns_parsed"] = cov["parsed"]
+            metadata["savegame_turns_missing"] = cov["missing_turns"]
+            metadata["savegame_turns_failed"] = cov["failed_turns"]
+            if cov["coverage"] < 1.0:
+                msg = (
+                    f"savegame_coverage={cov['coverage']:.4f} "
+                    f"({cov['parsed']}/{cov['expected']} turns parsed; "
+                    f"missing={cov['missing_turns'][:10]}"
+                    f"{'...' if len(cov['missing_turns']) > 10 else ''}, "
+                    f"failed={cov['failed_turns'][:10]}"
+                    f"{'...' if len(cov['failed_turns']) > 10 else ''}) "
+                    f"for recording_dir={recording_dir}")
+                print(f"  WARNING: incomplete savegame coverage: {msg}")
+                if os.environ.get("FBSIM_REQUIRE_SAVEGAME_COVERAGE") == "1":
+                    raise RuntimeError(
+                        f"FBSIM_REQUIRE_SAVEGAME_COVERAGE=1 and {msg}")
 
         return {
             "metadata": metadata,

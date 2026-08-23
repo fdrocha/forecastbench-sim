@@ -795,6 +795,7 @@ dependencies = [
     { name = "urllib3" },
     { name = "websocket-client" },
     { name = "wheel" },
+    { name = "zstandard" },
 ]
 
 [package.optional-dependencies]
@@ -828,6 +829,7 @@ requires-dist = [
     { name = "urllib3" },
     { name = "websocket-client" },
     { name = "wheel" },
+    { name = "zstandard", specifier = ">=0.22" },
 ]
 provides-extras = ["dev"]
 
