@@ -23,8 +23,15 @@ MISSING rather than guessing):
       --anchor-bank       JSON: {qid: {"obs": 0|1, "p_mc": float}, ...}
 
 P1 gates: 10/10 frozen=0; wonder>=1/world with median in [7,25]; tech events
-400-600/world covering all reference-turn pids; diplomacy pairs>=10;
+300-805/world covering all reference-turn pids; diplomacy pairs>=10;
 savegame_coverage==1.0 stamped; no zstd tracebacks in logs.
+
+Gate revision 2026-08-23 (coordinator-verified): the original tech-event band
+[400,600] was miscalibrated. Empirical healthy reference across 52
+known-healthy recordings (40 fresh-healthy + 12 legacy data/games worlds):
+min=314 / med=517 / max=732; legacy seed1 alone counts 644. All out-of-band
+pilot worlds were verified to contain zero duplicate (turn,pid,tech) events.
+Revised band: [300, 805].
 
 P2 gates (fork turn t60, window end t90 by default): frozen 0/5 in >=98% of
 forks; t60 research state identical to anchor in 100%; t60 diplomacy identical
@@ -289,11 +296,14 @@ def run_p1_gates(p1_dir: Optional[str], expected_worlds: int,
             '>=1/world and median in [7,25]',
             f'per-world: { {w: s["n_wonders"] for w, s in ok_stats.items()} }'))
 
-        # Gate: tech events 400-600/world covering all reference-turn pids
+        # Gate: tech events 300-805/world covering all reference-turn pids.
+        # Band revised 2026-08-23 from [400,600]: calibrated against 52
+        # known-healthy recordings (min=314/med=517/max=732; legacy seed1=644)
+        # with per-world duplicate-event checks on all out-of-band worlds.
         tech_ok, tech_bad = [], {}
         for w, s in ok_stats.items():
             covers = set(s['civ_ids']).issubset(set(s['tech_pids']))
-            in_range = 400 <= s['n_tech_events'] <= 600
+            in_range = 300 <= s['n_tech_events'] <= 805
             if covers and in_range:
                 tech_ok.append(w)
             else:
@@ -303,7 +313,8 @@ def run_p1_gates(p1_dir: Optional[str], expected_worlds: int,
         status = PASS if len(tech_ok) == n else FAIL
         gates.append(gate(
             'p1_tech_events', status, f'{len(tech_ok)}/{n}',
-            '400-600 tech events/world covering all reference-turn pids',
+            '300-805 tech events/world covering all reference-turn pids '
+            '(band revised 2026-08-23 per 52-recording healthy reference)',
             f'violations: {tech_bad}' if tech_bad else ''))
 
         # Gate: diplomacy pairs >= 10 per world
