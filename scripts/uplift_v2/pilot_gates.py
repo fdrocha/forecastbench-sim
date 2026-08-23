@@ -26,17 +26,33 @@ P1 gates: 10/10 frozen=0; wonder>=1/world with median in [7,25]; tech events
 300-805/world covering all reference-turn pids; diplomacy pairs>=10;
 savegame_coverage==1.0 stamped; no zstd tracebacks in logs.
 
-Gate revision 2026-08-23 (coordinator-verified): the original tech-event band
-[400,600] was miscalibrated. Empirical healthy reference across 52
+Gate revision #1, 2026-08-23 (coordinator-verified): the original tech-event
+band [400,600] was miscalibrated. Empirical healthy reference across 52
 known-healthy recordings (40 fresh-healthy + 12 legacy data/games worlds):
 min=314 / med=517 / max=732; legacy seed1 alone counts 644. All out-of-band
 pilot worlds were verified to contain zero duplicate (turn,pid,tech) events.
 Revised band: [300, 805].
 
+Gate revision #2, 2026-08-23 (coordinator-verified): p2_p0_next_tech_modal
+(modal first-tech frequency <= 0.95) is replaced by
+p2_anchor_path_not_excluded. Rationale: real AI research at a fixed t60 state
+is legitimately low-entropy (pilot anchor seed1000: p0 held 99 banked bulbs
+toward Literacy at t60, completing it t61 in 100/100 forks), so a modal-
+frequency ceiling penalizes healthy determinism. The failure mode the gate
+family exists to catch — a saved-RNG ensemble that EXCLUDES the anchor's own
+realized trajectory — is instead tested directly: the anchor's first two
+post-fork p0 research picks must each occur with nonzero frequency in the
+fork ensemble, and the anchor's two-step path must not sit in the ensemble's
+<2% tail. Pilot evidence: anchor path (Literacy t61, The Republic t69) is the
+fork modal path at 100/100 and 99/100 (joint 99/100). Cloning/exchangeability
+pathologies remain covered by p2_anchor_in_ensemble, p2_seed_pairs, and
+p2_calibration.
+
 P2 gates (fork turn t60, window end t90 by default): frozen 0/5 in >=98% of
 forks; t60 research state identical to anchor in 100%; t60 diplomacy identical
-in 100%; >=30% of forks witness a wonder in-window; p0 next-tech modal
-frequency <=0.95; same-seed pairs dynamics-identical at t70 while diff-seed
+in 100%; >=30% of forks witness a wonder in-window; anchor 2-step p0 research
+path not excluded from the ensemble (revision #2, replaces the modal-frequency
+ceiling); same-seed pairs dynamics-identical at t70 while diff-seed
 pairs diverge; goal_name != A_UNSET in 100%; anchor t90 techs inside the fork
 ensemble min-max in >=92% of player-cells (23/25); pooled |obs-p_mc| < 0.05
 over the anchor bank; [settings] block identical to the anchor T60 save
@@ -398,7 +414,7 @@ def run_p2_gates(p2_dir: Optional[str], anchor_path: Optional[str],
     gates: List[dict] = []
     p2_names = ['p2_frozen', 'p2_t60_research_identical',
                 'p2_t60_diplomacy_identical', 'p2_wonder_window',
-                'p2_p0_next_tech_modal', 'p2_seed_pairs',
+                'p2_anchor_path_not_excluded', 'p2_seed_pairs',
                 'p2_goal_not_unset', 'p2_anchor_in_ensemble',
                 'p2_calibration', 'p2_settings_identical']
 
@@ -527,36 +543,55 @@ def run_p2_gates(p2_dir: Optional[str], anchor_path: Optional[str],
         gates.append(gate('p2_wonder_window', MISSING, None,
                           '>=30% witness a wonder in-window', 'no fork data'))
 
-    # --- Gate: p0 next-tech modal frequency <= 0.95 -----------------------
-    if with_data:
-        firsts = []
+    # --- Gate: anchor research path not excluded from the ensemble --------
+    # Revision #2 (2026-08-23): replaces p2_p0_next_tech_modal. See module
+    # docstring. The anchor's first two post-fork p0 research picks must each
+    # have nonzero fork frequency, and the anchor's two-step path must not be
+    # in the ensemble's <2% tail.
+    def _p0_seq(data, k=2):
+        evs = sorted((e for e in data.get('events', [])
+                      if e.get('type') == 'tech_discovered'
+                      and e.get('player_id') == 0
+                      and e.get('turn', 0) > fork_turn),
+                     key=lambda e: e.get('turn', 10**9))
+        return [(e.get('metadata') or {}).get(
+            'tech_name', e.get('description', '?')) for e in evs[:k]]
+
+    if with_data and anchor is not None:
+        anchor_seq = _p0_seq(anchor)
+        first_c, second_c, joint_c = Counter(), Counter(), Counter()
+        n_seq = 0
         for fid in with_data:
-            evs = [e for e in fork_data[fid].get('events', [])
-                   if e.get('type') == 'tech_discovered'
-                   and e.get('player_id') == 0
-                   and e.get('turn', 0) > fork_turn]
-            if evs:
-                first = min(evs, key=lambda e: e.get('turn', 10**9))
-                name = (first.get('metadata') or {}).get(
-                    'tech_name', first.get('description', '?'))
-                firsts.append(name)
-        if firsts:
-            counts = Counter(firsts)
-            modal, modal_n = counts.most_common(1)[0]
-            frac = modal_n / len(firsts)
+            seq = _p0_seq(fork_data[fid])
+            if seq:
+                n_seq += 1
+                first_c[seq[0]] += 1
+                if len(seq) > 1:
+                    second_c[seq[1]] += 1
+                    joint_c[tuple(seq[:2])] += 1
+        if len(anchor_seq) < 2 or n_seq == 0:
             gates.append(gate(
-                'p2_p0_next_tech_modal', PASS if frac <= 0.95 else FAIL,
-                f'modal={modal!r} at {modal_n}/{len(firsts)} ({frac:.1%})',
-                'modal frequency <= 0.95',
-                f'distribution: {dict(counts.most_common(5))}'))
+                'p2_anchor_path_not_excluded', MISSING, None,
+                'anchor 2-step p0 path present in ensemble (>=2%)',
+                f'anchor picks found: {anchor_seq}; forks with p0 events: {n_seq}'))
         else:
+            f1 = first_c.get(anchor_seq[0], 0)
+            f2 = second_c.get(anchor_seq[1], 0)
+            jf = joint_c.get(tuple(anchor_seq[:2]), 0)
+            joint_total = sum(joint_c.values())
+            frac = jf / joint_total if joint_total else 0.0
+            status = PASS if (f1 > 0 and f2 > 0 and frac >= 0.02) else FAIL
             gates.append(gate(
-                'p2_p0_next_tech_modal', FAIL, 'no p0 post-fork tech events',
-                'modal frequency <= 0.95',
-                'no fork produced a player-0 tech discovery in-window'))
+                'p2_anchor_path_not_excluded', status,
+                f'anchor path {anchor_seq[:2]}: first {f1}/{n_seq}, '
+                f'second {f2}/{joint_total}, joint {jf}/{joint_total} ({frac:.1%})',
+                'both anchor picks at nonzero fork frequency; joint path >= 2%',
+                f'first dist: {dict(first_c.most_common(4))}; '
+                f'second dist: {dict(second_c.most_common(4))}'))
     else:
-        gates.append(gate('p2_p0_next_tech_modal', MISSING, None,
-                          'modal frequency <= 0.95', 'no fork data'))
+        gates.append(gate('p2_anchor_path_not_excluded', MISSING, None,
+                          'anchor 2-step p0 path present in ensemble (>=2%)',
+                          'needs fork data and --anchor world data'))
 
     # --- Gate: same-seed pairs identical at t70, diff-seed diverge --------
     pairs = None
