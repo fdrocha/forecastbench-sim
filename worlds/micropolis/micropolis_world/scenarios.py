@@ -21,12 +21,6 @@ PERCENTILE_KEYS = ["p10", "p25", "p50", "p75", "p90"]
 # single city in each scenario is always entity 0.
 CITY_ENTITY_ID = 0
 
-# What the report gives the model to reason from. The snapshot-only variant has
-# no HISTORY table (see report.gen_world_report), so naming "trends" there would
-# point at something absent.
-_WITH_HISTORY_SOURCES = "the trends, events, and current state"
-_SNAPSHOT_ONLY_SOURCES = "the events and current state"
-
 # The preamble a run uses when its config names no "preamble_path". Held as a
 # file rather than a string literal so a prompt variant is a new file plus one
 # config key, with no code change; the text must contain "{sources}", which
@@ -42,17 +36,6 @@ def read_preamble(path: Path | str | None = None) -> str:
     per batch, and because a config's key is read afresh at each call site.
     """
     return Path(path or DEFAULT_PREAMBLE_PATH).read_text(encoding="utf-8")
-
-
-def prompt_preamble(
-    snapshot_only_report: bool = False, preamble_path: Path | str | None = None
-) -> str:
-    """The preamble, naming only the report sections the variant actually has."""
-    return read_preamble(preamble_path).format(
-        sources=(
-            _SNAPSHOT_ONLY_SOURCES if snapshot_only_report else _WITH_HISTORY_SOURCES
-        )
-    )
 
 
 def get_single_city_base_scenarios(
@@ -189,7 +172,7 @@ def build_batch_prompt_continuous(
             f"Provide one such line for each of the {n} questions, in order, "
             "replacing the example values with your actual percentile estimates."
         )
-    return f"""{prompt_preamble(snapshot_only_report, preamble_path)}
+    return f"""{read_preamble(preamble_path)}
 
 ## Game report
 {context}
