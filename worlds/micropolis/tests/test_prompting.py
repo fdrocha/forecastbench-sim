@@ -109,8 +109,8 @@ def test_sends_normalized_id_and_mirrors_temperature_rules(calls):
     assert supported["max_tokens"] == unsupported["max_tokens"] == 10
 
 
-def test_sends_retry_and_timeout_settings(calls):
-    """num_retries/timeout are the whole backoff story, so pin their passing."""
+def test_owns_retries_and_disables_litellm_and_sdk_retries(calls):
+    """Both silent retry layers must be off so our warning loop sees each 429."""
     asyncio.run(
         prompt_model_async(
             LiteLLMModel("openai/gpt-4o"),
@@ -121,8 +121,108 @@ def test_sends_retry_and_timeout_settings(calls):
         )
     )
 
-    assert calls[0]["num_retries"] == 7
+    assert calls[0]["num_retries"] == 0
+    assert calls[0]["max_retries"] == 0
     assert calls[0]["timeout"] == 123.0
+
+
+def test_retries_rate_limits_with_a_stderr_warning(monkeypatch, capsys):
+    import litellm
+
+    attempts = []
+
+    async def fake_acompletion(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) < 3:
+            raise litellm.RateLimitError("slow down", llm_provider="openai", model="gpt-4o")
+        return make_response()
+
+    monkeypatch.setattr("litellm.acompletion", fake_acompletion)
+    monkeypatch.setattr("micropolis_world.prompting.RATE_LIMIT_BACKOFF_BASE_S", 0.0)
+
+    got = asyncio.run(
+        prompt_model_async(
+            LiteLLMModel("openai/gpt-4o"),
+            [{"role": "user", "content": "hi"}],
+            max_tokens=10,
+        )
+    )
+
+    assert got.text == "hello"
+    assert len(attempts) == 3
+    err = capsys.readouterr().err
+    assert err.count("RateLimitError") == 2
+    assert "openai/gpt-4o" in err
+
+
+def test_raises_once_the_retry_budget_is_spent(monkeypatch, capsys):
+    import litellm
+
+    attempts = []
+
+    async def fake_acompletion(**kwargs):
+        attempts.append(kwargs)
+        raise litellm.RateLimitError("slow down", llm_provider="openai", model="gpt-4o")
+
+    monkeypatch.setattr("litellm.acompletion", fake_acompletion)
+    monkeypatch.setattr("micropolis_world.prompting.RATE_LIMIT_BACKOFF_BASE_S", 0.0)
+
+    with pytest.raises(litellm.RateLimitError):
+        asyncio.run(
+            prompt_model_async(
+                LiteLLMModel("openai/gpt-4o"),
+                [{"role": "user", "content": "hi"}],
+                max_tokens=10,
+                num_retries=2,
+            )
+        )
+
+    assert len(attempts) == 3  # 1 first try + 2 retries
+    # Warnings fire per retry, not for the final failure — that one raises.
+    assert capsys.readouterr().err.count("RateLimitError") == 2
+
+
+def test_transient_errors_retry_but_client_errors_raise_immediately(monkeypatch, capsys):
+    import litellm
+
+    attempts = []
+
+    async def flaky_acompletion(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise litellm.InternalServerError("oops", llm_provider="openai", model="gpt-4o")
+        return make_response()
+
+    monkeypatch.setattr("litellm.acompletion", flaky_acompletion)
+    monkeypatch.setattr("micropolis_world.prompting.TRANSIENT_BACKOFF_S", 0.0)
+
+    got = asyncio.run(
+        prompt_model_async(
+            LiteLLMModel("openai/gpt-4o"),
+            [{"role": "user", "content": "hi"}],
+            max_tokens=10,
+        )
+    )
+    assert got.text == "hello"
+    assert len(attempts) == 2
+    assert "InternalServerError" in capsys.readouterr().err
+
+    async def unauthorized_acompletion(**kwargs):
+        attempts.append(kwargs)
+        raise litellm.AuthenticationError("bad key", llm_provider="openai", model="gpt-4o")
+
+    monkeypatch.setattr("litellm.acompletion", unauthorized_acompletion)
+    attempts.clear()
+
+    with pytest.raises(litellm.AuthenticationError):
+        asyncio.run(
+            prompt_model_async(
+                LiteLLMModel("openai/gpt-4o"),
+                [{"role": "user", "content": "hi"}],
+                max_tokens=10,
+            )
+        )
+    assert len(attempts) == 1  # no retry budget wasted on a hopeless call
 
 
 def test_passes_the_message_list_through_verbatim(calls):

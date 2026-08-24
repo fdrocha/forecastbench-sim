@@ -18,6 +18,7 @@ ProviderRateLimiter, both of which are public for exactly that reason.
 """
 
 import asyncio
+import sys
 import time
 from collections.abc import AsyncIterator, Hashable
 from dataclasses import dataclass
@@ -40,11 +41,18 @@ DEFAULT_PROVIDER_LIMITS: dict[str, int] = {
 }
 DEFAULT_UNKNOWN_LIMIT = 2
 
-# litellm retries RateLimitError with exponential backoff (capped at 10s) and
-# other APIErrors with constant backoff, re-raising the original when the
-# budget is spent. Kept small because litellm also forwards num_retries to the
-# OpenAI SDK client as max_retries, so attempts can multiply wrapper x SDK.
+# Retries after the first attempt. prompt_model_async owns the retry loop:
+# litellm's own retry paths (its tenacity wrapper and the provider SDK's
+# max_retries) are completely silent, so a run deep in 429 territory just
+# looked slow. We disable both layers and back off ourselves, printing a
+# warning to stderr before each retry.
 DEFAULT_NUM_RETRIES = 3
+# Backoff schedule: exponential for 429s, a short constant pause for other
+# transient errors (connection drops, 5xx, timeouts). Module-level so tests
+# can zero them out.
+RATE_LIMIT_BACKOFF_BASE_S = 1.0
+RATE_LIMIT_BACKOFF_MAX_S = 30.0
+TRANSIENT_BACKOFF_S = 1.0
 # Per-attempt cap, forwarded to the provider client. Generous: a 60k-token
 # reasoning reply can legitimately run many minutes.
 DEFAULT_TIMEOUT_S = 900.0
@@ -113,6 +121,13 @@ async def prompt_model_async(
     settings, which matter once calls run concurrently and a provider starts
     returning 429s.
 
+    Retries happen here, not in litellm: num_retries=0 and max_retries=0
+    disable litellm's wrapper retries and the provider SDK's, both of which
+    are silent. Rate limits back off exponentially, other transient errors
+    (connection drops, 5xx, timeouts) pause briefly, and each retry prints a
+    one-line warning to stderr so a throttled run is visible. Anything else
+    (auth failures, bad requests) raises immediately.
+
     `model` is a LiteLLMModel, duck-typed (.id, ._litellm_model_id,
     .supports_temperature) so importing this module never imports fbsim-core,
     which pulls in litellm at module level.
@@ -120,20 +135,53 @@ async def prompt_model_async(
     # Imported here so tests can monkeypatch litellm.acompletion; the name is
     # resolved per call. See test_usage.py's `calls` fixture for why hoisting
     # this to module level would break the stub.
-    from litellm import acompletion, supports_reasoning
+    from litellm import (
+        APIConnectionError,
+        InternalServerError,
+        RateLimitError,
+        ServiceUnavailableError,
+        Timeout,
+        acompletion,
+        supports_reasoning,
+    )
 
     kwargs = {
         "model": model._litellm_model_id,
         "messages": messages,
         "max_tokens": max_tokens,
-        "num_retries": num_retries,
+        "num_retries": 0,
+        "max_retries": 0,
         "timeout": timeout,
     }
     if model.supports_temperature and not supports_reasoning(model._litellm_model_id):
         kwargs["temperature"] = 0.0
 
-    start = time.perf_counter()
-    response = await acompletion(**kwargs)
+    for attempt in range(num_retries + 1):
+        start = time.perf_counter()
+        try:
+            response = await acompletion(**kwargs)
+        except (
+            RateLimitError,
+            APIConnectionError,
+            InternalServerError,
+            ServiceUnavailableError,
+            Timeout,
+        ) as e:
+            if attempt == num_retries:
+                raise
+            if isinstance(e, RateLimitError):
+                delay = min(RATE_LIMIT_BACKOFF_BASE_S * 2**attempt, RATE_LIMIT_BACKOFF_MAX_S)
+            else:
+                delay = TRANSIENT_BACKOFF_S
+            print(
+                f"[retry] {model.id}: {type(e).__name__} on attempt"
+                f" {attempt + 1}/{num_retries + 1}, retrying in {delay:.0f}s",
+                file=sys.stderr,
+                flush=True,
+            )
+            await asyncio.sleep(delay)
+        else:
+            break
     latency_ms = (time.perf_counter() - start) * 1000
 
     choice = response.choices[0]  # type: ignore
@@ -190,8 +238,9 @@ async def run_prompts(
 
     Calls to the same provider are capped by a shared ProviderRateLimiter
     (`limits` overrides individual defaults). The semaphore is held across
-    litellm's internal retries, so a provider in 429 territory stays throttled
-    while it backs off rather than being hit by the next waiting call.
+    prompt_model_async's retries, so a provider in 429 territory stays
+    throttled while it backs off rather than being hit by the next waiting
+    call.
 
     Yields one PromptResult per job as each finishes. Only Exception is
     captured into results — CancelledError and KeyboardInterrupt propagate, so
