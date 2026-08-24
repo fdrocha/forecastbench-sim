@@ -32,7 +32,7 @@ from .usage import LLMResponse, usage_from_response
 # of them. Keyed by LiteLLMModel.provider_cls strings.
 DEFAULT_PROVIDER_LIMITS: dict[str, int] = {
     "OpenAIProvider": 4,
-    "AnthropicProvider": 2,
+    "AnthropicProvider": 4,
     "GoogleProvider": 4,
     "TogetherProvider": 4,
     "MistralProvider": 2,
@@ -136,7 +136,7 @@ async def prompt_model_async(
     response = await acompletion(**kwargs)
     latency_ms = (time.perf_counter() - start) * 1000
 
-    choice = response.choices[0]
+    choice = response.choices[0]  # type: ignore
     return LLMResponse(
         text=choice.message.content,
         finish_reason=choice.finish_reason,
@@ -199,6 +199,8 @@ async def run_prompts(
     still in flight.
     """
     limiter = ProviderRateLimiter(limits)
+    # We sort by models so we'll try to hit every model sooner and get better time estimates
+    jobs.sort(key=lambda job: job.model_name)
 
     async def worker(job: PromptJob) -> PromptResult:
         async with limiter.semaphore(job.model.provider_cls):

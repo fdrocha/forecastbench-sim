@@ -71,7 +71,7 @@ def prompt_model(model, prompt: str, max_tokens: int) -> LLMResponse:
     response = completion(**kwargs)
     latency_ms = (time.perf_counter() - start) * 1000
 
-    choice = response.choices[0]
+    choice = response.choices[0]  # type: ignore
     return LLMResponse(
         text=choice.message.content,
         finish_reason=choice.finish_reason,
