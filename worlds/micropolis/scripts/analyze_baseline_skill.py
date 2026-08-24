@@ -262,7 +262,9 @@ def score_skill(
     A row carries the skill ratio and its log, since every aggregate here is a
     geometric mean and taking the log once per row keeps that cheap and keeps the
     two definitions from drifting apart. It also carries the metric, horizon and
-    disasters flag, which are what the tables and figures group by.
+    disasters flag, which are what the tables and figures group by, and the
+    scenario and snapshot turn it came from, which identify the cluster of
+    questions sharing one simulated trajectory.
 
     The tally counts question-model pairs by why they have no skill score, and is
     printed alongside the tables: with the plain baseline a large fraction of the
@@ -300,6 +302,12 @@ def score_skill(
                     # the score rather than something the plotting code has to
                     # rediscover from the corpus by question id.
                     "disasters": c["scenario"]["disasters"],
+                    # Which trajectory this question was read off. Questions
+                    # sharing a (scenario, snapshot) share a simulated history,
+                    # so they are not independent draws; carried here so an
+                    # interval can cluster on it. See cluster_key().
+                    "scenario_id": c["scenario_id"],
+                    "snapshot_turn": c["snapshot_turn"],
                     "skill": crps / base,
                     "log_skill": math.log(crps / base),
                 }

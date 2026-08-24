@@ -19,12 +19,17 @@ Scoring is imported from analyze_baseline_skill.py rather than reimplemented,
 so a cell here is by construction the same number as that script's "all"
 column for the same config, baseline and split.
 
-The error bars are normal intervals on the mean of log skill, exponentiated
-(so they are multiplicative and asymmetric around the mean, as a ratio's
-interval should be). They treat the per-question ratios as independent,
-which flatters them somewhat: questions within a scenario share a trajectory
-and horizons overlap, so the effective sample size is smaller than the count.
-Read them as comparable across cells, not as exact coverage.
+The error bars are t intervals on the mean of log skill, exponentiated (so they
+are multiplicative and asymmetric around the mean, as a ratio's interval should
+be). They are clustered on (scenario, snapshot turn): the questions read off one
+simulated trajectory are averaged into a single value first, and the spread is
+taken over those cluster means rather than over the questions. Questions sharing
+a trajectory are not independent draws — the horizons overlap and the metrics
+move together — so treating them as independent understates the interval by
+roughly a factor of two on the datasets this was built for.
+
+The clusters are what a rerun would resample: read the bars as "would this
+model's skill hold up on a fresh set of scenarios", not as spread over questions.
 
 As in the parent script, city funds is reported separately from the five
 behavioral metrics, the read-off horizon is excluded, and --baseline picks the
@@ -57,6 +62,7 @@ from micropolis_world.single_city import (
     load_dataset,
     select_for_config,
 )
+from scipy import stats
 
 sys.path.insert(0, str(Path(__file__).parent))
 from analyze_baseline_skill import (
@@ -73,8 +79,27 @@ from analyze_baseline_skill import (
 )
 from analyze_single_city import eci_of, stars_for
 
-# z for a two-sided 95% interval on the mean of log skill.
-CI_Z = 1.96
+# Two-sided 95%. The t quantile is taken at cluster_count-1 degrees of freedom
+# rather than a flat z, since the clustering leaves tens of effective
+# observations rather than hundreds and z would be optimistic at that size.
+CI_LEVEL = 0.95
+
+# Below this many clusters the spread over cluster means is too noisy to be
+# worth drawing, and a bar built from a handful of trajectories would imply a
+# precision the data cannot support. Such cells get a point and no bar.
+MIN_CLUSTERS = 4
+
+
+def cluster_key(row: dict) -> tuple:
+    """What a row's questions are correlated within.
+
+    A (scenario, snapshot turn) pair names one simulated trajectory read at one
+    point in time. Every question sharing it — all metrics, all horizons — is
+    read off that same history, so they rise and fall together and are not
+    independent draws. The scenario id already encodes city and disasters, so
+    the pair is the whole grouping.
+    """
+    return (row["scenario_id"], row["snapshot_turn"])
 
 
 def comparison_dir(name: str) -> Path:
@@ -88,23 +113,46 @@ def comparison_dir(name: str) -> Path:
 
 
 def skill_stats(rows: list[dict]) -> tuple[float, float | None, float | None, int]:
-    """(geometric mean, CI low, CI high, n) of `rows`' skill ratios.
+    """(geometric mean, CI low, CI high, n questions) of `rows`' skill ratios.
 
-    The interval is a normal 95% CI on the mean log skill, exponentiated, so it
-    is multiplicative — the same distance above and below in ratio terms — and
-    matches the geometric mean it brackets. With fewer than two rows there is
-    no spread to estimate, so the bounds are None rather than a fake zero-width
-    interval.
+    The point estimate is the geometric mean over every question, unchanged and
+    still matching analyze_baseline_skill.py's "all" column.
+
+    The interval is clustered on cluster_key(): each trajectory's questions are
+    averaged into one value, and the spread is taken over those cluster means.
+    Questions within a trajectory are not independent — overlapping horizons on
+    a shared history — so a per-question interval understates the uncertainty
+    substantially. Built in log space and exponentiated, so it is multiplicative
+    and brackets the geometric mean it belongs to.
+
+    Note the point estimate weights questions equally while the interval weights
+    clusters equally. With the balanced corpora this was built for the two
+    agree; where clusters differ in size the mean stays the pooled one so the
+    cell keeps matching the parent script, and only the width comes from the
+    clusters.
+
+    Returns bounds of None — a point with no bar — when there are too few
+    clusters to estimate a spread worth drawing.
     """
     logs = [r["log_skill"] for r in rows]
+    if not logs:
+        raise ValueError("skill_stats needs at least one row")
     mean = statistics.fmean(logs)
-    if len(logs) < 2:
+
+    grouped: dict[tuple, list[float]] = {}
+    for r in rows:
+        grouped.setdefault(cluster_key(r), []).append(r["log_skill"])
+    cluster_means = [statistics.fmean(v) for v in grouped.values()]
+
+    if len(cluster_means) < MIN_CLUSTERS:
         return math.exp(mean), None, None, len(logs)
-    sem = statistics.stdev(logs) / math.sqrt(len(logs))
+
+    sem = statistics.stdev(cluster_means) / math.sqrt(len(cluster_means))
+    crit = stats.t.ppf(1 - (1 - CI_LEVEL) / 2, len(cluster_means) - 1)
     return (
         math.exp(mean),
-        math.exp(mean - CI_Z * sem),
-        math.exp(mean + CI_Z * sem),
+        math.exp(mean - crit * sem),
+        math.exp(mean + crit * sem),
         len(logs),
     )
 
@@ -169,7 +217,8 @@ def print_skill_table(
         f"{split_note(split)}\n\n{baseline_note(kind)}\n\n"
         "each cell is the geometric mean of CRPS_model/CRPS_baseline over the "
         "config's scored questions; rows are sorted by ECI, models without one "
-        "last. The 95% CIs on these means are the scatter's error bars"
+        "last. The scatter's error bars are 95% CIs on these means, clustered "
+        "on (scenario, snapshot turn)"
     )
 
     def eci_cell(model_id: str) -> str:
@@ -200,13 +249,19 @@ def print_skill_table(
     report.table("\n".join(lines))
 
     counts = []
-    for label in per_config:
+    for label, rows in per_config.items():
         ns = [cells[label][m][3] for m in models if m in cells[label]]
         if ns:
             per_model = (
                 f"{min(ns)}" if min(ns) == max(ns) else f"{min(ns)}-{max(ns)}"
             )
-            counts.append(f"  {label}: {per_model} scored questions per model")
+            # Both counts, since they answer different questions: the questions
+            # say how much was scored, the clusters say how wide the bars are.
+            n_clusters = len({cluster_key(r) for r in rows})
+            counts.append(
+                f"  {label}: {per_model} scored questions per model, "
+                f"over {n_clusters} (scenario, snapshot) clusters"
+            )
     report.text("\n".join(["questions behind each cell:"] + counts))
 
 
@@ -232,7 +287,6 @@ def plot_eci_vs_skill_by_config(
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from scipy import stats
 
     # (eci, mean, lo, hi, model) per config, models without an ECI dropped.
     series: dict[str, list[tuple]] = {}
@@ -271,7 +325,7 @@ def plot_eci_vs_skill_by_config(
         ecis = [p[0] for p in points]
         means = [p[1] for p in points]
         # Asymmetric multiplicative intervals, so the two arms are computed
-        # separately; a cell with no interval (n=1) gets a zero-length bar.
+        # separately; a cell with too few clusters to bound gets no bar.
         lower = [m - (lo if lo is not None else m) for _, m, lo, _, _ in points]
         upper = [(hi if hi is not None else m) - m for _, m, _, hi, _ in points]
         ax.errorbar(
@@ -333,7 +387,7 @@ def plot_eci_vs_skill_by_config(
     ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
     ax.set_title(
         f"Skill vs baseline against ECI, by config — {SPLITS[split][0]}\n"
-        f"{len(series)} configs; error bars are 95% CIs on the geometric mean\n"
+        f"{len(series)} configs; 95% CIs clustered on (scenario, snapshot)\n"
         f"baseline: {BASELINES[kind][0]}; below the dashed line beats it"
     )
     ax.grid(alpha=0.3, which="both", zorder=0)
