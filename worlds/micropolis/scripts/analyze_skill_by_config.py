@@ -10,7 +10,7 @@ This script runs that same scoring over a *set* of configs — typically the
 prompt variants, each of which names its own dataset label — and reports them
 against each other:
 
-  - a configs x models table of skill scores, each cell carrying a 95%
+  - a models x configs table of skill scores, each cell carrying a 95%
     confidence interval on its geometric mean
   - a scatter of ECI against skill with those intervals as error bars, one
     color and one fitted line per config
@@ -142,11 +142,12 @@ def ordered_models(per_config: dict[str, list[dict]]) -> list[str]:
 def print_skill_table(
     report: MdReport, per_config: dict[str, list[dict]], kind: str, split: str
 ) -> None:
-    """Print configs x models of geometric-mean skill with 95% intervals.
+    """Print models x configs of geometric-mean skill with 95% intervals.
 
-    Configs are rows and models are columns — the transpose of the parent
-    script's tables — because the question here is how a model's score moves
-    as the config changes, which wants each model read down one column.
+    Models are rows, as in the parent script's tables, and configs are columns:
+    how a model's score moves as the config changes reads across one row, and
+    the model list — the longer of the two axes — grows the table down rather
+    than sideways.
     """
     models = ordered_models(per_config)
     cells = {
@@ -154,7 +155,7 @@ def print_skill_table(
     }
 
     report.heading(
-        f"Skill vs baseline by config and model — {SPLITS[split][0]} "
+        f"Skill vs baseline by model and config — {SPLITS[split][0]} "
         "(below 1 beats the baseline)"
     )
     report.text(
@@ -165,23 +166,25 @@ def print_skill_table(
         "the intervals as comparable rather than exact)"
     )
 
-    headers = {m: m.split("/")[-1] for m in models}
-    config_col = max([len("Config")] + [len(label) for label in per_config])
+    model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in models])
     widths = {
-        m: max(
-            len(headers[m]),
-            *(len(format_cell(cells[label].get(m))) for label in per_config),
+        label: max(
+            len(label),
+            *(len(format_cell(cells[label].get(m))) for m in models),
         )
-        for m in models
+        for label in per_config
     }
 
-    header = f"{'Config':<{config_col}}  " + "  ".join(
-        f"{headers[m]:>{widths[m]}}" for m in models
+    header = f"{'Model':<{model_col}}  " + "  ".join(
+        f"{label:>{widths[label]}}" for label in per_config
     )
     lines = [header, "-" * len(header)]
-    for label in per_config:
-        row = [f"{label:<{config_col}}"]
-        row += [f"{format_cell(cells[label].get(m)):>{widths[m]}}" for m in models]
+    for m in models:
+        row = [f"{m.split('/')[-1]:<{model_col}}"]
+        row += [
+            f"{format_cell(cells[label].get(m)):>{widths[label]}}"
+            for label in per_config
+        ]
         lines.append("  ".join(row))
     report.table("\n".join(lines))
 
