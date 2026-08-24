@@ -4,18 +4,21 @@ Takes the union of true_statements, false_statements and honeypot_statements,
 shuffles it with a fixed seed, and appends the numbered result to the preamble.
 """
 
+import asyncio
 import base64
 import hashlib
 import json
 import random
 import re
+import time
 from collections import Counter
 from enum import Enum
 from pathlib import Path
 from dataclasses import dataclass
 
 from .. import module_globals as g
-from ..module_globals import prompt_model, warn_if_truncated
+from ..module_globals import warn_if_truncated
+from ..prompting import PromptJob, format_eta, run_prompts
 from ..usage import CallUsage
 from ..usage import load_usage as read_usage
 from ..usage import save_usage as write_usage
@@ -218,7 +221,9 @@ def parse_response(text: str | None) -> list[Answer]:
 
 
 def get_model_answers(
-    models: list[str], max_tokens: int = MAX_TOKENS
+    models: list[str],
+    max_tokens: int = MAX_TOKENS,
+    provider_limits: dict[str, int] | None = None,
 ) -> dict[str, list[Answer]]:
     """Administer the statement test to each model and parse the replies.
 
@@ -227,6 +232,12 @@ def get_model_answers(
     re-read and re-parsed rather than prompted again. Because the filename
     carries the prompt hash, editing the statements simply misses the cache
     instead of reusing answers to different questions.
+
+    The uncached models are all prompted concurrently, capped per provider by
+    run_prompts (`provider_limits` adjusts the caps), and each response is
+    written to its cache file as it lands. There is one call per model, so
+    every model's block of output still prints whole, in completion order,
+    after the cached models' blocks.
 
     Returns a dict of model id -> answers, one per entry of the global
     `statements`, in the same order. A model whose request fails, or which
@@ -243,26 +254,76 @@ def get_model_answers(
     save_prompt(prompt, phash)
     print(f"prompt hash {phash} ({OUT_DIR / f'prompt-{phash}.txt'})")
 
-    data = {}
+    data: dict[str, list[Answer]] = {}
+
+    def record_answers(model_name: str, raw: str) -> None:
+        answers = parse_response(raw)
+        counts = Counter(answers)
+        print(
+            "  answered "
+            + ", ".join(f"{counts[a]} {a.value}" for a in Answer)
+            + f" (of {len(statements)} statements)"
+        )
+        data[model_name] = answers
+
+    # Cached models first: their blocks print instantly, so handling them
+    # before the fan-out keeps them from interleaving with live completions.
+    jobs: list[PromptJob] = []
     for model_name, model in zip(models, get_models(models)):
         raw = cached_response(model_name, phash)
         if raw is not None:
             print(f"{model_name}: re-parsing cached response")
+            record_answers(model_name, raw)
         else:
-            print(f"{model_name}: prompting...")
-            try:
-                resp = prompt_model(model, prompt, max_tokens)
-            except Exception as e:  # noqa: BLE001
-                print(f"  request failed for {model_name}: {e}")
+            jobs.append(
+                PromptJob(
+                    key=model_name,
+                    model=model,
+                    model_name=model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=max_tokens,
+                )
+            )
+
+    total_cost = 0.0
+    nunpriced = 0
+    failures: list[tuple[str, Exception]] = []
+
+    async def consume() -> None:
+        nonlocal total_cost, nunpriced
+        # Warm litellm's slow first import in the loop that will use it, rather
+        # than paying for it under the first worker's provider semaphore.
+        import litellm  # noqa: F401
+
+        # Everything below the API call — prints, cache writes, parsing — runs
+        # here in the single consumer task, so nothing needs a lock.
+        done = 0
+        start = time.perf_counter()
+        async for result in run_prompts(jobs, limits=provider_limits):
+            done += 1
+            eta = format_eta(start, done, len(jobs))
+            model_name = result.job.key
+            if not result.ok:
+                err = result.error
+                failures.append((model_name, err))
+                print(
+                    f"[{done}/{len(jobs)}] {model_name}: "
+                    f"request FAILED: {type(err).__name__}: {err}{eta}"
+                )
                 continue
 
+            resp = result.response
             raw = resp.text
+            # Usage on the header line even for a blank reply: a model that
+            # spent its whole budget thinking still billed for it, and this is
+            # the only place that spend is ever reported — there's no response
+            # to cache it beside, so it isn't recorded on disk.
+            print(f"[{done}/{len(jobs)}] {model_name}: {resp.usage.describe()}{eta}")
             print(f"  finish_reason: {resp.finish_reason}")
-            # Printed before the blank-reply check below: a model that spent its
-            # whole budget thinking still billed for it, and this is the only
-            # place that spend is ever reported — there's no response to cache
-            # it beside, so it isn't recorded on disk.
-            print(f"  {resp.usage.describe()}")
+            if resp.usage.cost_usd is None:
+                nunpriced += 1
+            else:
+                total_cost += resp.usage.cost_usd
             warn_if_truncated(model_name, resp.finish_reason, max_tokens)
 
             if raw is None or not raw.strip():
@@ -272,20 +333,29 @@ def get_model_answers(
                 continue
 
             out_path = response_path(model_name, phash)
+            # Saved as soon as it lands, so an interrupted run keeps what it
+            # already paid for. Usage alongside the response, and only when the
+            # response is kept, so the two never disagree about whether this
+            # call happened.
             out_path.write_text(raw, encoding="utf-8")
-            # Alongside the response, and only when the response is kept, so the
-            # two never disagree about whether this call happened.
             save_usage(model_name, phash, resp.usage)
             print(f"  saved response to {out_path}")
+            record_answers(model_name, raw)
 
-        answers = parse_response(raw)
-        counts = Counter(answers)
-        print(
-            "  answered "
-            + ", ".join(f"{counts[a]} {a.value}" for a in Answer)
-            + f" (of {len(statements)} statements)"
-        )
-        data[model_name] = answers
+    if jobs:
+        asyncio.run(consume())
+        # What this run paid across all fresh calls; cached models cost nothing.
+        summary = f"this run's {len(jobs)} call(s) cost ${total_cost:.2f}"
+        if nunpriced:
+            summary += f" + {nunpriced} call(s) litellm could not price"
+        print(summary)
+        if failures:
+            print(
+                f"{len(failures)} call(s) failed (not cached; "
+                "re-run this script to retry them):"
+            )
+            for model_name, err in failures:
+                print(f"  {model_name}: {type(err).__name__}: {err}")
 
     return data
 

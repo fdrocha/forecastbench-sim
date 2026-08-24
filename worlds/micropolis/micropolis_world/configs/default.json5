@@ -99,4 +99,8 @@
     "xai/grok-4.6",
   ],
   "max_tokens": 30000,
+  // Max concurrent API calls per provider, merged over the defaults in
+  // micropolis_world/prompting.py. Keys: OpenAIProvider, AnthropicProvider,
+  // GoogleProvider, MistralProvider, XAIProvider, TogetherProvider.
+  // "provider_concurrency": { "AnthropicProvider": 1 },
 }

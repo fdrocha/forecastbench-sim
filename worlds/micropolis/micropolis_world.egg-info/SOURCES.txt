@@ -5,6 +5,7 @@ micropolis_world/config.py
 micropolis_world/module_globals.py
 micropolis_world/plot_labels.py
 micropolis_world/plot_sim.py
+micropolis_world/prompting.py
 micropolis_world/report.py
 micropolis_world/scenarios.py
 micropolis_world/single_city.py
@@ -24,6 +25,7 @@ tests/test_baseline_skill.py
 tests/test_determinism_check.py
 tests/test_knowledge_scoring.py
 tests/test_plot_repeats.py
+tests/test_prompting.py
 tests/test_single_city_batching.py
 tests/test_single_city_tables.py
 tests/test_usage.py
