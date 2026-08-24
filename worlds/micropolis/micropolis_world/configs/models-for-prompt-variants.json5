@@ -1,12 +1,13 @@
 // Model set shared by the prompt-*.json5 configs, in provider/name form.
-// Their "models" fields name this file instead of repeating the list.
-// See README.md for the ForecastBench, frontier and pandemic model sets.
 [
-  "google/gemini-3.7-flash",
+  "openai/gpt-4.1-nano",
+  "openai/gpt-4.1-mini",
   "anthropic/claude-haiku-4-5-20251001",
-  "openai/gpt-5.6-sol",
-  "anthropic/claude-opus-4-5-20251101",
+  "google/gemini-3.1-flash-lite",
+  "openai/gpt-5-nano",
   "openai/gpt-5.6-luna",
-  "mistral/mistral-small-2603",
-  "google/gemini-2.5-flash",
+  "google/gemini-3.7-flash",
+  "openai/gpt-5.6-sol",
+  "anthropic/claude-opus-5",
+  "anthropic/claude-fable-5"
 ]
