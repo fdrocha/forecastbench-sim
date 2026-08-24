@@ -38,6 +38,7 @@ Usage:
     scripts/analyze_skill_by_config.py cfgA.json5 cfgB.json5 [cfgC.json5 ...]
     scripts/analyze_skill_by_config.py configs/*.json5 --baseline plain
     scripts/analyze_skill_by_config.py cfgA.json5 cfgB.json5 --models openai/gpt-4o
+    scripts/analyze_skill_by_config.py cfgA.json5 cfgB.json5 --intersect-models
 """
 
 import argparse
@@ -361,6 +362,35 @@ def plot_eci_vs_skill_by_config(
     return out
 
 
+def intersect_models(
+    per_config: dict[str, list[dict]],
+) -> tuple[dict[str, list[dict]], list[str]]:
+    """Restrict every config to the models scored in all of them.
+
+    Without this a column can be an average over a different model set than the
+    column beside it, which makes the two look comparable when they are not: a
+    config that happens to cover only the strongest models would show better
+    skill for that reason alone. Returns the narrowed rows and the models that
+    were dropped, so the report can say what it left out rather than quietly
+    shrinking.
+
+    Intersects the models that actually produced scored rows, not the models the
+    configs name — a model whose forecasts all failed to parse contributes no
+    cell either way, and keeping it would leave a dash in the row it is meant to
+    make comparable.
+    """
+    by_config = [
+        {r["model_id"] for r in rows} for rows in per_config.values()
+    ]
+    common = set.intersection(*by_config) if by_config else set()
+    dropped = sorted(set.union(*by_config) - common) if by_config else []
+    narrowed = {
+        label: [r for r in rows if r["model_id"] in common]
+        for label, rows in per_config.items()
+    }
+    return narrowed, dropped
+
+
 def load_and_score(
     config_path: str, seed_override: int | None, models: list[str] | None, kind: str
 ) -> tuple[str, list[dict], dict[str, int]]:
@@ -415,6 +445,15 @@ def main() -> None:
         help="Model ids to score, overriding every config's 'models' list",
     )
     ap.add_argument(
+        "--intersect-models",
+        action="store_true",
+        help=(
+            "Keep only the models that have scored rows in every config, so "
+            "the columns are compared over one common set of models rather "
+            "than each over whatever it happens to cover"
+        ),
+    )
+    ap.add_argument(
         "--name",
         default=None,
         help="Name of the output directory under "
@@ -445,6 +484,15 @@ def main() -> None:
         per_config[label] = rows
         tallies[label] = dropped
 
+    dropped_models: list[str] = []
+    if args.intersect_models:
+        per_config, dropped_models = intersect_models(per_config)
+        if not any(per_config.values()):
+            sys.exit(
+                "[error] --intersect-models: no model has scored rows in every "
+                f"config ({', '.join(per_config)}); nothing left to compare"
+            )
+
     name = args.name or "+".join(per_config)
     outdir = comparison_dir(name)
 
@@ -454,6 +502,12 @@ def main() -> None:
     print(f"configs: {', '.join(per_config)}")
     print(f"output:  {outdir}")
     print(baseline_note(args.baseline))
+    if dropped_models:
+        print(
+            "--intersect-models dropped "
+            f"{len(dropped_models)} model(s) missing from some config: "
+            f"{', '.join(dropped_models)}"
+        )
 
     report = MdReport()
     report.text(
@@ -465,6 +519,18 @@ def main() -> None:
         f"{baseline_note(args.baseline)}\n\n"
         f"configs compared: {', '.join(per_config)}"
     )
+    if args.intersect_models:
+        common = sorted(
+            {r["model_id"] for rows in per_config.values() for r in rows}
+        )
+        note = (
+            "--intersect-models: every table and figure below is restricted to "
+            f"the {len(common)} model(s) scored in all "
+            f"{len(per_config)} configs"
+        )
+        if dropped_models:
+            note += f"; excluded for missing at least one config: {', '.join(dropped_models)}"
+        report.text(note)
     for label, dropped in tallies.items():
         report.text(f"**{label}**")
         print_dropped(report, dropped, len(per_config[label]))
