@@ -30,9 +30,11 @@ fleet rolls to t210) and adds:
 Cells keep the v1 schema (game_id, qid, question, event_id, event_kind,
 event_desc, window, freq, n_x, p_y, p_yx, delta, se_delta, cls — all carrying
 the half-A / certification values, so v1 consumers keep working) plus new
-fields: horizon, resolution_turn, template_id, half_a{...}, half_b{...},
-shrunk_abs_delta, resolution_rollout_id, resolution_outcome (0/1 from the
-reserved continuation, null if unresolved there).
+fields: horizon, resolution_turn, template_id, parameters (the bank
+question's parameter dict, used by resolution_criteria.py to render precise
+per-template criteria; null when the bank omits it), half_a{...},
+half_b{...}, shrunk_abs_delta, resolution_rollout_id, resolution_outcome
+(0/1 from the reserved continuation, null if unresolved there).
 
 MIGRATION: cells mined by revisions of this script without the reserved
 continuation used all rollouts in the halves; re-mine before scoring with
@@ -230,6 +232,7 @@ def load_questions(questions_path: str,
                 "question": q["question_text"], "horizon": q["horizon"],
                 "resolution_turn": q.get("resolution_turn"),
                 "template_id": q.get("template_id"),
+                "parameters": q.get("parameters"),
             }
     bank_civs = {c.get("name") for c in qbank.get("civilizations", {}).values()
                  if c.get("name")}
@@ -332,6 +335,7 @@ def mine_world(game_id: str, arm_dir: str, questions_path: str,
                 "horizon": qinfo[qid]["horizon"],
                 "resolution_turn": qinfo[qid]["resolution_turn"],
                 "template_id": qinfo[qid]["template_id"],
+                "parameters": qinfo[qid]["parameters"],
                 "half_a": sa, "half_b": sb,
                 "shrunk_abs_delta": round(shrunk, 4),
                 # designated single-continuation resolution (Brier option)

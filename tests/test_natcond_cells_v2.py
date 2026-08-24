@@ -87,7 +87,10 @@ def _write_fixture(tmp_path):
     questions = [
         {"question_id": "q0000", "template_id": "tech_comparative",
          "horizon": "H1", "resolution_turn": 90,
-         "question_text": "Will A beat B at turn 90?"},
+         "question_text": "Will A beat B at turn 90?",
+         "parameters": {"civ_a": "Benin", "civ_b": "Jolof",
+                        "player_id_a": 0, "player_id_b": 1,
+                        "resolution_turn": 90}},
         {"question_id": "q0001", "template_id": "tech_within",
          "horizon": "H2", "resolution_turn": 120,
          "question_text": "Will C discover D by turn 120?"},
@@ -193,6 +196,12 @@ def test_mine_world_split_half_certification(tmp_path):
     assert by_q["q0002"]["resolution_outcome"] == 1
     assert by_q["q0004"]["resolution_outcome"] == 1
     assert by_q["q0005"]["resolution_outcome"] == 0
+    # bank parameters ride along for per-template resolution criteria
+    # (resolution_criteria.py); null when the bank omits them
+    assert by_q["q0000"]["parameters"] == {
+        "civ_a": "Benin", "civ_b": "Jolof", "player_id_a": 0,
+        "player_id_b": 1, "resolution_turn": 90}
+    assert by_q["q0001"]["parameters"] is None
     # horizon plumbing (incl. the production-fleet t180/t210 horizons)
     assert (by_q["q0000"]["horizon"], by_q["q0000"]["resolution_turn"]) == ("H1", 90)
     assert (by_q["q0001"]["horizon"], by_q["q0001"]["resolution_turn"]) == ("H2", 120)
