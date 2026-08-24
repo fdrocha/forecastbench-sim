@@ -18,6 +18,7 @@ ProviderRateLimiter, both of which are public for exactly that reason.
 """
 
 import asyncio
+import random
 import sys
 import time
 from collections.abc import AsyncIterator, Hashable
@@ -32,9 +33,9 @@ from .usage import LLMResponse, usage_from_response
 # the common case, and a config's "provider_concurrency" map can override any
 # of them. Keyed by LiteLLMModel.provider_cls strings.
 DEFAULT_PROVIDER_LIMITS: dict[str, int] = {
-    "OpenAIProvider": 8,
-    "AnthropicProvider": 8,
-    "GoogleProvider": 8,
+    "OpenAIProvider": 16,
+    "AnthropicProvider": 16,
+    "GoogleProvider": 16,
     "TogetherProvider": 4,
     "MistralProvider": 2,
     "XAIProvider": 2,
@@ -250,8 +251,8 @@ async def run_prompts(
     still in flight.
     """
     limiter = ProviderRateLimiter(limits)
-    # We sort by models so we'll try to hit every model sooner and get better time estimates
-    jobs.sort(key=lambda job: job.model_name)
+    # We shuffle the list of jobs, so we get better time estimates sooner
+    random.shuffle(jobs)
 
     async def worker(job: PromptJob) -> PromptResult:
         async with limiter.semaphore(job.model.provider_cls):
