@@ -32,7 +32,7 @@
   "snapshot_only_report" : false,
   "report_turn": -1,
   "history_freq": 48,
-  "history_length": 2,
+  "history_length": -1,
 
   // Models to prompt, in provider/name form, and the response token cap.
   // See README.md for the ForecastBench, frontier and pandemic model sets.
