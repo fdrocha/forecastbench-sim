@@ -32,9 +32,9 @@ from .usage import LLMResponse, usage_from_response
 # the common case, and a config's "provider_concurrency" map can override any
 # of them. Keyed by LiteLLMModel.provider_cls strings.
 DEFAULT_PROVIDER_LIMITS: dict[str, int] = {
-    "OpenAIProvider": 4,
-    "AnthropicProvider": 4,
-    "GoogleProvider": 4,
+    "OpenAIProvider": 8,
+    "AnthropicProvider": 8,
+    "GoogleProvider": 8,
     "TogetherProvider": 4,
     "MistralProvider": 2,
     "XAIProvider": 2,
@@ -170,7 +170,9 @@ async def prompt_model_async(
             if attempt == num_retries:
                 raise
             if isinstance(e, RateLimitError):
-                delay = min(RATE_LIMIT_BACKOFF_BASE_S * 2**attempt, RATE_LIMIT_BACKOFF_MAX_S)
+                delay = min(
+                    RATE_LIMIT_BACKOFF_BASE_S * 2**attempt, RATE_LIMIT_BACKOFF_MAX_S
+                )
             else:
                 delay = TRANSIENT_BACKOFF_S
             print(
