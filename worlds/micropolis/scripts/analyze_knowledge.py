@@ -83,7 +83,7 @@ def load_entries() -> tuple[list[Entry], list[Unscored], list[str]]:
     falls back to splitting the slug on its first "_", which is right for every
     provider prefix in use but is a guess, so it says so.
     """
-    configured = Config.load(CONFIG_PATH).get_str_list("models")
+    configured = Config.load(CONFIG_PATH).get_models()
     slug_to_id = {model_slug(m): m for m in configured}
 
     entries, skipped = [], []

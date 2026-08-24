@@ -206,13 +206,39 @@ class Config:
     def get_models(self, override: list[str] | None = None) -> list[str]:
         """The 'models' list, or override when one was passed on the command line.
 
+        'models' may also be a string: the path, relative to the config file's
+        directory, of a JSON5 file holding the list itself, so configs that
+        prompt the same model set can share one definition.
+
         Model ids are not validated against a known set the way cities are:
         the providers add and retire names constantly, so the only real check
         is whether the call succeeds.
         """
         if override is not None:
             return override
-        return self.get_str_list("models")
+        value = self._require("models")
+        if not isinstance(value, str):
+            return self.get_str_list("models")
+        path = self.path.parent / value
+        if not path.exists():
+            raise ConfigError(
+                f"models file not found: {path} "
+                f"(named by parameter 'models' in {self.path})"
+            )
+        try:
+            models = json5.loads(path.read_text())
+        except ValueError as e:
+            raise ConfigError(f"models file {path} is not valid JSON5: {e}") from e
+        if (
+            not isinstance(models, list)
+            or not models
+            or any(not isinstance(m, str) for m in models)
+        ):
+            raise ConfigError(
+                f"models file {path} must contain a non-empty list of "
+                f"strings, got {models!r}"
+            )
+        return models
 
     def get_seed(self, override: int | None = None) -> int:
         """The 'seed', or override when one was passed on the command line."""
