@@ -1,3 +1,4 @@
+README.md
 pyproject.toml
 freeciv_world/__init__.py
 freeciv_world/game_ai_assistant.py

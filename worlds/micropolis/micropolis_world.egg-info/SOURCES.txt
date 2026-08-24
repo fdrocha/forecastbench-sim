@@ -9,6 +9,8 @@ micropolis_world/report.py
 micropolis_world/scenarios.py
 micropolis_world/single_city.py
 micropolis_world/templates.py
+micropolis_world/usage.py
+micropolis_world/usage_report.py
 micropolis_world.egg-info/PKG-INFO
 micropolis_world.egg-info/SOURCES.txt
 micropolis_world.egg-info/dependency_links.txt
@@ -24,3 +26,6 @@ tests/test_knowledge_scoring.py
 tests/test_plot_repeats.py
 tests/test_single_city_batching.py
 tests/test_single_city_tables.py
+tests/test_usage.py
+tests/test_usage_cache.py
+tests/test_usage_report.py

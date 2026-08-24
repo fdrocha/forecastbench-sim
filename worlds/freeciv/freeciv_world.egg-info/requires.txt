@@ -15,7 +15,7 @@ filelock>=3.12.2
 matplotlib
 tqdm
 python-dotenv>=1.0.1
-litellm<1.82,>=1.80.0
+litellm
 google-cloud-secret-manager>=2.16.0
 datasets>=3.1.0
 
