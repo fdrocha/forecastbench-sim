@@ -178,6 +178,24 @@ class Config:
             )
         return value
 
+    def get_preamble_path(self) -> Path | None:
+        """The optional 'preamble_path', resolved against the config's directory.
+
+        Names the file holding the forecasting prompt's preamble, which must
+        contain a "{sources}" placeholder (see scenarios.prompt_preamble). None
+        means scenarios.DEFAULT_PREAMBLE_PATH applies, so a config written
+        before the key existed keeps the preamble it was run with.
+        """
+        if "preamble_path" not in self.data:
+            return None
+        path = self.path.parent / self.get_str("preamble_path")
+        if not path.exists():
+            raise ConfigError(
+                f"preamble file not found: {path} "
+                f"(named by parameter 'preamble_path' in {self.path})"
+            )
+        return path
+
     def get_cities(self, override: list[str] | None = None) -> list[str]:
         """The 'cities' list, or override when one was passed on the command line.
 

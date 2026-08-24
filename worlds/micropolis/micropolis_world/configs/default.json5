@@ -66,6 +66,14 @@
   // what the time series is worth. See configs/snapshot_only.json5.
   "snapshot_only_report": false,
 
+  // File holding the forecasting prompt's preamble, relative to this config's
+  // directory. Must contain a "{sources}" placeholder, which is filled in with
+  // the report sections the variant actually has (see
+  // scenarios.prompt_preamble). Swapping this file is how a prompt variant is
+  // tried without touching any code; it is part of the prompt, so a change
+  // misses the response cache rather than mixing variants.
+  "preamble_path": "preamble1.txt",
+
   // Models to prompt, in provider/name form, and the response token cap.
   // See README.md for the ForecastBench, frontier and pandemic model sets.
   "models": [

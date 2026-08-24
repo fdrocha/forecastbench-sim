@@ -2,12 +2,15 @@
 
 import json
 import re
-from itertools import product
+from functools import cache
+from itertools import pairwise, product
+from pathlib import Path
 
 from fbsim_core.questions.resolver import QuestionResolver
 from fbsim_core.questions.schema import QuestionInstance
 
 from .city_sim import CitySimulation, to_world
+from .config import CONFIG_DIR
 from .report import gen_world_report
 from .templates import ALL_TEMPLATES, REGISTRY
 
@@ -24,19 +27,28 @@ CITY_ENTITY_ID = 0
 _WITH_HISTORY_SOURCES = "the trends, events, and current state"
 _SNAPSHOT_ONLY_SOURCES = "the events and current state"
 
-PROMPT_PREAMBLE = """You are an expert superforecaster, familiar with the work of Tetlock and others. Your task is to forecast the evolution of a city in Micropolis, the open-source release of the original SimCity Classic simulation engine.
-
-The city below is running with no mayor: nothing is built, demolished, or rezoned, no tax or funding rates are changed, and no disasters are triggered manually — the simulation engine simply advances on its own from the state described. Disasters can be enabled or disabled and this will be stated in the game report.
-Base your forecasts primarily on {sources} given in the game report, using your knowledge of the game's mechanics only to interpret and extrapolate what the report shows. Give calibrated
-percentiles that honestly reflect your uncertainty, remembering that an unmanaged city may continue on its current trajectory, plateau, or decline.
-Remember that if disasters are enabled, their random occurrence can shift the trajectory abruptly.
-
-"""
+# The preamble a run uses when its config names no "preamble_path". Held as a
+# file rather than a string literal so a prompt variant is a new file plus one
+# config key, with no code change; the text must contain "{sources}", which
+# prompt_preamble fills in.
+DEFAULT_PREAMBLE_PATH = CONFIG_DIR / "preamble1.txt"
 
 
-def prompt_preamble(snapshot_only_report: bool = False) -> str:
+@cache
+def read_preamble(path: Path | str | None = None) -> str:
+    """The raw preamble template at `path`, or the default one when None.
+
+    Cached because the corpus and eval scripts ask for the same preamble once
+    per batch, and because a config's key is read afresh at each call site.
+    """
+    return Path(path or DEFAULT_PREAMBLE_PATH).read_text(encoding="utf-8")
+
+
+def prompt_preamble(
+    snapshot_only_report: bool = False, preamble_path: Path | str | None = None
+) -> str:
     """The preamble, naming only the report sections the variant actually has."""
-    return PROMPT_PREAMBLE.format(
+    return read_preamble(preamble_path).format(
         sources=(
             _SNAPSHOT_ONLY_SOURCES if snapshot_only_report else _WITH_HISTORY_SOURCES
         )
@@ -133,7 +145,10 @@ def build_corpus(
 
 
 def build_batch_prompt_continuous(
-    context: str, questions: list[dict], snapshot_only_report: bool = False
+    context: str,
+    questions: list[dict],
+    snapshot_only_report: bool = False,
+    preamble_path: Path | str | None = None,
 ) -> str:
     """Ask for one p10/p25/p50/p75/p90 quantile forecast per question.
 
@@ -146,7 +161,8 @@ def build_batch_prompt_continuous(
 
     `snapshot_only_report` says whether `context` was built without its HISTORY
     table, which only changes which report sections the preamble points the
-    model at (see prompt_preamble).
+    model at (see prompt_preamble). `preamble_path` names the preamble template
+    to use, defaulting to configs/preamble1.txt.
     """
     n = len(questions)
     if n == 1:
@@ -173,7 +189,7 @@ def build_batch_prompt_continuous(
             f"Provide one such line for each of the {n} questions, in order, "
             "replacing the example values with your actual percentile estimates."
         )
-    return f"""{prompt_preamble(snapshot_only_report)}
+    return f"""{prompt_preamble(snapshot_only_report, preamble_path)}
 
 ## Game report
 {context}
@@ -206,7 +222,7 @@ def _validate_monotonic(
     so the forecast is dropped the same way an unparseable one is.
     """
     values = [percentiles[k] for k in PERCENTILE_KEYS]
-    if any(a > b for a, b in zip(values, values[1:])):
+    if any(a > b for a, b in pairwise(values)):
         if not quiet:
             pairs = ", ".join(f"{k}={percentiles[k]:g}" for k in PERCENTILE_KEYS)
             print(

@@ -61,6 +61,7 @@ def collect_from_config(args: argparse.Namespace) -> ur.Collected:
     label = cfg.get_label(args.label)
     model_names = cfg.get_models(args.models)
     snapshot_only = cfg.get_bool_or("snapshot_only_report", False)
+    preamble_path = cfg.get_preamble_path()
 
     print(f"config: {cfg.path}")
     print(f"label:  {label}")
@@ -84,7 +85,7 @@ def collect_from_config(args: argparse.Namespace) -> ur.Collected:
     batch_hashes = {
         bid: prompt_hash(
             build_batch_prompt_continuous(
-                questions[0]["context"], questions, snapshot_only
+                questions[0]["context"], questions, snapshot_only, preamble_path
             )
         )
         for bid, questions in batches.items()
