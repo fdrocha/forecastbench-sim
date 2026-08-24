@@ -23,6 +23,13 @@ correct iff (p_cond - p_base) * delta_B > 0.
 
 Confidence intervals: deterministic paired qid-cluster percentile bootstrap.
 
+No-news arm (elicit --no-news, stage "nonews"): the second turn reveals
+nothing, so its |p2 - p1| movement is the noise floor of second-turn
+updating. Payloads containing nonews rows are scored by score_nonews():
+movement stats (paired within qid x sample, overall and per horizon) plus
+baseline calibration vs half-B p_y. NO CUS is computed for this arm — there
+is no conditioning event, hence no conditional truth to score against.
+
 Usage:
   uv run python scripts/uplift_v2/natcond_score_v2.py \
       --cells tmp/natcond_v2/w01_cells.json \
@@ -204,8 +211,78 @@ def bootstrap_ci(rows: list[dict], spec: tuple,
     return [quantile(finite, 0.025), quantile(finite, 0.975)]
 
 
+def nonews_pairs(payload: dict) -> list[tuple[str, float, float]]:
+    """(qid, p1, p2) pairs from a no-news arm payload, paired within
+    (qid, sample) — turn 2 branches from that sample's own baseline."""
+    base: dict[tuple, float] = {}
+    post: dict[tuple, float] = {}
+    for row in payload["results"]:
+        if row.get("p") is None:
+            continue
+        key = (row["qid"], row.get("sample"))
+        if row["stage"] == "base":
+            base[key] = float(row["p"])
+        elif row["stage"] == "nonews":
+            post[key] = float(row["p"])
+        else:
+            raise RuntimeError(
+                f"stage {row['stage']!r} in a no-news payload")
+    return [(k[0], base[k], post[k]) for k in sorted(base) if k in post]
+
+
+def movement_stats(moves: list[float]) -> dict[str, Any] | None:
+    """Distribution of signed second-turn movements p2 - p1."""
+    if not moves:
+        return None
+    magnitudes = sorted(abs(m) for m in moves)
+    return {
+        "n_pairs": len(moves),
+        "mean_abs_move": mean(magnitudes),
+        "median_abs_move": quantile(magnitudes, 0.5),
+        "p90_abs_move": quantile(magnitudes, 0.9),
+        "max_abs_move": magnitudes[-1],
+        "mean_signed_move": mean(moves),
+        "frac_moved": sum(1 for m in magnitudes if m > 0) / len(magnitudes),
+    }
+
+
+def score_nonews(cells: list[dict], payload: dict) -> dict[str, Any]:
+    """Noise-floor report for the no-news arm: |p2-p1| movement stats.
+
+    No CUS: with no conditioning event there is no conditional truth, so the
+    ladder's counterfactual-update skill is undefined here by design.
+    """
+    pairs = nonews_pairs(payload)
+    qid_hz = {c["qid"]: c.get("horizon") for c in cells}
+    qid_py = {c["qid"]: c["half_b"]["p_y"] for c in cells if "half_b" in c}
+    bands: dict[str, Any] = {
+        "overall": movement_stats([p2 - p1 for _, p1, p2 in pairs])}
+    for hz in sorted({h for h in qid_hz.values() if h}):
+        stats = movement_stats(
+            [p2 - p1 for qid, p1, p2 in pairs if qid_hz.get(qid) == hz])
+        if stats:
+            bands[hz] = stats
+    calib = [kl_bits(qid_py[qid], clip(p1))
+             for qid, p1, _ in pairs if qid in qid_py]
+    return {
+        "schema": "natcond_score_v2",
+        "arm": "no-news",
+        "loss_mode": None,
+        "mode": payload.get("mode"),
+        "tag": payload.get("tag"),
+        "model": payload.get("model"),
+        "n_pairs": len(pairs),
+        "note": ("noise floor: second-turn movement with nothing revealed; "
+                 "no CUS is defined for this arm"),
+        "baseline_calibration_kl_bits": mean(calib) if calib else None,
+        "bands": bands,
+    }
+
+
 def score(cells: list[dict], payload: dict, bootstrap: int = 2000,
           seed: int = 20260818, loss: str = "kl") -> dict[str, Any]:
+    if any(r["stage"] == "nonews" for r in payload["results"]):
+        return score_nonews(cells, payload)
     metrics = MODE_METRICS[loss]
     rows, missing = join_rows(cells, payload)
     if loss == "brier-single":

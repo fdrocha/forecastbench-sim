@@ -186,6 +186,63 @@ def test_kl_mode_ignores_resolution_fields():
     assert "no_resolution" not in report["missing"]
 
 
+def _nonews_rows():
+    def row(qid, sample, stage, p):
+        return {"qid": qid, "sample": sample, "stage": stage,
+                "event_id": None, "p": p}
+    return [
+        row("q1", 0, "base", 0.40), row("q1", 0, "nonews", 0.50),  # +0.10
+        row("q1", 1, "base", 0.40), row("q1", 1, "nonews", 0.40),  # 0.00
+        row("q2", 0, "base", 0.80), row("q2", 0, "nonews", 0.60),  # -0.20
+        # unparsed second turn -> the pair is dropped
+        row("q2", 1, "base", 0.70), row("q2", 1, "nonews", None),
+        # nonews with no matching base -> dropped too
+        row("q2", 2, "nonews", 0.10),
+    ]
+
+
+def test_nonews_arm_reports_movement_noise_floor_and_no_cus():
+    cells = _cells()
+    payload = {"mode": "no-news", "tag": "t", "model": "m",
+               "results": _nonews_rows()}
+    report = scorer.score(cells, payload, bootstrap=0)
+    assert report["arm"] == "no-news"
+    assert report["loss_mode"] is None
+    assert report["n_pairs"] == 3
+    overall = report["bands"]["overall"]
+    assert overall["n_pairs"] == 3
+    assert abs(overall["mean_abs_move"] - 0.1) < 1e-9
+    assert abs(overall["median_abs_move"] - 0.1) < 1e-9
+    assert abs(overall["max_abs_move"] - 0.2) < 1e-9
+    assert abs(overall["mean_signed_move"] - (-0.1 / 3)) < 1e-9
+    assert abs(overall["frac_moved"] - 2 / 3) < 1e-9
+    # per-horizon bands via the cells' qid -> horizon map
+    assert report["bands"]["H1"]["n_pairs"] == 2
+    assert report["bands"]["H2"]["n_pairs"] == 1
+    assert abs(report["bands"]["H2"]["mean_abs_move"] - 0.2) < 1e-9
+    # no CUS anywhere: this arm has no conditional truth by design
+    assert not any("cus" in key
+                   for band in report["bands"].values() for key in band)
+    # baseline calibration against half-B p_y still reported
+    want = (scorer.kl_bits(0.30, 0.40) + scorer.kl_bits(0.30, 0.40)
+            + scorer.kl_bits(0.80, 0.80)) / 3
+    assert abs(report["baseline_calibration_kl_bits"] - want) < 1e-9
+
+
+def test_nonews_pairs_pair_within_qid_and_sample():
+    pairs = scorer.nonews_pairs({"results": _nonews_rows()})
+    assert pairs == [("q1", 0.40, 0.50), ("q1", 0.40, 0.40),
+                     ("q2", 0.80, 0.60)]
+
+
+def test_nonews_payload_rejects_cond_stage_rows():
+    rows = _nonews_rows() + [{"qid": "q1", "sample": 0, "stage": "cond",
+                              "event_id": "e1", "p": 0.5}]
+    with pytest.raises(RuntimeError, match="no-news"):
+        scorer.score(_cells(), {"mode": "no-news", "results": rows},
+                     bootstrap=0)
+
+
 def test_samples_average_and_bootstrap_deterministic():
     cells = _cells()
     rows = _rows({("q1", None): 0.20, ("q2", None): 0.80,

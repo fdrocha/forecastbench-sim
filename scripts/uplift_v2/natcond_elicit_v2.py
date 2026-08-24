@@ -1,25 +1,31 @@
 #!/usr/bin/env python3
-"""Multi-turn natural-conditional elicitation, v2 (REVEAL wording).
+"""Multi-turn natural-conditional elicitation, v2 pipeline (v4 prompt).
 
-Differences from natcond_elicit.py (v1):
-  * Turn 1 uses log-loss scoring language (the true probability over re-runs
-    of the world is known; answers are scored by log loss against it),
-    replacing the Brier paragraph of the OpenForecaster prompt. The rest of
-    the prompt skeleton is unchanged.
-  * Turn 2 REVEALS a fact about the continued game ("The game has continued.
-    One fact about turns a-b has been revealed to you: ...") instead of the
-    v1 "suppose that" hypothetical, and restates the question.
-  * --single-turn control mode: the same final information (report + revealed
-    fact + question + scoring language) in ONE prompt, no baseline exchange
-    in context. Baseline rows are still elicited (one prompt, no reveal) so
-    CUS can be scored per arm.
-  * Cells may be v2 cells (natcond_cells_v2.py): per-cell resolution_turn and
-    horizon are respected (fallback: turn 90).
+Prompt v4 (approved 2026-08-23) replaces every scoring paragraph — the
+original OpenForecaster Brier paragraph and the v2/v3 log-loss paragraph —
+with a single proper-scoring-rule honesty sentence. Resolution criteria are
+rendered per template by resolution_criteria.py so they state exactly what
+the fbsim_core resolver computes (generic fallback for cells without
+template_id/parameters).
 
-Per question (per sample), two-turn mode: one baseline exchange
-  user: OF binary prompt (world report + question)  ->  assistant: p̂(Y)
-then, branching from that SAME exchange, one second turn per conditioning
-event -> p̂(Y|X). The model's own baseline answer stays in context.
+Arms:
+  * two-turn (default): one baseline exchange per question (world report +
+    question -> p̂(Y)), then, branching from that SAME exchange, one REVEAL
+    turn per conditioning event -> p̂(Y|X). The model's own baseline answer
+    stays in context.
+  * --single-turn control: the same final information (report + revealed
+    fact + question) in ONE prompt, no baseline exchange in context.
+    Baseline rows are still elicited (one prompt, no reveal) so CUS can be
+    scored per arm.
+  * --no-news control: same conversation structure as the reveal arm, but
+    the second turn reveals nothing ("No new information ... is available").
+    ONE no-news turn per question family (not per event) — it measures the
+    noise floor of second-turn movement; natcond_score_v2.py reports its
+    |p2-p1| distribution and computes no CUS for this arm.
+
+Cells may be v2 cells (natcond_cells_v2.py): per-cell resolution_turn,
+horizon, template_id, and parameters are respected (fallbacks: turn 90,
+generic criteria).
 
 Usage:
   set -a; source .env; set +a
@@ -34,40 +40,56 @@ import argparse
 import concurrent.futures as cf
 import json
 import re
+import sys
 import time
 from collections import defaultdict
 from pathlib import Path
 
-# OpenForecaster binary prompt skeleton (build_of_dataset.OF_BINARY_PROMPT)
-# with the Brier scoring paragraph replaced by log-loss scoring against the
-# known true probability (over many re-runs of the world).
-OF_BINARY_PROMPT_V2 = """You will be asked a binary forecasting question. You have to come up with the best estimate for whether the event asked in the question happens or happened. Please provide your reasoning before stating how likely is the event asked in the question to happen (your confidence of it resolving YES).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from resolution_criteria import criteria_or_generic  # noqa: E402
 
-Question Title: {question_title}
-Question Background: {background}
-Resolution Criteria: {resolution_criteria}
+# Base prompt, v4 (approved wording — change only with an approved revision).
+# Scoring language: one proper-scoring-rule honesty paragraph; the old Brier
+# and log-loss paragraphs are gone.
+BASE_PROMPT = """You will be asked a binary forecasting question about a simulation in progress. Your task is to estimate the probability that the event described in the question occurs. Please provide your reasoning before stating your final probability.
 
-Think step by step about the information provided, reason about uncertainty and put your final confidence for the event asked in the question to resolve YES in <probability> </probability> tags. The probability should be a number between 0 and 1.
+Question Title: {question}
+Question Background: This is a partial report on a FreeCiv game simulation in progress, observed at turn 60. Five AI civilizations are competing.
 
-Estimate the probability of YES as accurately as you can. We have re-run this world many times, so the true probability of this event is known. Your answer is scored by log loss against that true probability. Getting the odds right matters: errors at extreme odds are penalized more heavily. Do not report 0 or 1.
+{report}
 
-Your final answer should be the probability that the event asked will resolve to YES and your response SHOULD STRICTLY END with <probability> </probability> tags."""
+Resolution Criteria: {criteria}
+
+Think step by step about the information provided, reason about uncertainty, and put your final confidence that the question resolves YES in <probability> </probability> tags. The probability should be a number between 0 and 1.
+
+Your answer will be evaluated with a proper scoring rule, so your best strategy is to report your honest probability estimate.
+
+Your final answer should be the probability that the event resolves YES and your response SHOULD STRICTLY END with <probability> </probability> tags."""
 
 # Turn 2: a fact about the continued game is REVEALED (news, not hypothesis).
+# Its opening sentence is word-identical to SINGLE_TURN_REVEAL (conformance
+# test pins this).
 REVEAL_TEMPLATE = (
     "The game has continued. One fact about turns {a}-{b} has been revealed "
     "to you: {event}. Given this news and everything you already knew, "
-    "provide an updated forecast for the SAME question: {question} "
-    "The same scoring applies: log loss against the true probability given "
-    "this information. End with your updated probability "
-    "in <probability> </probability> tags.")
+    "provide an updated forecast for the SAME question: {question}. Report "
+    "your honest updated probability. Your response SHOULD STRICTLY END "
+    "with <probability> </probability> tags.")
 
-# Single-turn control: same revealed fact folded into the one-shot background.
+# Single-turn control: the same revealed fact, inserted between {report} and
+# "Resolution Criteria:" in BASE_PROMPT (word-identical to the turn-2 opening).
 SINGLE_TURN_REVEAL = (
     "The game has continued. One fact about turns {a}-{b} has been revealed "
     "to you: {event}.")
 
-# copied from eval_a1_gate.py (self-contained: no uplift_v2 imports on main)
+# No-news control turn: a contentless second turn (noise-floor measurement).
+NONEWS_TEMPLATE = (
+    "The game has continued. No new information about turns {a}-{b} is "
+    "available. If you wish, revise your forecast for the SAME question: "
+    "{question}. Report your honest probability. Your response SHOULD "
+    "STRICTLY END with <probability> </probability> tags.")
+
+# copied from eval_a1_gate.py
 PROB_RE = re.compile(r"<probability>\s*([0-9.eE+-]+)\s*</probability>")
 
 
@@ -143,21 +165,21 @@ def chat(model, messages):
 
 
 def build_background(report: str, reveal: str | None = None) -> str:
-    background = ("This is a partial report on a FreeCiv game simulation in "
-                  "progress, observed at turn 60. Five AI civilizations are "
-                  "competing.\n\n" + report)
-    if reveal:
-        background += "\n\n" + reveal
-    return background
+    """The {report} block of BASE_PROMPT: the world-report body, with the
+    single-turn revealed fact appended after it. The fixed "This is a partial
+    report..." framing sentence lives in BASE_PROMPT itself."""
+    return (report + "\n\n" + reveal) if reveal else report
 
 
-def build_base_prompt(report: str, question: str, rt: int) -> str:
-    rc = (f"Resolves YES if the answer to the question is affirmative in the "
-          f"simulation state at turn {rt}, as determined by the game's "
-          f"recorded metrics.")
-    return OF_BINARY_PROMPT_V2.format(question_title=question,
-                                      background=build_background(report),
-                                      resolution_criteria=rc)
+def build_base_prompt(report: str, question: str, rt: int,
+                      template_id: str | None = None,
+                      parameters: dict | None = None) -> str:
+    """Turn-1 / baseline prompt. Criteria are per-template when the cell
+    carries template_id (+ parameters); generic otherwise."""
+    return BASE_PROMPT.format(question=question,
+                              report=build_background(report),
+                              criteria=criteria_or_generic(
+                                  template_id, parameters, rt))
 
 
 def build_reveal_message(cell: dict) -> str:
@@ -167,15 +189,28 @@ def build_reveal_message(cell: dict) -> str:
 
 
 def build_single_turn_prompt(report: str, cell: dict, rt: int) -> str:
-    """Same final info as the two-turn flow, in one prompt."""
+    """Same final info as the two-turn flow, in one prompt: BASE_PROMPT with
+    the revealed fact inserted between {report} and "Resolution Criteria:"."""
     a, b = cell["window"]
     reveal = SINGLE_TURN_REVEAL.format(a=a, b=b, event=cell["event_desc"])
-    rc = (f"Resolves YES if the answer to the question is affirmative in the "
-          f"simulation state at turn {rt}, as determined by the game's "
-          f"recorded metrics.")
-    return OF_BINARY_PROMPT_V2.format(question_title=cell["question"],
-                                      background=build_background(report, reveal),
-                                      resolution_criteria=rc)
+    return BASE_PROMPT.format(question=cell["question"],
+                              report=build_background(report, reveal),
+                              criteria=criteria_or_generic(
+                                  cell.get("template_id"),
+                                  cell.get("parameters"), rt))
+
+
+def family_window(cells: list[dict]) -> tuple[int, int]:
+    """No-news window for one question family: the span of the family's
+    reveal windows (min a, max b), so the no-news turn asserts the game has
+    continued exactly as far as the reveal arm's news does."""
+    return (min(c["window"][0] for c in cells),
+            max(c["window"][1] for c in cells))
+
+
+def build_nonews_message(question: str, window: tuple[int, int]) -> str:
+    a, b = window
+    return NONEWS_TEMPLATE.format(a=a, b=b, question=question)
 
 
 def main():
@@ -189,8 +224,13 @@ def main():
     ap.add_argument("--preamble", default=None, help="file with rules/scaffold text prepended to the background")
     ap.add_argument("--report", default=None,
                     help="world report txt (default: data/questions_mc/<game-id>/world_report/turn_060_report.txt)")
-    ap.add_argument("--single-turn", action="store_true",
-                    help="control mode: same final info in one prompt (no baseline exchange in context)")
+    arm = ap.add_mutually_exclusive_group()
+    arm.add_argument("--single-turn", action="store_true",
+                     help="control mode: same final info in one prompt (no baseline exchange in context)")
+    arm.add_argument("--no-news", action="store_true",
+                     help="control mode: two-turn structure, but the second turn "
+                          "reveals nothing; one no-news turn per question family "
+                          "(noise-floor measurement, no per-event conditionals)")
     ap.add_argument("--output", required=True)
     args = ap.parse_args()
 
@@ -208,15 +248,21 @@ def main():
         by_q[c["qid"]].append(c)
     qtext = {c["qid"]: c["question"] for c in cells}
     qrt = {c["qid"]: c.get("resolution_turn") or 90 for c in cells}
-    mode = "single-turn" if args.single_turn else "two-turn"
+    qtid = {c["qid"]: c.get("template_id") for c in cells}
+    qparams = {c["qid"]: c.get("parameters") for c in cells}
+    mode = ("single-turn" if args.single_turn
+            else "no-news" if args.no_news else "two-turn")
+    n_second = len(by_q) if args.no_news else len(cells)
     print(f"[{args.tag}] {mode}: {len(by_q)} questions x {args.samples} samples "
-          f"baselines, {len(cells)} cells x {args.samples} conditionals")
+          f"baselines, {n_second} "
+          f"{'no-news turns' if args.no_news else 'cells'} x {args.samples}")
 
     results = []
 
     def run_question(qid, sample):
         out = []
-        base_prompt = build_base_prompt(report, qtext[qid], qrt[qid])
+        base_prompt = build_base_prompt(report, qtext[qid], qrt[qid],
+                                        qtid[qid], qparams[qid])
         for attempt in range(3):
             try:
                 base_ans = chat(args.model, [
@@ -232,6 +278,22 @@ def main():
                     "event_id": None, "p": p_base})
         base_msgs = [{"role": "user", "content": base_prompt},
                      {"role": "assistant", "content": base_ans}]
+        if args.no_news:
+            # one contentless second turn per question family (noise floor)
+            msgs = base_msgs + [{"role": "user", "content": build_nonews_message(
+                qtext[qid], family_window(by_q[qid]))}]
+            p_nn, err = None, None
+            for attempt in range(3):
+                try:
+                    p_nn = parse_prob(chat(args.model, msgs))
+                    break
+                except Exception as e:  # noqa: BLE001
+                    err = str(e)[:150]
+                    time.sleep(5 * (attempt + 1))
+            out.append({"qid": qid, "sample": sample, "stage": "nonews",
+                        "event_id": None, "p": p_nn,
+                        **({"error": err} if err and p_nn is None else {})})
+            return out
         for c in by_q[qid]:
             if args.single_turn:
                 msgs = [{"role": "user",
@@ -264,7 +326,7 @@ def main():
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     json.dump({"model": args.model, "tag": args.tag, "cells": args.cells,
-               "mode": mode, "prompt_version": "v2-reveal",
+               "mode": mode, "prompt_version": "v4-honest",
                "results": results}, open(args.output, "w"), indent=1)
     bad = sum(1 for r in results if r.get("p") is None)
     print(f"done: {len(results)} rows, {bad} unparsed -> {args.output}")
