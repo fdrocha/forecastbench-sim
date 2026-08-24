@@ -68,11 +68,13 @@ Your final answer should be the probability that the event resolves YES and your
 
 # Turn 2: a fact about the continued game is REVEALED (news, not hypothesis).
 # Its opening sentence is word-identical to SINGLE_TURN_REVEAL (conformance
-# test pins this).
+# test pins this). {question} is passed through _terminated(): the question's
+# own "?" ends the sentence (no "?." artifact); a period is added only when
+# the question lacks terminal punctuation.
 REVEAL_TEMPLATE = (
     "The game has continued. One fact about turns {a}-{b} has been revealed "
     "to you: {event}. Given this news and everything you already knew, "
-    "provide an updated forecast for the SAME question: {question}. Report "
+    "provide an updated forecast for the SAME question: {question} Report "
     "your honest updated probability. Your response SHOULD STRICTLY END "
     "with <probability> </probability> tags.")
 
@@ -83,10 +85,11 @@ SINGLE_TURN_REVEAL = (
     "to you: {event}.")
 
 # No-news control turn: a contentless second turn (noise-floor measurement).
+# {question} is passed through _terminated(), as in REVEAL_TEMPLATE.
 NONEWS_TEMPLATE = (
     "The game has continued. No new information about turns {a}-{b} is "
     "available. If you wish, revise your forecast for the SAME question: "
-    "{question}. Report your honest probability. Your response SHOULD "
+    "{question} Report your honest probability. Your response SHOULD "
     "STRICTLY END with <probability> </probability> tags.")
 
 # copied from eval_a1_gate.py
@@ -182,10 +185,17 @@ def build_base_prompt(report: str, question: str, rt: int,
                                   template_id, parameters, rt))
 
 
+def _terminated(question: str) -> str:
+    """The question as a complete sentence: its own terminal punctuation
+    (usually "?") ends it; a period is added only when it has none."""
+    q = question.strip()
+    return q if q.endswith(("?", ".", "!")) else q + "."
+
+
 def build_reveal_message(cell: dict) -> str:
     a, b = cell["window"]
     return REVEAL_TEMPLATE.format(a=a, b=b, event=cell["event_desc"],
-                                  question=cell["question"])
+                                  question=_terminated(cell["question"]))
 
 
 def build_single_turn_prompt(report: str, cell: dict, rt: int) -> str:
@@ -210,7 +220,7 @@ def family_window(cells: list[dict]) -> tuple[int, int]:
 
 def build_nonews_message(question: str, window: tuple[int, int]) -> str:
     a, b = window
-    return NONEWS_TEMPLATE.format(a=a, b=b, question=question)
+    return NONEWS_TEMPLATE.format(a=a, b=b, question=_terminated(question))
 
 
 def main():

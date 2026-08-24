@@ -86,11 +86,12 @@ def test_reveal_turn_pinned_exactly():
         "The game has continued. One fact about turns 75-90 has been "
         "revealed to you: Benin discovered Feudalism. Given this news and "
         "everything you already knew, provide an updated forecast for the "
-        "SAME question: Will Benin control the most cities at turn 120?. "
+        "SAME question: Will Benin control the most cities at turn 120? "
         "Report your honest updated probability. Your response SHOULD "
         "STRICTLY END with <probability> </probability> tags.")
     assert "suppose" not in msg.lower()  # v1 hypothetical wording is gone
     assert "log loss" not in msg.lower()  # v2/v3 scoring sentence is gone
+    assert "?." not in msg  # the question's own "?" ends the sentence
 
 
 def test_nonews_turn_pinned_exactly():
@@ -98,9 +99,26 @@ def test_nonews_turn_pinned_exactly():
     assert msg == (
         "The game has continued. No new information about turns 60-90 is "
         "available. If you wish, revise your forecast for the SAME "
-        "question: Will Benin control the most cities at turn 120?. Report "
+        "question: Will Benin control the most cities at turn 120? Report "
         "your honest probability. Your response SHOULD STRICTLY END with "
         "<probability> </probability> tags.")
+    assert "?." not in msg
+
+
+def test_question_without_terminal_punctuation_gets_a_period():
+    assert elicit._terminated("Will Benin lead at turn 120?") == \
+        "Will Benin lead at turn 120?"
+    assert elicit._terminated("Whether Benin leads at turn 120") == \
+        "Whether Benin leads at turn 120."
+    assert elicit._terminated("Benin leads. ") == "Benin leads."
+    msg = elicit.build_nonews_message("Whether Benin leads at turn 120",
+                                      (60, 90))
+    assert ("SAME question: Whether Benin leads at turn 120. Report your "
+            "honest probability.") in msg
+    msg2 = elicit.build_reveal_message(
+        dict(CELL, question="Whether Benin leads at turn 120"))
+    assert ("SAME question: Whether Benin leads at turn 120. Report your "
+            "honest updated probability.") in msg2
 
 
 def test_family_window_spans_the_family_reveal_windows():
