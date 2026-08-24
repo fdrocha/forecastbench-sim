@@ -57,24 +57,15 @@ def prompt_model(model, prompt: str, max_tokens: int) -> LLMResponse:
     Mirrors get_response()'s handling of the parameters some models reject.
     """
     # Imported here so the simulation-only scripts don't pull in litellm.
-    import litellm
-    from litellm import completion
-
-    # We need this so we can use models that don't support temperature
-    # It still sets T=0 for models that do support it, but drops it silently for ones that don't
-    litellm.drop_params = True
+    from litellm import completion, supports_reasoning
 
     kwargs = {
         "model": model._litellm_model_id,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
     }
-    if model.supports_temperature:
+    if model.supports_temperature and not supports_reasoning(model._litellm_model_id):
         kwargs["temperature"] = 0.0
-    else:
-        # Left at the provider default, so this model's answers are sampled
-        # rather than greedy and will vary between runs.
-        print(f"  [warning] {model.id} does not support temperature; omitting it")
 
     start = time.perf_counter()
     response = completion(**kwargs)
