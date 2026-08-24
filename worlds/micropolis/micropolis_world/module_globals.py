@@ -211,16 +211,26 @@ SNAPSHOT_INFRASTRUCTURE = [
     ("unpoweredZoneCount", "Unpowered zones"),
 ]
 
-# Scores taken from https://epoch.ai/eci?subset-view=graph&view=graph&tab=leaderboard&subset-tab=Software%20engineering
-# on 2026-08-17. Note that the "Software engineering" in the URL is for a table further down on the page
-# and does not affect these numbers
 ECI_MAP = {
+    # Scores taken from Jaeho's table
+    "gpt-4.1-nano": 130.65,
+    "gpt-4.1-mini": 135.61,
+    "gpt-5-nano": 140.98,
+    "gpt-5.6-luna": 156.22,
+    "gpt-5.6-sol": 161.08,
+    "claude-haiku-4-5-20251001": 142.86,
+    "claude-opus-5": 161.54,
+    "claude-fable-5": 162.49,
+    "gemini-3.1-flash-lite": 145.01,
+    "gemini-3.7-flash": 156.85,
+    # Scores taken from https://epoch.ai/eci?subset-view=graph&view=graph&tab=leaderboard&subset-tab=Software%20engineering
+    # on 2026-08-17. Note that the "Software engineering" in the URL is for a table further down on the page
+    # and does not affect these numbers
     "gpt-4.1-2025-04-14": 137,
     "gpt-5-2025-08-07": 150,
-    "gpt-5.6-luna": 156,
+    # "gpt-5.6-luna": 156,
     "gpt-5.6-terra": 159,
-    "gpt-5.6-sol": 162,
-    "claude-haiku-4-5-20251001": 143,
+    # "gpt-5.6-sol": 162,
     "claude-sonnet-4-5-20250929": 147,
     "claude-opus-4-5-20251101": 150,
     "claude-opus-4-6": 155,
