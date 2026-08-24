@@ -195,5 +195,6 @@ def gen_world_report(
         status = "(CHANGED)"
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(report_text)
-    print(f"gen_report: Saved world report to {report_path} {status}")
+    if status != "(unchanged)":
+        print(f"gen_report: Saved world report to {report_path} {status}")
     return report_text

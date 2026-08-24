@@ -13,6 +13,7 @@ Keys can be loaded from GCP Secret Manager using load_api_keys_from_gcp().
 """
 
 import os
+import warnings
 from dataclasses import dataclass
 
 from litellm import acompletion, completion
@@ -28,9 +29,16 @@ def load_api_keys_from_gcp(project_id: str | None = None) -> None:
 
     project_id = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project_id:
-        raise ValueError("No GCP project ID. Set GOOGLE_CLOUD_PROJECT or pass project_id.")
+        raise ValueError(
+            "No GCP project ID. Set GOOGLE_CLOUD_PROJECT or pass project_id."
+        )
 
-    client = secretmanager.SecretManagerServiceClient()
+    with warnings.catch_warnings():
+        # google.auth warns when gcloud user credentials lack a quota project
+        warnings.filterwarnings(
+            "ignore", message=".*end user credentials.*without a quota project.*"
+        )
+        client = secretmanager.SecretManagerServiceClient()
 
     secrets = {
         "OPENAI_API_KEY": "API_KEY_OPENAI",
@@ -55,16 +63,27 @@ def load_api_keys_from_gcp(project_id: str | None = None) -> None:
 # Models that don't support the temperature parameter.
 # Keep this separate from reasoning-token behavior.
 MODELS_WITHOUT_TEMPERATURE = {
-    "o1", "o1-mini", "o1-preview",
-    "o3", "o3-mini", "o3-pro",
+    "o1",
+    "o1-mini",
+    "o1-preview",
+    "o3",
+    "o3-mini",
+    "o3-pro",
     "o4-mini",
-    "gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-5-codex",
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5-codex",
 }
 
 # Models that typically need a larger token budget for reasoning traces.
 MODELS_WITH_EXTENDED_REASONING = {
-    "o1", "o1-mini", "o1-preview",
-    "o3", "o3-mini", "o3-pro",
+    "o1",
+    "o1-mini",
+    "o1-preview",
+    "o3",
+    "o3-mini",
+    "o3-pro",
     "o4-mini",
 }
 
