@@ -10,18 +10,18 @@ This script runs that same scoring over a *set* of configs — typically the
 prompt variants, each of which names its own dataset label — and reports them
 against each other:
 
-  - a models x configs table of skill scores, each cell carrying a 95%
-    confidence interval on its geometric mean
-  - a scatter of ECI against skill with those intervals as error bars, one
-    color and one fitted line per config
+  - a models x configs table of skill scores, with each model's ECI beside
+    its name and the rows sorted by it
+  - a scatter of ECI against skill with 95% confidence intervals on the
+    geometric means as error bars, one color and one fitted line per config
 
 Scoring is imported from analyze_baseline_skill.py rather than reimplemented,
 so a cell here is by construction the same number as that script's "all"
 column for the same config, baseline and split.
 
-The confidence intervals are normal intervals on the mean of log skill,
-exponentiated (so they are multiplicative and asymmetric around the mean, as a
-ratio's interval should be). They treat the per-question ratios as independent,
+The error bars are normal intervals on the mean of log skill, exponentiated
+(so they are multiplicative and asymmetric around the mean, as a ratio's
+interval should be). They treat the per-question ratios as independent,
 which flatters them somewhat: questions within a scenario share a trajectory
 and horizons overlap, so the effective sample size is smaller than the count.
 Read them as comparable across cells, not as exact coverage.
@@ -117,13 +117,14 @@ def stats_by_model(rows: list[dict]) -> dict[str, tuple]:
 
 
 def format_cell(cell: tuple | None) -> str:
-    """One table cell: the mean with its interval, or a dash when unscored."""
+    """One table cell: the geometric mean alone, or a dash when unscored.
+
+    The interval behind the mean is shown as an error bar on the scatter
+    rather than printed here, where it would triple every column's width.
+    """
     if cell is None:
         return "-"
-    mean, lo, hi, n = cell
-    if lo is None:
-        return f"{mean:.3f} (n={n})"
-    return f"{mean:.3f} [{lo:.3f}, {hi:.3f}]"
+    return f"{cell[0]:.3f}"
 
 
 def ordered_models(per_config: dict[str, list[dict]]) -> list[str]:
@@ -142,14 +143,19 @@ def ordered_models(per_config: dict[str, list[dict]]) -> list[str]:
 def print_skill_table(
     report: MdReport, per_config: dict[str, list[dict]], kind: str, split: str
 ) -> None:
-    """Print models x configs of geometric-mean skill with 95% intervals.
+    """Print models x configs of geometric-mean skill, with each model's ECI.
 
     Models are rows, as in the parent script's tables, and configs are columns:
     how a model's score moves as the config changes reads across one row, and
     the model list — the longer of the two axes — grows the table down rather
-    than sideways.
+    than sideways. Rows are sorted by ECI, most capable first, so the table
+    reads as a coarse text rendering of the scatter below it; models without
+    an ECI score sink to the bottom, best pooled skill first.
     """
-    models = ordered_models(per_config)
+    models = sorted(
+        ordered_models(per_config),
+        key=lambda m: (eci_of(m) is None, -(eci_of(m) or 0)),
+    )
     cells = {
         label: stats_by_model(rows) for label, rows in per_config.items()
     }
@@ -161,12 +167,16 @@ def print_skill_table(
     report.text(
         f"{split_note(split)}\n\n{baseline_note(kind)}\n\n"
         "each cell is the geometric mean of CRPS_model/CRPS_baseline over the "
-        "config's scored questions, with a 95% CI on that mean (normal interval "
-        "on log skill, exponentiated; treats questions as independent, so read "
-        "the intervals as comparable rather than exact)"
+        "config's scored questions; rows are sorted by ECI, models without one "
+        "last. The 95% CIs on these means are the scatter's error bars"
     )
 
+    def eci_cell(model_id: str) -> str:
+        eci = eci_of(model_id)
+        return "nan" if eci is None else str(eci)
+
     model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in models])
+    eci_col = max([len("ECI")] + [len(eci_cell(m)) for m in models])
     widths = {
         label: max(
             len(label),
@@ -175,12 +185,12 @@ def print_skill_table(
         for label in per_config
     }
 
-    header = f"{'Model':<{model_col}}  " + "  ".join(
+    header = f"{'Model':<{model_col}}  {'ECI':>{eci_col}}  " + "  ".join(
         f"{label:>{widths[label]}}" for label in per_config
     )
     lines = [header, "-" * len(header)]
     for m in models:
-        row = [f"{m.split('/')[-1]:<{model_col}}"]
+        row = [f"{m.split('/')[-1]:<{model_col}}", f"{eci_cell(m):>{eci_col}}"]
         row += [
             f"{format_cell(cells[label].get(m)):>{widths[label]}}"
             for label in per_config
@@ -384,11 +394,11 @@ def main() -> None:
     ap.add_argument(
         "--baseline",
         choices=sorted(BASELINES),
-        default="sigma",
+        default="plain",
         help=(
-            "Which naive forecast to score against. 'sigma' (default) widens "
-            "the interval by the metric's historical volatility; 'plain' puts "
-            "all five quantiles on the snapshot value"
+            "Which naive forecast to score against. 'plain' (default) puts "
+            "all five quantiles on the snapshot value; 'sigma' widens the "
+            "interval by the metric's historical volatility"
         ),
     )
     ap.add_argument(

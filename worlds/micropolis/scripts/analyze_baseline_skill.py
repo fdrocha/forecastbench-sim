@@ -13,16 +13,16 @@ carries its own meaning — below 1 beats the baseline, above 1 loses to it.
 Two baselines are available through --baseline, both of which predict that
 nothing changes from the snapshot value:
 
-  sigma (default)  p50 at the snapshot value and the other quantiles at
-                   p50 + z*sigma, sigma being the metric's own historical
-                   volatility over a window the length of the horizon. The
-                   fairer comparison, since it submits a real interval as the
-                   models do, and it is almost never exactly right.
-  plain            all five quantiles at the snapshot value. CRPS of a
+  plain (default)  all five quantiles at the snapshot value. CRPS of a
                    degenerate forecast reduces to absolute error, so this
                    scores 0 whenever the metric did not move at all — 12% of
                    the corpus — and those questions have no defined skill
                    score and are dropped.
+  sigma            p50 at the snapshot value and the other quantiles at
+                   p50 + z*sigma, sigma being the metric's own historical
+                   volatility over a window the length of the horizon. The
+                   fairer comparison, since it submits a real interval as the
+                   models do, and it is almost never exactly right.
 
 Both baselines and their reasoning live in analyze_single_city.py, which this
 imports rather than reimplements, so the two scripts cannot disagree about what
@@ -45,7 +45,7 @@ denominator says nothing.
 
 Writes a Markdown report to
 data/micropolis/single_city/{label}/analysis-skill.md (--baseline
-plain) or analysis-skill-sigma.md (--baseline sigma, the default), with plots
+plain, the default) or analysis-skill-sigma.md (--baseline sigma), with plots
 in data/micropolis/single_city/{label}/plots/with_baseline/. The two
 baselines' plots are also distinguished by a -sigma suffix, so running both
 never overwrites the other's figures. Only the paths written and the report's
@@ -53,7 +53,7 @@ own path are printed to stdout.
 
 Usage:
     scripts/analyze_baseline_skill.py
-    scripts/analyze_baseline_skill.py --baseline plain
+    scripts/analyze_baseline_skill.py --baseline sigma
     scripts/analyze_baseline_skill.py my_config.json5 --no-plot
 """
 
@@ -121,9 +121,9 @@ def plot_suffix(kind: str) -> str:
     """Filename suffix distinguishing the sigma baseline's plots from plain's.
 
     "plain" keeps the original, unsuffixed names — it was the only variant
-    before --baseline existed — so only "sigma" (the default today) is tagged;
-    otherwise the two variants' figures would silently overwrite each other
-    whenever both are plotted against the same label.
+    before --baseline existed — so only "sigma" is tagged; otherwise the two
+    variants' figures would silently overwrite each other whenever both are
+    plotted against the same label.
     """
     return "-sigma" if kind == "sigma" else ""
 
@@ -1121,12 +1121,12 @@ def main() -> None:
     ap.add_argument(
         "--baseline",
         choices=sorted(BASELINES),
-        default="sigma",
+        default="plain",
         help=(
-            "Which naive forecast to score against. 'sigma' (default) widens the "
-            "interval by the metric's historical volatility; 'plain' puts all "
+            "Which naive forecast to score against. 'plain' (default) puts all "
             "five quantiles on the snapshot value, and so is exactly right — and "
-            "gives no usable ratio — whenever the metric did not move"
+            "gives no usable ratio — whenever the metric did not move; 'sigma' "
+            "widens the interval by the metric's historical volatility"
         ),
     )
     ap.add_argument(
