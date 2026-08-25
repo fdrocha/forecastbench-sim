@@ -168,6 +168,7 @@ def collect_for_batches(
     model_names: list[str],
     response_path_for,
     usage_path_for,
+    seen: set[tuple[str, str, str]] | None = None,
 ) -> Collected:
     """Find the sidecar for every call implied by `batch_hashes` x `model_names`.
 
@@ -180,10 +181,22 @@ def collect_for_batches(
         model_names: The models the config asks for.
         response_path_for: (batch_id, model_id, phash) -> the response's path.
         usage_path_for: (batch_id, model_id, phash) -> the sidecar's path.
+        seen: Call keys already accounted for, added to as calls are counted.
+            Pass one set across several configs to total them without
+            double-counting: configs that differ only in, say, their model list
+            share every batch the common models answered, and that shared work
+            was paid for once. Counted here rather than by deduplicating the
+            loaded usages afterwards, since two genuinely distinct calls can
+            have identical token counts and cost.
     """
     collected = Collected(usages=[])
     for batch_id, phash in batch_hashes.items():
         for model_id in model_names:
+            key = (batch_id, model_id, phash)
+            if seen is not None:
+                if key in seen:
+                    continue
+                seen.add(key)
             if not response_path_for(batch_id, model_id, phash).exists():
                 collected.unprompted += 1
                 continue
@@ -193,6 +206,19 @@ def collect_for_batches(
             else:
                 collected.usages.append(usage)
     return collected
+
+
+def merge(collections: list[Collected]) -> Collected:
+    """One Collected covering all of `collections`.
+
+    The counts simply add up: each was gathered against a shared `seen` set, so
+    no call is represented in more than one of them.
+    """
+    return Collected(
+        usages=[u for c in collections for u in c.usages],
+        missing=sum(c.missing for c in collections),
+        unprompted=sum(c.unprompted for c in collections),
+    )
 
 
 def load_from_glob(pattern: str) -> list[CallUsage]:

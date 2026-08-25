@@ -13,6 +13,7 @@ from micropolis_world.usage_report import (
     collect_for_batches,
     format_table,
     grand_total,
+    merge,
     provider_of,
 )
 
@@ -194,3 +195,68 @@ def test_a_different_prompt_hash_finds_nothing(tmp_path):
     got = collect_for_batches({"b1": "new"}, ["m1"], rpath, upath)
     assert got.usages == []
     assert got.unprompted == 1
+
+
+# --- totalling several configs at once --------------------------------------
+
+
+def test_a_call_two_configs_share_is_counted_once(tmp_path):
+    """Overlapping configs paid for the shared batch once, so it counts once."""
+    rpath, upath = make_layout(tmp_path)
+    rpath("b1", "m1", "h").write_text("answer")
+    save_usage(upath("b1", "m1", "h"), usage(cost=0.07))
+
+    seen: set[tuple[str, str, str]] = set()
+    first = collect_for_batches({"b1": "h"}, ["m1"], rpath, upath, seen)
+    second = collect_for_batches({"b1": "h"}, ["m1"], rpath, upath, seen)
+
+    assert len(first.usages) == 1
+    assert second.usages == []
+    assert grand_total(by_provider(merge([first, second]).usages)).cost_usd == 0.07
+
+
+def test_the_second_config_still_counts_what_it_alone_asks_for(tmp_path):
+    rpath, upath = make_layout(tmp_path)
+    for batch in ("b1", "b2"):
+        rpath(batch, "m1", "h").write_text("answer")
+        save_usage(upath(batch, "m1", "h"), usage(cost=0.07))
+
+    seen: set[tuple[str, str, str]] = set()
+    first = collect_for_batches({"b1": "h"}, ["m1"], rpath, upath, seen)
+    second = collect_for_batches({"b1": "h", "b2": "h"}, ["m1"], rpath, upath, seen)
+
+    assert len(first.usages) == 1
+    assert len(second.usages) == 1
+    assert len(merge([first, second]).usages) == 2
+
+
+def test_shared_gaps_are_not_double_counted_either(tmp_path):
+    """missing and unprompted describe calls too, so they dedupe the same way."""
+    rpath, upath = make_layout(tmp_path)
+    rpath("b1", "m1", "h").write_text("answer")  # response, no sidecar
+
+    seen: set[tuple[str, str, str]] = set()
+    batches = {"b1": "h", "b2": "h"}
+    first = collect_for_batches(batches, ["m1"], rpath, upath, seen)
+    second = collect_for_batches(batches, ["m1"], rpath, upath, seen)
+    total = merge([first, second])
+
+    assert total.missing == 1
+    assert total.unprompted == 1
+
+
+def test_without_a_seen_set_nothing_is_deduplicated(tmp_path):
+    """The single-config path is unchanged: no set passed, no cross-call state."""
+    rpath, upath = make_layout(tmp_path)
+    rpath("b1", "m1", "h").write_text("answer")
+    save_usage(upath("b1", "m1", "h"), usage())
+
+    twice = [collect_for_batches({"b1": "h"}, ["m1"], rpath, upath) for _ in range(2)]
+    assert len(merge(twice).usages) == 2
+
+
+def test_merging_nothing_is_empty(tmp_path):
+    total = merge([])
+    assert total.usages == []
+    assert total.missing == 0
+    assert total.unprompted == 0

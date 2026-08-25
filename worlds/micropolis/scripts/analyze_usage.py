@@ -7,11 +7,16 @@ records; it never prompts anything, so it costs nothing and works offline.
 
 Two ways to choose which calls to report on:
 
-  Config mode (the default) takes the same config file and overrides as the
-  run* scripts, rebuilds the same corpus, and reports on exactly the calls that
-  config implies — so the number it prints is the cost of the run those same
-  arguments would reproduce. Calls the config asks for that were never made are
+  Config mode (the default) takes the same config files and overrides as the
+  run* scripts, rebuilds the same corpus, and reports on exactly the calls those
+  configs imply — so the number it prints is the cost of the run those same
+  arguments would reproduce. Calls a config asks for that were never made are
   counted as not yet prompted, not as missing data.
+
+  Several configs may be named at once, and their totals are then reported
+  together. A call shared by two of them — configs commonly overlap, differing
+  only in their model list or in a prompt variant that leaves most batches
+  untouched — is counted once, since the cached response was paid for once.
 
   --glob reports on every sidecar matching a pattern instead, ignoring the
   config. Relative patterns resolve under data/micropolis/. Use this to look
@@ -21,6 +26,8 @@ Two ways to choose which calls to report on:
 Usage:
     scripts/analyze_usage.py
     scripts/analyze_usage.py my_config.json --per-model
+    scripts/analyze_usage.py cfgA.json5 cfgB.json5 cfgC.json5
+    scripts/analyze_usage.py configs/*.json5 --per-config
     scripts/analyze_usage.py --cities kyoto --disasters false
     scripts/analyze_usage.py --glob 'single_city/cache/*/usage-*.json'
     scripts/analyze_usage.py --glob 'knowledge_eval/usage-*.json' --per-model
@@ -31,8 +38,9 @@ import argparse
 
 from micropolis_world import usage_report as ur
 from micropolis_world.config import (
+    Config,
     add_config_args,
-    load_config,
+    load_configs,
     main_with_config,
 )
 from micropolis_world.scenarios import (
@@ -48,15 +56,21 @@ from micropolis_world.single_city import (
 )
 
 
-def collect_from_config(args: argparse.Namespace) -> ur.Collected:
+def collect_from_config(
+    cfg: Config,
+    args: argparse.Namespace,
+    seen: set[tuple[str, str, str]],
+) -> ur.Collected:
     """The sidecars for the calls this config's single-city eval implies.
 
     Rebuilds the corpus and batch prompts the same way run_single_city_eval.py
     does, because the sidecar's filename carries the prompt's hash: without
     re-deriving the prompt there is no way to tell which stored call belongs to
     this config rather than to some other variant cached beside it.
+
+    `seen` carries the calls already counted for earlier configs, so a call two
+    configs share is reported once — see usage_report.collect_for_batches.
     """
-    cfg = load_config(args)
     seed = cfg.get_seed(args.seed)
     label = cfg.get_label(args.label)
     model_names = cfg.get_models(args.models)
@@ -91,14 +105,32 @@ def collect_from_config(args: argparse.Namespace) -> ur.Collected:
         for bid, questions in batches.items()
     }
     return ur.collect_for_batches(
-        batch_hashes, model_names, response_path, usage_path
+        batch_hashes, model_names, response_path, usage_path, seen
     )
+
+
+def report_tables(collected: ur.Collected, per_model: bool) -> str:
+    """The provider table for `collected`, and the per-model one when asked for."""
+    if not collected.usages:
+        return "No usage data found."
+    parts = [ur.format_table(ur.by_provider(collected.usages), "provider")]
+    if per_model:
+        parts.append(ur.format_table(ur.by_model(collected.usages), "model"))
+    return "\n\n".join(parts)
 
 
 @main_with_config
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    add_config_args(ap)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    add_config_args(ap, many=True)
+    ap.add_argument(
+        "--per-config",
+        action="store_true",
+        help="also print each config's own table, in the order given; a call "
+        "two configs share is counted under the first of them",
+    )
     ap.add_argument(
         "--glob",
         metavar="PATTERN",
@@ -120,16 +152,30 @@ def main() -> None:
         print(f"glob:   {args.glob}")
         collected = ur.Collected(usages=ur.load_from_glob(args.glob))
     else:
-        collected = collect_from_config(args)
+        # One `seen` across every config, so a call more than one of them asks
+        # for is counted once: the response was cached and paid for once.
+        seen: set[tuple[str, str, str]] = set()
+        per_config = []
+        for i, cfg in enumerate(load_configs(args)):
+            if i:
+                print()
+            per_config.append((cfg, collect_from_config(cfg, args, seen)))
+        if args.per_config and len(per_config) > 1:
+            # Each config's own share of the total: the calls it is the first to
+            # ask for. A config listed later than one it overlaps therefore shows
+            # only what the earlier one did not already account for, which is
+            # what makes these tables add up to the total below.
+            for cfg, one in per_config:
+                print()
+                print(f"--- {cfg.path} ---")
+                print(report_tables(one, args.per_model))
+        collected = ur.merge([one for _, one in per_config])
+        if len(per_config) > 1:
+            print()
+            print(f"TOTAL over {len(per_config)} configs, shared calls counted once")
 
     print()
-    if not collected.usages:
-        print("No usage data found.")
-    else:
-        print(ur.format_table(ur.by_provider(collected.usages), "provider"))
-        if args.per_model:
-            print()
-            print(ur.format_table(ur.by_model(collected.usages), "model"))
+    print(report_tables(collected, args.per_model))
 
     # One line rather than a warning per file: an old cache legitimately has no
     # sidecars at all, and a screen of warnings would bury the totals.

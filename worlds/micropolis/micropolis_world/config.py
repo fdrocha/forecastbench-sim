@@ -294,7 +294,11 @@ def _bool_arg(value: str) -> bool:
     raise argparse.ArgumentTypeError(f"expected true or false, got {value!r}")
 
 
-def add_config_args(ap: argparse.ArgumentParser, default: Path | None = None) -> None:
+def add_config_args(
+    ap: argparse.ArgumentParser,
+    default: Path | None = None,
+    many: bool = False,
+) -> None:
     """Add the config-file argument and the parameter overrides every script takes.
 
     The overrides — --seed, --cities, --disasters, --models, --label — are the
@@ -306,13 +310,30 @@ def add_config_args(ap: argparse.ArgumentParser, default: Path | None = None) ->
     for a script whose natural default is not default.json5. Passed here rather
     than applied by the caller after parsing, so the --help text names the file
     the script will actually read.
+
+    `many` takes a list of config files rather than one, for a script that
+    reports over several runs at once; the overrides then apply to each of
+    them. Read the list with load_configs(), which also covers the single-config
+    case so a script can switch without its caller changing.
     """
-    ap.add_argument(
-        "config",
-        nargs="?",
-        default=default,
-        help=f"JSON5 config file (default: {default or DEFAULT_CONFIG_PATH})",
-    )
+    if many:
+        ap.add_argument(
+            "config",
+            nargs="*",
+            # The same fallback the single-config form has, as a one-element
+            # list, so naming no config still reports on the default one.
+            default=[default or DEFAULT_CONFIG_PATH],
+            metavar="CONFIG",
+            help="One or more JSON5 config files "
+            f"(default: {default or DEFAULT_CONFIG_PATH})",
+        )
+    else:
+        ap.add_argument(
+            "config",
+            nargs="?",
+            default=default,
+            help=f"JSON5 config file (default: {default or DEFAULT_CONFIG_PATH})",
+        )
     ap.add_argument(
         "--seed",
         type=int,
@@ -359,6 +380,24 @@ def load_config(args: argparse.Namespace) -> Config:
     except ConfigError as e:
         print(f"[error] {e}", file=sys.stderr)
         sys.exit(1)
+
+
+def load_configs(args: argparse.Namespace) -> list[Config]:
+    """Every config named by parsed args, exiting with a message on failure.
+
+    For a script that took add_config_args(many=True). Naming no config at all
+    leaves the argument's default in place — the same single file load_config()
+    would have read — so running the script bare keeps behaving as before.
+    """
+    paths = args.config if isinstance(args.config, list) else [args.config]
+    configs = []
+    for path in paths:
+        try:
+            configs.append(Config.load(path))
+        except ConfigError as e:
+            print(f"[error] {e}", file=sys.stderr)
+            sys.exit(1)
+    return configs
 
 
 def main_with_config(main: Callable[[], None]) -> Callable[[], None]:
