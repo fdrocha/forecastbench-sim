@@ -14,10 +14,10 @@ against each other:
     many forecasts back the row, what share of them failed to parse, its
     average skill on the behavioral metrics, on city funds, and over both,
     each with a 95% CI, and how strongly that skill tracks ECI
+  - a bar chart of the summary's last skill column, directly under it, so the
+    headline comparison is visible without reading the table
   - a scatter of ECI against skill pooled over all six metrics, in the same
     format as the per-split ones below it
-  - a bar chart of the summary's last skill column, so the headline
-    comparison is visible without reading the table
   - a models x configs table of skill scores, with each model's ECI beside
     its name and the rows sorted by it
   - a scatter of ECI against skill with 95% confidence intervals on the
@@ -120,6 +120,53 @@ POOLED_SPLIT = (
 def split_display(split: str) -> tuple[str, str]:
     """(name, description) for a split, including the pooled pseudo-split."""
     return POOLED_SPLIT if split == "all" else SPLITS[split]
+
+
+# Display names for the configs, keyed by label: what the tables, the legends
+# and the axis ticks call each config, once a prefix shared by all of them has
+# been dropped. Set once in main(); an unknown key falls back to the label
+# itself, so anything that runs without main() having filled it still prints.
+SHORT: dict[str, str] = {}
+
+
+def short(label: str) -> str:
+    """What to call `label` in a header, a legend or a tick."""
+    return SHORT.get(label, label)
+
+
+def short_labels(labels: list[str]) -> dict[str, str]:
+    """Map each label to itself minus a prefix every label shares.
+
+    Configs compared here are usually variants of one family — prompt-long,
+    prompt-semantic, prompt-yfreq — so the shared 'prompt-' is in every column
+    header and every legend entry while distinguishing nothing. Dropping it
+    narrows the tables and puts the part that differs at the start of the cell,
+    where the eye lands.
+
+    The prefix is cut at the last separator inside the common run rather than
+    at the raw character-by-character prefix, so 'prompt-semantic' and
+    'prompt-smallbatch' — which share 'prompt-s' — lose 'prompt-' and keep
+    their whole distinguishing word instead of becoming 'emantic'/'mallbatch'.
+
+    Left alone when there is one config, when the trim would empty a label (a
+    config whose whole label is the prefix others extend), or when nothing is
+    shared.
+    """
+    if len(labels) < 2:
+        return {l: l for l in labels}
+    common = ""
+    for chars in zip(*labels):
+        if len(set(chars)) > 1:
+            break
+        common += chars[0]
+    cut = max(common.rfind(sep) for sep in "-_.")
+    if cut < 0:
+        return {l: l for l in labels}
+    prefix = common[: cut + 1]
+    trimmed = {l: l[len(prefix):] for l in labels}
+    if not all(trimmed.values()):
+        return {l: l for l in labels}
+    return trimmed
 
 
 def cluster_key(row: dict) -> tuple:
@@ -477,7 +524,7 @@ def print_summary_table(
         ("avg skill all", lambda l: format_avg_cell(overall[l])),
         ("ECI corr", eci_corr),
     ]
-    label_col = max([len("Config")] + [len(l) for l in per_config])
+    label_col = max([len("Config")] + [len(short(l)) for l in per_config])
     widths = [
         max(len(head), *(len(fn(l)) for l in per_config)) for head, fn in cols
     ]
@@ -487,7 +534,7 @@ def print_summary_table(
     )
     lines = [header, "-" * len(header)]
     for label in per_config:
-        row = [f"{label:<{label_col}}"]
+        row = [f"{short(label):<{label_col}}"]
         row += [f"{fn(label):>{w}}" for (_, fn), w in zip(cols, widths)]
         lines.append("  ".join(row))
     report.table("\n".join(lines))
@@ -576,7 +623,7 @@ def plot_avg_skill_bars(
     )
 
     ax.set_xticks(list(xs))
-    ax.set_xticklabels(labels, rotation=20, ha="right")
+    ax.set_xticklabels([short(l) for l in labels], rotation=20, ha="right")
     ax.set_ylabel("Avg skill vs baseline (CRPS_model / CRPS_baseline, log scale)")
     ax.set_yscale("log")
     lo_lim, hi_lim = ax.get_ylim()
@@ -647,14 +694,14 @@ def print_skill_table(
     eci_col = max([len("ECI")] + [len(eci_cell(m)) for m in models])
     widths = {
         label: max(
-            len(label),
+            len(short(label)),
             *(len(format_cell(cells[label].get(m))) for m in models),
         )
         for label in per_config
     }
 
     header = f"{'Model':<{model_col}}  {'ECI':>{eci_col}}  " + "  ".join(
-        f"{label:>{widths[label]}}" for label in per_config
+        f"{short(label):>{widths[label]}}" for label in per_config
     )
     lines = [header, "-" * len(header)]
     for m in models:
@@ -677,7 +724,7 @@ def print_skill_table(
             # say how much was scored, the clusters say how wide the bars are.
             n_clusters = len({cluster_key(r) for r in rows})
             counts.append(
-                f"  {label}: {per_model} scored questions per model, "
+                f"  {short(label)}: {per_model} scored questions per model, "
                 f"over {n_clusters} (scenario, snapshot) clusters"
             )
     report.text("\n".join(["questions behind each cell:"] + counts))
@@ -760,12 +807,12 @@ def plot_eci_vs_skill_by_config(
             capsize=3,
             alpha=0.85,
             zorder=3,
-            label=label,
+            label=short(label),
         )
 
         rho, p_rho = stats.spearmanr(ecis, means)
         lines.append(
-            f"  {label}: rho={rho:+.3f}  p={p_rho:.4f} {stars_for(p_rho):<4} "
+            f"  {short(label)}: rho={rho:+.3f}  p={p_rho:.4f} {stars_for(p_rho):<4} "
             f"(n={len(points)})"
         )
         # Fitted in log space: a straight fit in ratio space would let one
@@ -988,6 +1035,12 @@ def main() -> None:
                 f"config ({', '.join(per_config)}); nothing left to compare"
             )
 
+    # Display names for every table, legend and tick below. The full labels
+    # stay the dict keys, and the prose that names the configs — the header
+    # here, the report's "configs compared", the output directory — keeps
+    # them, so the trimmed headers can always be tied back to a dataset.
+    SHORT.update(short_labels(list(per_config)))
+
     name = args.name or "+".join(per_config)
     outdir = comparison_dir(name)
 
@@ -1014,6 +1067,17 @@ def main() -> None:
         f"{baseline_note(args.baseline)}\n\n"
         f"configs compared: {', '.join(per_config)}"
     )
+    trimmed = [l for l in per_config if SHORT[l] != l]
+    if trimmed:
+        # Said once, up here, rather than under every table: the headers below
+        # are shortened, and without this the reader has no way to tie a
+        # column back to the dataset directory it was loaded from.
+        shared = trimmed[0][: len(trimmed[0]) - len(SHORT[trimmed[0]])]
+        report.text(
+            f"every config's label starts with {shared!r}; the tables and "
+            "figures below drop it from their headers, so the column "
+            f"'{SHORT[trimmed[0]]}' is the config '{trimmed[0]}'."
+        )
     if args.intersect_models:
         common = sorted(
             {r["model_id"] for rows in per_config.values() for r in rows}
@@ -1047,17 +1111,20 @@ def main() -> None:
     if scored:
         overall = print_summary_table(report, scored, counts, args.baseline)
         if args.plot:
-            # The pooled scatter first: it is the same figure the per-split
-            # sections end with, over all six metrics at once, and it answers
-            # the report's headline question — does capability predict skill,
-            # and does one config sit above another — before the reader has to
-            # decide which split to look at.
+            # The bar chart first, directly under the table: it draws that
+            # table's last column and nothing else, so the two are one thought
+            # and reading them together is what tells the reader whether the
+            # configs differ by more than their own noise.
+            fig = plot_avg_skill_bars(report, overall, args.baseline, outdir)
+            if fig is not None:
+                written.append(fig)
+            # Then the pooled scatter, which is the same figure the per-split
+            # sections end with, over all six metrics at once: it adds the
+            # model axis the summary collapsed, and answers whether capability
+            # predicts skill before the reader has to pick a split.
             fig = plot_eci_vs_skill_by_config(
                 report, scored, args.baseline, "all", outdir
             )
-            if fig is not None:
-                written.append(fig)
-            fig = plot_avg_skill_bars(report, overall, args.baseline, outdir)
             if fig is not None:
                 written.append(fig)
         empty = [label for label in per_config if not per_config[label]]
