@@ -28,6 +28,15 @@ import json5
 from . import module_globals as g
 
 CONFIG_DIR = Path(__file__).resolve().parent / "configs"
+
+# The orders build_corpus can emit its questions in, and so the order they are
+# numbered in each batch prompt. "turn" groups every metric for one horizon
+# together; "metric" groups every horizon for one metric together. The order is
+# part of the prompt text, so switching simply hashes to a new cache entry.
+QUESTIONS_SORT_TURN = "turn"
+QUESTIONS_SORT_METRIC = "metric"
+QUESTIONS_SORTS = (QUESTIONS_SORT_TURN, QUESTIONS_SORT_METRIC)
+
 # .json5 rather than .json so editors don't flag the comments as syntax errors.
 # Either extension loads; the parser is the same.
 DEFAULT_CONFIG_PATH = CONFIG_DIR / "default.json5"
@@ -113,6 +122,16 @@ class Config:
                 f"parameter '{key}' in {self.path} must be a string, got {value!r}"
             )
         return value
+
+    def get_str_or(self, key: str, default: str) -> str:
+        """The string at `key`, or `default` if the config doesn't set it.
+
+        Same reasoning as get_bool_or: a parameter added after configs were
+        already in use should not turn every existing config into an error.
+        """
+        if key not in self.data:
+            return default
+        return self.get_str(key)
 
     def get_int_list(self, key: str) -> list[int]:
         value = self._require(key)
@@ -214,6 +233,23 @@ class Config:
                 f"(named by parameter 'epilogue_path' in {self.path})"
             )
         return path
+
+    def get_questions_sort(self) -> str:
+        """The optional 'questions_sort', saying how a batch's questions are ordered.
+
+        "turn" (the default) numbers every metric for one horizon before moving
+        to the next horizon; "metric" numbers every horizon for one metric
+        first. The order is part of the prompt text, so switching misses the
+        response cache rather than mixing variants, and an absent key means the
+        order configs were already run with.
+        """
+        value = self.get_str_or("questions_sort", QUESTIONS_SORT_TURN)
+        if value not in QUESTIONS_SORTS:
+            raise ConfigError(
+                f"parameter 'questions_sort' in {self.path} must be one of "
+                f"{', '.join(QUESTIONS_SORTS)}, got {value!r}"
+            )
+        return value
 
     def get_cities(self, override: list[str] | None = None) -> list[str]:
         """The 'cities' list, or override when one was passed on the command line.

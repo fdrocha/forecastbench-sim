@@ -46,6 +46,7 @@ from pathlib import Path
 import micropolis_world.module_globals as g
 from fbsim_core.evaluation.models import get_models
 from micropolis_world.config import (
+    QUESTIONS_SORT_TURN,
     add_config_args,
     load_config,
     main_with_config,
@@ -279,6 +280,7 @@ def main() -> None:
     snapshot_only = cfg.get_bool_or("snapshot_only_report", False)
     preamble_path = cfg.get_preamble_path()
     epilogue_path = cfg.get_epilogue_path()
+    questions_sort = cfg.get_questions_sort()
 
     print("=" * 70)
     print("MICROPOLIS WORLD — single city eval")
@@ -291,6 +293,8 @@ def main() -> None:
         print(f"epilogue: {epilogue_path}")
     if snapshot_only:
         print("report: snapshot only (no HISTORY table)")
+    if questions_sort != QUESTIONS_SORT_TURN:
+        print(f"questions sorted by: {questions_sort}")
 
     scenarios = get_single_city_base_scenarios(
         seed=seed,
@@ -307,6 +311,7 @@ def main() -> None:
         snapshot_only,
         cfg.get_int_or("history_length", -1),
         cfg.get_bool_or("report_effectiveness", False),
+        questions_sort,
     )
 
     if args.dry_run:

@@ -10,7 +10,11 @@ from fbsim_core.questions.resolver import QuestionResolver
 from fbsim_core.questions.schema import QuestionInstance
 
 from .city_sim import CitySimulation, to_world
-from .config import CONFIG_DIR
+from .config import (
+    CONFIG_DIR,
+    QUESTIONS_SORT_TURN,
+    QUESTIONS_SORTS,
+)
 from .report import gen_world_report
 from .templates import ALL_TEMPLATES, REGISTRY
 
@@ -78,7 +82,22 @@ def build_corpus(
     snapshot_only_report: bool = False,
     history_length: int = -1,
     report_effectiveness: bool = False,
+    questions_sort: str = QUESTIONS_SORT_TURN,
 ) -> list[dict]:
+    """One question per (scenario, snapshot turn, horizon, metric) combination.
+
+    `questions_sort` picks the order the questions come out in, and so the
+    order they are numbered in each batch prompt: QUESTIONS_SORT_TURN asks
+    every metric for one horizon before moving to the next horizon, while
+    QUESTIONS_SORT_METRIC asks every horizon for one metric first. Both ask
+    exactly the same questions; only the numbering differs, and since that
+    order is part of the prompt text, switching hashes to a new cache entry
+    rather than mixing variants.
+    """
+    if questions_sort not in QUESTIONS_SORTS:
+        raise ValueError(
+            f"questions_sort must be one of {QUESTIONS_SORTS}, got {questions_sort!r}"
+        )
     resolver = QuestionResolver(REGISTRY)
     corpus = []
     nscenarios = len(scenarios)
@@ -101,47 +120,54 @@ def build_corpus(
                 history_length=history_length,
                 report_effectiveness=report_effectiveness,
             )
-            for H in horizons:
+            # Both orders ask the same questions; only the order they are
+            # numbered in the prompt differs, so the pairs are generated once
+            # and re-ordered rather than duplicating the loop body.
+            pairs = (
+                [(H, t) for H in horizons for t in ALL_TEMPLATES]
+                if questions_sort == QUESTIONS_SORT_TURN
+                else [(H, t) for t in ALL_TEMPLATES for H in horizons]
+            )
+            for H, template in pairs:
                 T = SNAPSHOT_TURN + H
-                for template in ALL_TEMPLATES:
-                    q_text = template.question_template.format(resolution_turn=T)
-                    question_id = (
-                        f"{scenario_id}_T{SNAPSHOT_TURN}_H{H}_{template.template_id}"
-                    )
-                    q = QuestionInstance(
-                        question_id=question_id,
-                        template_id=template.template_id,
-                        resolution_turn=T,
-                        horizon=H,
-                        parameters={
-                            "player_id": CITY_ENTITY_ID,
-                        },
-                        question_text=q_text,
-                    )
+                q_text = template.question_template.format(resolution_turn=T)
+                question_id = (
+                    f"{scenario_id}_T{SNAPSHOT_TURN}_H{H}_{template.template_id}"
+                )
+                q = QuestionInstance(
+                    question_id=question_id,
+                    template_id=template.template_id,
+                    resolution_turn=T,
+                    horizon=H,
+                    parameters={
+                        "player_id": CITY_ENTITY_ID,
+                    },
+                    question_text=q_text,
+                )
 
-                    res = resolver.resolve(q, world, SNAPSHOT_TURN)
-                    # A continuous question resolves to a number in value_at_resolution;
-                    # .answer is only a bool saying whether any data was found. A missing
-                    # entity id or an out-of-range turn silently yields None here, which
-                    # would otherwise be indistinguishable from a real result.
-                    if res.value_at_resolution is None:
-                        raise ValueError(
-                            f"{q.question_id}: no value for {template.signal_name} at turn "
-                            f"{T} (entity {CITY_ENTITY_ID}, run has {sim.nturns} turns)"
-                        )
-                    entry = {
-                        "question_id": q.question_id,
-                        "metric": template.signal_name,
-                        "snapshot_turn": SNAPSHOT_TURN,
-                        "horizon": H,  # TODO: this should be one of "H0", "H1", ...
-                        "scenario_id": scenario_id,
-                        "question_text": q_text,
-                        "value": res.value_at_resolution,
-                        "context": report_text,
-                        "scenario": sim.describe(),
-                    }
+                res = resolver.resolve(q, world, SNAPSHOT_TURN)
+                # A continuous question resolves to a number in value_at_resolution;
+                # .answer is only a bool saying whether any data was found. A missing
+                # entity id or an out-of-range turn silently yields None here, which
+                # would otherwise be indistinguishable from a real result.
+                if res.value_at_resolution is None:
+                    raise ValueError(
+                        f"{q.question_id}: no value for {template.signal_name} at turn "
+                        f"{T} (entity {CITY_ENTITY_ID}, run has {sim.nturns} turns)"
+                    )
+                entry = {
+                    "question_id": q.question_id,
+                    "metric": template.signal_name,
+                    "snapshot_turn": SNAPSHOT_TURN,
+                    "horizon": H,  # TODO: this should be one of "H0", "H1", ...
+                    "scenario_id": scenario_id,
+                    "question_text": q_text,
+                    "value": res.value_at_resolution,
+                    "context": report_text,
+                    "scenario": sim.describe(),
+                }
 
-                    corpus.append(entry)
+                corpus.append(entry)
     ntotal_questions = len(corpus)
     questions_per_scenario = ntotal_questions / nscenarios
     print(

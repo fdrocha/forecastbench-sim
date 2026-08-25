@@ -85,6 +85,12 @@
   // omits it is used as written. Swapped and cached like preamble_path.
   "epilogue_path": "epilogue1.txt",
 
+  // The order a batch's questions are asked in. "turn" numbers every metric
+  // for one horizon before moving to the next horizon; "metric" numbers every
+  // horizon for one metric first. Part of the prompt text, so switching hashes
+  // to a new cache entry rather than mixing variants.
+  "questions_sort": "turn",
+
   // Models to prompt, in provider/name form, and the response token cap.
   // See README.md for the ForecastBench, frontier and pandemic model sets.
   "models": [

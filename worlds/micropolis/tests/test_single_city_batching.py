@@ -2,18 +2,25 @@
 
 Covers the batch prompt builder, the batch response parser, and the cache
 layout helpers. Nothing here calls a model or writes to disk; the only I/O is
-reading a stored real model response from fixtures/.
+reading a stored real model response from fixtures/ — except the questions
+sort tests, which build a small corpus and so run the simulator.
 """
 
 from pathlib import Path
 
+import pytest
+
+from micropolis_world.config import QUESTIONS_SORT_METRIC
 from micropolis_world.scenarios import (
-    PERCENTILE_KEYS,
     DEFAULT_EPILOGUE_PATH,
+    PERCENTILE_KEYS,
     build_batch_prompt_continuous,
+    build_corpus,
+    get_single_city_base_scenarios,
     parse_batch_percentiles,
 )
 from micropolis_world.single_city import batch_id_for, response_path
+from micropolis_world.templates import ALL_TEMPLATES
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -168,6 +175,51 @@ class TestBuildBatchPrompt:
         assert build_batch_prompt_continuous(REPORT, QUESTIONS).endswith(
             DEFAULT_EPILOGUE_PATH.read_text(encoding="utf-8").replace("{n}", "3")
         )
+
+
+class TestQuestionsSort:
+    """The two orders build_corpus can number a batch's questions in."""
+
+    HORIZONS = [12, 24]
+
+    def _corpus(self, **kw):
+        scenarios = get_single_city_base_scenarios(
+            seed=42, cities=["bruce"], disasters=[False]
+        )
+        return build_corpus(
+            scenarios,
+            [240],
+            self.HORIZONS,
+            history_freq=12,
+            label="sorttest",
+            **kw,
+        )
+
+    def test_turn_order_is_the_default(self):
+        pairs = [(q["horizon"], q["metric"]) for q in self._corpus()]
+        assert pairs == [
+            (h, t.signal_name) for h in self.HORIZONS for t in ALL_TEMPLATES
+        ]
+
+    def test_metric_order_groups_horizons_per_metric(self):
+        corpus = self._corpus(questions_sort=QUESTIONS_SORT_METRIC)
+        pairs = [(q["horizon"], q["metric"]) for q in corpus]
+        assert pairs == [
+            (h, t.signal_name) for t in ALL_TEMPLATES for h in self.HORIZONS
+        ]
+
+    def test_both_orders_ask_the_same_questions(self):
+        # Only the numbering changes, so a reordered run must resolve to the
+        # same values — otherwise the two orders would not be comparable.
+        by_turn = self._corpus()
+        by_metric = self._corpus(questions_sort=QUESTIONS_SORT_METRIC)
+        assert {q["question_id"]: q["value"] for q in by_turn} == {
+            q["question_id"]: q["value"] for q in by_metric
+        }
+
+    def test_unknown_sort_is_rejected(self):
+        with pytest.raises(ValueError, match="questions_sort"):
+            self._corpus(questions_sort="sideways")
 
 
 class TestBatchCacheHelpers:
