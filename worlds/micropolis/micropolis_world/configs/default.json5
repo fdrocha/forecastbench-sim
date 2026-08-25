@@ -78,6 +78,13 @@
   // misses the response cache rather than mixing variants.
   "preamble_path": "preamble1.txt",
 
+  // File holding the forecasting prompt's epilogue — the answer format
+  // instructions that follow the questions — relative to this config's
+  // directory. May contain an "{n}" placeholder, replaced with the number of
+  // questions in the batch (see scenarios.read_epilogue); an epilogue that
+  // omits it is used as written. Swapped and cached like preamble_path.
+  "epilogue_path": "epilogue1.txt",
+
   // Models to prompt, in provider/name form, and the response token cap.
   // See README.md for the ForecastBench, frontier and pandemic model sets.
   "models": [

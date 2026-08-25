@@ -9,6 +9,7 @@ from pathlib import Path
 
 from micropolis_world.scenarios import (
     PERCENTILE_KEYS,
+    DEFAULT_EPILOGUE_PATH,
     build_batch_prompt_continuous,
     parse_batch_percentiles,
 )
@@ -137,11 +138,36 @@ class TestBuildBatchPrompt:
         assert "Q1: p10=5" in prompt  # the answer-format example
 
     def test_single_question_prompt(self):
+        # A one-question batch takes the same numbered form as any other, so
+        # there is a single prompt shape for the parser to read back.
         prompt = build_batch_prompt_continuous(REPORT, QUESTIONS[:1])
-        assert "## Question\n" in prompt
-        assert "## Questions" not in prompt
-        assert QUESTIONS[0]["question_text"] in prompt
-        assert "Q1:" not in prompt  # single format has no numbered answer lines
+        assert "## Questions" in prompt
+        assert f"1. {QUESTIONS[0]['question_text']}" in prompt
+        assert "each of the 1 questions" in prompt
+
+    def test_epilogue_path_overrides_the_default(self, tmp_path):
+        epilogue = tmp_path / "epilogue-test.txt"
+        epilogue.write_text("Answer all {n} of them. {n} lines, please.")
+        prompt = build_batch_prompt_continuous(
+            REPORT, QUESTIONS, epilogue_path=epilogue
+        )
+        assert prompt.endswith("Answer all 3 of them. 3 lines, please.")
+        assert "<<<PERCENTILES>>>" not in prompt  # the default epilogue is gone
+
+    def test_epilogue_without_placeholder_is_used_verbatim(self, tmp_path):
+        epilogue = tmp_path / "epilogue-no-n.txt"
+        epilogue.write_text('Reply as {"p50": 1}.')
+        prompt = build_batch_prompt_continuous(
+            REPORT, QUESTIONS, epilogue_path=epilogue
+        )
+        assert prompt.endswith('Reply as {"p50": 1}.')
+
+    def test_default_epilogue_file_matches_the_prompt(self):
+        # The shipped default is what a config gets when it names no
+        # epilogue_path, so the prompt must end with it.
+        assert build_batch_prompt_continuous(REPORT, QUESTIONS).endswith(
+            DEFAULT_EPILOGUE_PATH.read_text(encoding="utf-8").replace("{n}", "3")
+        )
 
 
 class TestBatchCacheHelpers:

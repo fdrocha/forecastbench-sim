@@ -27,6 +27,11 @@ CITY_ENTITY_ID = 0
 # prompt_preamble fills in.
 DEFAULT_PREAMBLE_PATH = CONFIG_DIR / "preamble1.txt"
 
+# The epilogue a run uses when its config names no "epilogue_path". Held as a
+# file for the same reason as the preamble; the text may contain "{n}", which
+# read_epilogue fills in with the number of questions in the batch.
+DEFAULT_EPILOGUE_PATH = CONFIG_DIR / "epilogue1.txt"
+
 
 @cache
 def read_preamble(path: Path | str | None = None) -> str:
@@ -36,6 +41,22 @@ def read_preamble(path: Path | str | None = None) -> str:
     per batch, and because a config's key is read afresh at each call site.
     """
     return Path(path or DEFAULT_PREAMBLE_PATH).read_text(encoding="utf-8")
+
+
+@cache
+def _read_epilogue_template(path: Path | str | None = None) -> str:
+    """The raw epilogue template at `path`, or the default one when None."""
+    return Path(path or DEFAULT_EPILOGUE_PATH).read_text(encoding="utf-8")
+
+
+def read_epilogue(n: int, path: Path | str | None = None) -> str:
+    """The epilogue at `path` with "{n}" replaced by the question count.
+
+    A plain str.replace rather than str.format so an epilogue that never
+    mentions the count — or one that contains braces of its own, such as a
+    JSON answer template — is returned untouched instead of raising.
+    """
+    return _read_epilogue_template(path).replace("{n}", str(n))
 
 
 def get_single_city_base_scenarios(
@@ -133,6 +154,7 @@ def build_batch_prompt_continuous(
     context: str,
     questions: list[dict],
     preamble_path: Path | str | None = None,
+    epilogue_path: Path | str | None = None,
 ) -> str:
     """Ask for one p10/p25/p50/p75/p90 quantile forecast per question.
 
@@ -142,25 +164,16 @@ def build_batch_prompt_continuous(
     block match FreeCiv's build_continuous_batch_prompt, so responses from the
     two worlds are parsed the same way and scored on the same CRPS.
     parse_batch_percentiles reads the answers back.
+
+    `preamble_path` and `epilogue_path` name the templates wrapping the report
+    and questions, defaulting to DEFAULT_PREAMBLE_PATH and
+    DEFAULT_EPILOGUE_PATH. Both are part of the prompt, so changing either
+    misses the response cache rather than mixing variants.
     """
     n = len(questions)
     numbered_questions = "\n".join(
         f"{i}. {q['question_text']}" for i, q in enumerate(questions, 1)
     )
-    epilogue = f"""You MUST provide percentile estimates for every question UNDER ALL CIRCUMSTANCES. If for some reason you can't answer, provide reasonable mid-range estimates, but always return numeric percentile values.
-
-You may analyze the data, but you MUST end your response with your percentile estimates in this exact format:
-<<<PERCENTILES>>>
-Q1: p10=5, p25=10, p50=15, p75=20, p90=25
-Q2: p10=100, p25=200, p50=300, p75=400, p90=500
-<<<END>>>
-
-Provide one such line for each of the {n} questions, in order, replacing the example values with your actual percentile estimates.
-- p10 means you estimate there's a 10% chance the true value is below this number
-- p25 means you estimate there's a 25% chance the true value is below this number
-- p50 (median) means you estimate there's a 50% chance the true value is below this number
-- p75 means you estimate there's a 75% chance the true value is below this number
-- p90 means you estimate there's a 90% chance the true value is below this number"""
     return f"""{read_preamble(preamble_path)}
 
 ## Game report
@@ -169,7 +182,7 @@ Provide one such line for each of the {n} questions, in order, replacing the exa
 ## Questions
 {numbered_questions}
 
-{epilogue}"""
+{read_epilogue(n, epilogue_path)}"""
 
 
 def _validate_monotonic(

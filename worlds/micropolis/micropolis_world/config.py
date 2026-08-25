@@ -196,6 +196,25 @@ class Config:
             )
         return path
 
+    def get_epilogue_path(self) -> Path | None:
+        """The optional 'epilogue_path', resolved against the config's directory.
+
+        Names the file holding the forecasting prompt's epilogue — the answer
+        format instructions after the questions — which may contain an "{n}"
+        placeholder (see scenarios.read_epilogue). None means
+        scenarios.DEFAULT_EPILOGUE_PATH applies, so a config written before the
+        key existed keeps the epilogue it was run with.
+        """
+        if "epilogue_path" not in self.data:
+            return None
+        path = self.path.parent / self.get_str("epilogue_path")
+        if not path.exists():
+            raise ConfigError(
+                f"epilogue file not found: {path} "
+                f"(named by parameter 'epilogue_path' in {self.path})"
+            )
+        return path
+
     def get_cities(self, override: list[str] | None = None) -> list[str]:
         """The 'cities' list, or override when one was passed on the command line.
 
