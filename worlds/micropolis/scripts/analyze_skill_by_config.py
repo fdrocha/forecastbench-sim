@@ -11,9 +11,9 @@ prompt variants, each of which names its own dataset label — and reports them
 against each other:
 
   - a summary table, one row per config in command-line order, carrying how
-    many forecasts back the row, what share of them failed to parse, and its
+    many forecasts back the row, what share of them failed to parse, its
     average skill on the behavioral metrics, on city funds, and over both,
-    each with a 95% CI
+    each with a 95% CI, and how strongly that skill tracks ECI
   - a bar chart of that last column, so the headline comparison is visible
     without reading the table
   - a models x configs table of skill scores, with each model's ECI beside
@@ -62,6 +62,7 @@ import argparse
 import math
 import statistics
 import sys
+import warnings
 from pathlib import Path
 
 from micropolis_world.config import Config, ConfigError, main_with_config
@@ -286,6 +287,56 @@ def ordered_models(per_config: dict[str, list[dict]]) -> list[str]:
     return sorted(pooled, key=lambda m: statistics.fmean(pooled[m]))
 
 
+def eci_correlation(rows: list[dict]) -> tuple[float, float, int] | None:
+    """(Spearman rho, p, n models) between ECI and per-model skill over `rows`.
+
+    Spearman rather than Pearson, and computed the same way the scatter's
+    per-config rho is, so the column and the figure cannot disagree about a
+    config: one point per model, at that model's geometric-mean skill, with
+    models having no ECI score dropped.
+
+    Skill is lower-is-better, so a negative rho is the pro-g direction — the
+    more capable models beat the baseline by more. The sign is deliberately
+    left as computed rather than flipped to make "higher is better": the
+    scatter beside it is drawn on the same convention, and quietly negating one
+    of the two would be worse than asking the reader to hold one fact.
+
+    Unlike the scatter, this pools both sides of the city-funds split, matching
+    the 'avg skill all' column it sits beside — the row is whole-config, so a
+    correlation computed on one split would describe different data than the
+    cells around it.
+
+    Returns None when fewer than four models have an ECI score, which is the
+    threshold the scatter already refuses to fit a line below: a rho over three
+    points is noise with a decimal point on it.
+    """
+    by_model: dict[str, list[float]] = {}
+    for r in rows:
+        by_model.setdefault(r["model_id"], []).append(r["log_skill"])
+
+    points = [
+        (eci_of(m), math.exp(statistics.fmean(v)))
+        for m, v in by_model.items()
+        if eci_of(m) is not None
+    ]
+    if len(points) < 4:
+        return None
+    # Constant input on either axis leaves rho undefined. scipy warns and
+    # returns nan; the nan is handled below, and the warning is silenced
+    # because it would print mid-table as though something had gone wrong,
+    # when the cell simply has no correlation to show.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", stats.ConstantInputWarning)
+        rho, p = stats.spearmanr(
+            [e for e, _ in points], [s for _, s in points]
+        )
+    # nan would format as "nan" and read as a computed result rather than as
+    # "not available".
+    if math.isnan(rho):
+        return None
+    return rho, p, len(points)
+
+
 def format_avg_cell(cell: tuple | None) -> str:
     """One summary-table skill cell: the mean with its 95% interval.
 
@@ -359,7 +410,14 @@ def print_summary_table(
         "whose numbers could not be parsed.\n\n"
         "pct invalid is the share of those forecasts that failed to parse — the "
         "rest is what the skill columns are computed from. It is a rate rather "
-        "than a count so that configs of different sizes can be compared."
+        "than a count so that configs of different sizes can be compared.\n\n"
+        "ECI corr is Spearman rho between a model's ECI and its geometric-mean "
+        "skill, one point per model, over the same pooled questions as 'avg "
+        "skill all'. Skill is lower-is-better, so rho<0 is the pro-g direction: "
+        "the more capable models beat the baseline by more. Stars are p<0.05, "
+        "p<0.01, p<0.001; a dash means fewer than 4 of the config's models have "
+        "an ECI score. The per-split rho beside each scatter below is the same "
+        "statistic computed on that split alone."
     )
 
     def pct_invalid(label: str) -> str:
@@ -375,6 +433,18 @@ def print_summary_table(
             return "-"
         return f"{100 * (asked - valid) / asked:.2f}%"
 
+    correlations = {
+        label: eci_correlation(rows) for label, rows in per_config.items()
+    }
+
+    def eci_corr(label: str) -> str:
+        """rho with its significance stars, or a dash where it is not defined."""
+        got = correlations[label]
+        if got is None:
+            return "-"
+        rho, p_rho, _n = got
+        return f"{rho:+.3f}{stars_for(p_rho)}"
+
     cols = [
         # Named "forecasts" rather than "#questions": the number is one per
         # (model, question) pair, not per question, and a config putting 960
@@ -387,6 +457,7 @@ def print_summary_table(
         ("avg skill behavioral", lambda l: format_avg_cell(behavioral[l])),
         ("avg skill funds", lambda l: format_avg_cell(funds[l])),
         ("avg skill all", lambda l: format_avg_cell(overall[l])),
+        ("ECI corr", eci_corr),
     ]
     label_col = max([len("Config")] + [len(l) for l in per_config])
     widths = [
