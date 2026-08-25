@@ -37,6 +37,15 @@ QUESTIONS_SORT_TURN = "turn"
 QUESTIONS_SORT_METRIC = "metric"
 QUESTIONS_SORTS = (QUESTIONS_SORT_TURN, QUESTIONS_SORT_METRIC)
 
+# How a batch's questions are tagged in the prompt, and so how the answer lines
+# are matched back to them. "numeric" numbers the questions and reads "Q<n>:"
+# lines; "semantic" tags each with "<metric label>@<turn>" and reads lines
+# carrying that tag, which lets a model answer out of order without its
+# answers sliding onto the wrong questions.
+QUESTION_TAGGING_NUMERIC = "numeric"
+QUESTION_TAGGING_SEMANTIC = "semantic"
+QUESTION_TAGGINGS = (QUESTION_TAGGING_NUMERIC, QUESTION_TAGGING_SEMANTIC)
+
 # .json5 rather than .json so editors don't flag the comments as syntax errors.
 # Either extension loads; the parser is the same.
 DEFAULT_CONFIG_PATH = CONFIG_DIR / "default.json5"
@@ -248,6 +257,23 @@ class Config:
             raise ConfigError(
                 f"parameter 'questions_sort' in {self.path} must be one of "
                 f"{', '.join(QUESTIONS_SORTS)}, got {value!r}"
+            )
+        return value
+
+    def get_question_tagging(self) -> str:
+        """The optional 'question_tagging', saying how questions are tagged.
+
+        "numeric" (the default) numbers the questions and expects "Q<n>:"
+        answer lines; "semantic" tags them "<metric label>@<turn>" and expects
+        answer lines carrying the same tag. Part of the prompt text, so
+        switching misses the response cache rather than mixing variants, and an
+        absent key means the numbering configs were already run with.
+        """
+        value = self.get_str_or("question_tagging", QUESTION_TAGGING_NUMERIC)
+        if value not in QUESTION_TAGGINGS:
+            raise ConfigError(
+                f"parameter 'question_tagging' in {self.path} must be one of "
+                f"{', '.join(QUESTION_TAGGINGS)}, got {value!r}"
             )
         return value
 

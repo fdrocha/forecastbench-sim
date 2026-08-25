@@ -46,6 +46,8 @@ from pathlib import Path
 import micropolis_world.module_globals as g
 from fbsim_core.evaluation.models import get_models
 from micropolis_world.config import (
+    QUESTION_TAGGING_NUMERIC,
+    QUESTION_TAGGING_SEMANTIC,
     QUESTIONS_SORT_TURN,
     add_config_args,
     load_config,
@@ -63,6 +65,7 @@ from micropolis_world.scenarios import (
     build_corpus,
     get_single_city_base_scenarios,
     parse_batch_percentiles,
+    parse_batch_percentiles_semantic,
 )
 from micropolis_world.single_city import (
     Response,
@@ -88,6 +91,7 @@ def gather_responses(
     provider_limits: dict[str, int] | None = None,
     preamble_path: Path | None = None,
     epilogue_path: Path | None = None,
+    question_tagging: str = QUESTION_TAGGING_NUMERIC,
 ) -> Responses:
     """Prompt each model on each batch of questions, reusing cached responses.
 
@@ -95,8 +99,8 @@ def gather_responses(
     so a response is only ever reused when it was gathered under the exact
     prompt being asked now — a config change to horizons, templates,
     history_freq, history_length, snapshot_only_report, preamble_path or
-    epilogue_path changes the hash, which simply misses the cache rather than
-    risking a stale match.
+    epilogue_path or question_tagging changes the hash, which simply misses
+    the cache rather than risking a stale match.
     An empty reply — a reasoning model can burn the whole token budget
     thinking — is not cached, so the next run retries it; a non-empty reply is
     cached even when unparseable, since retrying greedy decoding would return
@@ -111,7 +115,11 @@ def gather_responses(
     batches = group_into_batches(corpus)
     prompts = {
         bid: build_batch_prompt_continuous(
-            questions[0]["context"], questions, preamble_path, epilogue_path
+            questions[0]["context"],
+            questions,
+            preamble_path,
+            epilogue_path,
+            question_tagging,
         )
         for bid, questions in batches.items()
     }
@@ -234,7 +242,12 @@ def gather_responses(
             raw = raws[(bid, model_name)]
             # The same question_id appears once per model, so name both.
             labels = [f"{model_name} {q['question_id']}" for q in questions]
-            percentile_sets = parse_batch_percentiles(raw, labels)
+            if question_tagging == QUESTION_TAGGING_SEMANTIC:
+                percentile_sets = parse_batch_percentiles_semantic(
+                    raw, labels, [q["semantic_tag"] for q in questions]
+                )
+            else:
+                percentile_sets = parse_batch_percentiles(raw, labels)
             for q, percentiles in zip(questions, percentile_sets):
                 responses[ResponseId(model_name, q["question_id"])] = Response(
                     actual=q["value"],
@@ -281,6 +294,7 @@ def main() -> None:
     preamble_path = cfg.get_preamble_path()
     epilogue_path = cfg.get_epilogue_path()
     questions_sort = cfg.get_questions_sort()
+    question_tagging = cfg.get_question_tagging()
 
     print("=" * 70)
     print("MICROPOLIS WORLD — single city eval")
@@ -295,6 +309,8 @@ def main() -> None:
         print("report: snapshot only (no HISTORY table)")
     if questions_sort != QUESTIONS_SORT_TURN:
         print(f"questions sorted by: {questions_sort}")
+    if question_tagging != QUESTION_TAGGING_NUMERIC:
+        print(f"question tagging: {question_tagging}")
 
     scenarios = get_single_city_base_scenarios(
         seed=seed,
@@ -328,6 +344,7 @@ def main() -> None:
         cfg.get_provider_concurrency(),
         preamble_path,
         epilogue_path,
+        question_tagging,
     )
     print("Done gathering")
 

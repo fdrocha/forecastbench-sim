@@ -1,0 +1,14 @@
+You MUST provide percentile estimates for every question UNDER ALL CIRCUMSTANCES. If for some reason you can't answer, provide reasonable mid-range estimates, but always return numeric percentile values.
+
+You may analyze the data, but you MUST end your response with your percentile estimates in this exact format:
+<<<PERCENTILES>>>
+population@240: p10=5, p25=10, p50=15, p75=20, p90=25
+average crime@288: p10=100, p25=200, p50=300, p75=400, p90=500
+<<<END>>>
+
+Provide one such line for each of the {n} questions. Begin each line with that question's tag — the "<metric>@<turn>" text shown before the em dash in the question list — copied exactly, and replace the example values with your actual percentile estimates. The lines may be in any order, but every question must get one.
+- p10 means you estimate there's a 10% chance the true value is below this number
+- p25 means you estimate there's a 25% chance the true value is below this number
+- p50 (median) means you estimate there's a 50% chance the true value is below this number
+- p75 means you estimate there's a 75% chance the true value is below this number
+- p90 means you estimate there's a 90% chance the true value is below this number

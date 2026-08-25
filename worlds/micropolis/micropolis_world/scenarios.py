@@ -9,9 +9,13 @@ from pathlib import Path
 from fbsim_core.questions.resolver import QuestionResolver
 from fbsim_core.questions.schema import QuestionInstance
 
+from . import module_globals as g
 from .city_sim import CitySimulation, to_world
 from .config import (
     CONFIG_DIR,
+    QUESTION_TAGGING_NUMERIC,
+    QUESTION_TAGGING_SEMANTIC,
+    QUESTION_TAGGINGS,
     QUESTIONS_SORT_TURN,
     QUESTIONS_SORTS,
 )
@@ -35,6 +39,24 @@ DEFAULT_PREAMBLE_PATH = CONFIG_DIR / "preamble1.txt"
 # file for the same reason as the preamble; the text may contain "{n}", which
 # read_epilogue fills in with the number of questions in the batch.
 DEFAULT_EPILOGUE_PATH = CONFIG_DIR / "epilogue1.txt"
+
+# The epilogue a semantic-tagging run uses when its config names no
+# "epilogue_path": the default one shows "Q1:" answer lines, which are not what
+# a semantic prompt asks for.
+DEFAULT_SEMANTIC_EPILOGUE_PATH = CONFIG_DIR / "epilogue2.txt"
+
+# Separates a semantic question's tag from its text. An em dash rather than a
+# hyphen so it cannot be confused with a minus sign in the question itself.
+SEMANTIC_TAG_SEPARATOR = " — "
+
+
+def semantic_tag(metric: str, resolution_turn: int) -> str:
+    """The "<metric label>@<turn>" tag naming one question in semantic mode.
+
+    Built here rather than at each call site so the tag written into the prompt
+    and the tag the parser matches against can never drift apart.
+    """
+    return f"{g.METRIC_LABELS[metric]}@{resolution_turn}"
 
 
 @cache
@@ -158,6 +180,11 @@ def build_corpus(
                 entry = {
                     "question_id": q.question_id,
                     "metric": template.signal_name,
+                    # Carried on the entry so the prompt builder and the
+                    # response parser derive a question's semantic tag from
+                    # the same place; unused when tagging is numeric.
+                    "semantic_tag": semantic_tag(template.signal_name, T),
+                    "resolution_turn": T,
                     "snapshot_turn": SNAPSHOT_TURN,
                     "horizon": H,  # TODO: this should be one of "H0", "H1", ...
                     "scenario_id": scenario_id,
@@ -181,6 +208,7 @@ def build_batch_prompt_continuous(
     questions: list[dict],
     preamble_path: Path | str | None = None,
     epilogue_path: Path | str | None = None,
+    question_tagging: str = QUESTION_TAGGING_NUMERIC,
 ) -> str:
     """Ask for one p10/p25/p50/p75/p90 quantile forecast per question.
 
@@ -191,22 +219,42 @@ def build_batch_prompt_continuous(
     two worlds are parsed the same way and scored on the same CRPS.
     parse_batch_percentiles reads the answers back.
 
+    `question_tagging` picks how each question is labeled, and so how its
+    answer is matched back to it: QUESTION_TAGGING_NUMERIC numbers them "1.",
+    "2.", ...; QUESTION_TAGGING_SEMANTIC prefixes each with its
+    "<metric label>@<turn>" tag instead, which lets a model answer out of order
+    without its answers sliding onto the wrong questions.
+
     `preamble_path` and `epilogue_path` name the templates wrapping the report
-    and questions, defaulting to DEFAULT_PREAMBLE_PATH and
-    DEFAULT_EPILOGUE_PATH. Both are part of the prompt, so changing either
-    misses the response cache rather than mixing variants.
+    and questions, defaulting to DEFAULT_PREAMBLE_PATH and — since the default
+    epilogue asks for the numeric answer format — to whichever epilogue matches
+    `question_tagging`. All three are part of the prompt, so changing any of
+    them misses the response cache rather than mixing variants.
     """
+    if question_tagging not in QUESTION_TAGGINGS:
+        raise ValueError(
+            f"question_tagging must be one of {QUESTION_TAGGINGS}, "
+            f"got {question_tagging!r}"
+        )
     n = len(questions)
-    numbered_questions = "\n".join(
-        f"{i}. {q['question_text']}" for i, q in enumerate(questions, 1)
-    )
+    if question_tagging == QUESTION_TAGGING_SEMANTIC:
+        listed_questions = "\n".join(
+            f"{q['semantic_tag']}{SEMANTIC_TAG_SEPARATOR}{q['question_text']}"
+            for q in questions
+        )
+        if epilogue_path is None:
+            epilogue_path = DEFAULT_SEMANTIC_EPILOGUE_PATH
+    else:
+        listed_questions = "\n".join(
+            f"{i}. {q['question_text']}" for i, q in enumerate(questions, 1)
+        )
     return f"""{read_preamble(preamble_path)}
 
 ## Game report
 {context}
 
 ## Questions
-{numbered_questions}
+{listed_questions}
 
 {read_epilogue(n, epilogue_path)}"""
 
@@ -338,6 +386,80 @@ def parse_percentiles(
 _QUESTION_NUMBER_RE = re.compile(
     r"^\s*(?:question\s*|q)?(\d+)\s*[.:)]\s*", re.IGNORECASE
 )
+
+
+def _normalize_tag(tag: str) -> str:
+    """A semantic tag reduced to what it must match on.
+
+    Case and internal spacing are the model's to vary — "Average Crime @ 288"
+    names the same question as "average crime@288" — so both sides of the
+    comparison are folded before matching. Nothing else is stripped: a tag that
+    names a different metric or turn must not collide with this one.
+    """
+    return re.sub(r"\s+", "", tag).lower()
+
+
+# A semantic answer line: everything up to the first colon is the tag, the rest
+# holds the percentiles. Anchored to the line start, like _QUESTION_NUMBER_RE,
+# so a tag mentioned mid-sentence in the reasoning is prose, not an answer. The
+# tag is matched against the prompt's tags rather than parsed, so a metric label
+# containing a space, an "@", or a digit needs no special handling here.
+_SEMANTIC_TAG_RE = re.compile(r"^\s*([^:]+?)\s*:\s*")
+
+
+def parse_batch_percentiles_semantic(
+    response: str | None,
+    labels: list[str],
+    tags: list[str],
+    quiet: bool = False,
+) -> list[dict[str, float] | None]:
+    """Extract one p10..p90 set per question from a semantically tagged response.
+
+    The semantic counterpart to parse_batch_percentiles: `tags` are the
+    questions' "<metric label>@<turn>" tags in prompt order, and an answer line
+    is matched to a question by its own tag rather than by position, so a model
+    that answers out of order, or skips a question, cannot shift the answers
+    after it onto the wrong questions. Later lines overwrite earlier ones for
+    the same tag, so an answer restated in a final block wins over one
+    mentioned in the reasoning above it.
+
+    A line whose tag matches no question is ignored rather than guessed at —
+    there is no positional fallback, since a response that ignored the tag
+    format gives no trustworthy way to tell which question it meant. Each set
+    is validated by _validate_monotonic, and every question left without a
+    usable one gets a warning naming its label (unless `quiet`).
+    """
+    n = len(labels)
+    results: list[dict[str, float] | None] = [None] * n
+    if not response:
+        if not quiet:
+            print(f"  {labels[0]} (+{n - 1} more): empty model response")
+        return results
+
+    # Built per call rather than cached: the same tag can only appear once in a
+    # batch, so the last index wins and duplicates cannot silently shadow.
+    by_tag = {_normalize_tag(t): i for i, t in enumerate(tags)}
+    answered = [False] * n
+    for line in _extract_answer_block(response).split("\n"):
+        if not line.strip():
+            continue
+        m = _SEMANTIC_TAG_RE.match(line)
+        if not m:
+            continue
+        idx = by_tag.get(_normalize_tag(m.group(1)))
+        if idx is None:
+            continue
+        parsed = _scan_labeled_percentiles(line[m.end() :])
+        if parsed is not None:
+            answered[idx] = True
+            results[idx] = _validate_monotonic(parsed, labels[idx], quiet)
+
+    if not quiet:
+        # _validate_monotonic already explained the answered-but-invalid ones.
+        for i in range(n):
+            if not answered[i]:
+                print(f"  {labels[i]}: no percentiles found in batched response")
+    return results
 
 
 def parse_batch_percentiles(

@@ -10,14 +10,20 @@ from pathlib import Path
 
 import pytest
 
-from micropolis_world.config import QUESTIONS_SORT_METRIC
+from micropolis_world.config import (
+    QUESTION_TAGGING_NUMERIC,
+    QUESTION_TAGGING_SEMANTIC,
+    QUESTIONS_SORT_METRIC,
+)
 from micropolis_world.scenarios import (
     DEFAULT_EPILOGUE_PATH,
+    DEFAULT_SEMANTIC_EPILOGUE_PATH,
     PERCENTILE_KEYS,
     build_batch_prompt_continuous,
     build_corpus,
     get_single_city_base_scenarios,
     parse_batch_percentiles,
+    parse_batch_percentiles_semantic,
 )
 from micropolis_world.single_city import batch_id_for, response_path
 from micropolis_world.templates import ALL_TEMPLATES
@@ -32,9 +38,12 @@ QUESTIONS = [
         "question_text": f"What will metric {i} be at turn 288?",
         "scenario_id": "bruce_s42",
         "snapshot_turn": 240,
+        "semantic_tag": f"metric {i}@288",
+        "resolution_turn": 288,
     }
     for i in range(1, 4)
 ]
+TAGS = [q["semantic_tag"] for q in QUESTIONS]
 LABELS = [f"test-model {q['question_id']}" for q in QUESTIONS]
 
 SET1 = {"p10": 5.0, "p25": 10.0, "p50": 15.0, "p75": 20.0, "p90": 25.0}
@@ -220,6 +229,135 @@ class TestQuestionsSort:
     def test_unknown_sort_is_rejected(self):
         with pytest.raises(ValueError, match="questions_sort"):
             self._corpus(questions_sort="sideways")
+
+
+class TestSemanticTagging:
+    """Questions tagged "<metric label>@<turn>" instead of numbered."""
+
+    def test_prompt_lists_tags_instead_of_numbers(self):
+        prompt = build_batch_prompt_continuous(
+            REPORT, QUESTIONS, question_tagging=QUESTION_TAGGING_SEMANTIC
+        )
+        for q in QUESTIONS:
+            assert f"{q['semantic_tag']} — {q['question_text']}" in prompt
+        assert "\n1. " not in prompt  # numbering is gone entirely
+
+    def test_semantic_prompt_uses_the_semantic_epilogue(self):
+        # The default epilogue asks for "Q<n>:" lines, which a semantic prompt
+        # must not show, so semantic runs pick up epilogue2.txt on their own.
+        prompt = build_batch_prompt_continuous(
+            REPORT, QUESTIONS, question_tagging=QUESTION_TAGGING_SEMANTIC
+        )
+        assert prompt.endswith(
+            DEFAULT_SEMANTIC_EPILOGUE_PATH.read_text(encoding="utf-8").replace(
+                "{n}", "3"
+            )
+        )
+
+    def test_explicit_epilogue_still_wins(self, tmp_path):
+        epilogue = tmp_path / "custom.txt"
+        epilogue.write_text("Answer {n} of them.")
+        prompt = build_batch_prompt_continuous(
+            REPORT,
+            QUESTIONS,
+            epilogue_path=epilogue,
+            question_tagging=QUESTION_TAGGING_SEMANTIC,
+        )
+        assert prompt.endswith("Answer 3 of them.")
+
+    def test_numeric_tagging_is_the_default(self):
+        assert build_batch_prompt_continuous(
+            REPORT, QUESTIONS
+        ) == build_batch_prompt_continuous(
+            REPORT, QUESTIONS, question_tagging=QUESTION_TAGGING_NUMERIC
+        )
+
+    def test_unknown_tagging_is_rejected(self):
+        with pytest.raises(ValueError, match="question_tagging"):
+            build_batch_prompt_continuous(
+                REPORT, QUESTIONS, question_tagging="sideways"
+            )
+
+    def test_parses_tagged_lines(self):
+        response = delimited(
+            f"{TAGS[0]}: {as_line(SET1)}",
+            f"{TAGS[1]}: {as_line(SET2)}",
+            f"{TAGS[2]}: {as_line(SET3)}",
+        )
+        assert parse_batch_percentiles_semantic(response, LABELS, TAGS) == [
+            SET1,
+            SET2,
+            SET3,
+        ]
+
+    def test_answers_may_come_in_any_order(self):
+        # The reason semantic tagging exists: order carries no meaning, so a
+        # model answering backwards still has each answer land on its question.
+        response = delimited(
+            f"{TAGS[2]}: {as_line(SET3)}",
+            f"{TAGS[0]}: {as_line(SET1)}",
+            f"{TAGS[1]}: {as_line(SET2)}",
+        )
+        assert parse_batch_percentiles_semantic(response, LABELS, TAGS) == [
+            SET1,
+            SET2,
+            SET3,
+        ]
+
+    def test_skipped_question_does_not_shift_the_others(self):
+        response = delimited(f"{TAGS[0]}: {as_line(SET1)}", f"{TAGS[2]}: {as_line(SET3)}")
+        assert parse_batch_percentiles_semantic(
+            response, LABELS, TAGS, quiet=True
+        ) == [SET1, None, SET3]
+
+    def test_tag_matching_ignores_case_and_spacing(self):
+        response = delimited(f"  Metric 1 @ 288 : {as_line(SET1)}")
+        assert parse_batch_percentiles_semantic(
+            response, LABELS, TAGS, quiet=True
+        ) == [SET1, None, None]
+
+    def test_unknown_tag_is_ignored_not_guessed(self):
+        # A tag naming no question — including the right metric at the wrong
+        # turn — must not be assigned to a question by position.
+        response = delimited(
+            f"metric 9@288: {as_line(SET1)}", f"metric 1@240: {as_line(SET2)}"
+        )
+        assert parse_batch_percentiles_semantic(
+            response, LABELS, TAGS, quiet=True
+        ) == [None, None, None]
+
+    def test_no_positional_fallback(self):
+        # Unlike the numeric parser, an untagged full set answers nothing:
+        # there is no trustworthy way to tell which question it meant.
+        response = delimited(as_line(SET1), as_line(SET2), as_line(SET3))
+        assert parse_batch_percentiles_semantic(
+            response, LABELS, TAGS, quiet=True
+        ) == [None, None, None]
+
+    def test_restated_answer_wins(self):
+        response = (
+            f"{TAGS[0]}: {as_line(SET2)}\n"
+            "<<<PERCENTILES>>>\n"
+            f"{TAGS[0]}: {as_line(SET1)}\n"
+            "<<<END>>>"
+        )
+        assert parse_batch_percentiles_semantic(
+            response, LABELS, TAGS, quiet=True
+        )[0] == SET1
+
+    def test_non_monotonic_is_discarded(self):
+        response = delimited(f"{TAGS[0]}: p10=50, p25=40, p50=30, p75=20, p90=10")
+        assert parse_batch_percentiles_semantic(
+            response, LABELS, TAGS, quiet=True
+        ) == [None, None, None]
+
+    def test_empty_response(self):
+        assert parse_batch_percentiles_semantic(None, LABELS, TAGS, quiet=True) == [
+            None
+        ] * 3
+        assert parse_batch_percentiles_semantic("", LABELS, TAGS, quiet=True) == [
+            None
+        ] * 3
 
 
 class TestBatchCacheHelpers:
