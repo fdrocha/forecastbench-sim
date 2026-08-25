@@ -76,6 +76,27 @@ def format_eta(start: float, done: int, total: int) -> str:
     return f"  ~{seconds:.0f}s left"
 
 
+def format_latency(latency_ms: float | None, retries: int = 0) -> str:
+    """How long one API call took, as a phrase for a progress line.
+
+    Reads CallUsage.latency_ms, which prompt_model_async measures around the
+    acompletion await — the time from the request going out to the reply
+    landing, for the attempt that succeeded, not the retries before it. Those
+    are reported separately, as "2 RETRIES" after the time, because they are
+    what explains a call that took far longer in wall clock than the time
+    shown; a first-try success says nothing at all.
+
+    Returns "" when the latency was never recorded, and carries its own
+    leading separator, so callers can append it unconditionally.
+    """
+    if latency_ms is None:
+        return ""
+    took = f", {latency_ms / 1000:.1f}s"
+    if retries:
+        took += f" {retries} RETR{'Y' if retries == 1 else 'IES'}"
+    return took
+
+
 class ProviderRateLimiter:
     """Per-provider concurrency caps as lazily created asyncio.Semaphores.
 
@@ -192,6 +213,9 @@ async def prompt_model_async(
         text=choice.message.content,
         finish_reason=choice.finish_reason,
         usage=usage_from_response(response, model.id, latency_ms),
+        # `attempt` is the index of the try that succeeded, so it counts the
+        # failed ones before it: 0 on a first-try success.
+        retries=attempt,
     )
 
 

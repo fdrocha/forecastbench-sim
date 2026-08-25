@@ -54,6 +54,7 @@ from micropolis_world.prompting import (
     PromptJob,
     PromptResult,
     format_eta,
+    format_latency,
     run_prompts,
 )
 from micropolis_world.scenarios import (
@@ -184,18 +185,26 @@ def gather_responses(
                 )
                 continue
             resp = result.response
+            # How long this one call took, next to what it cost: a batch that
+            # is slow and a batch that is expensive are different problems.
+            # Retries are called out too — they are why a call can sit for
+            # minutes behind a time that reads as seconds.
+            took = format_latency(resp.usage.latency_ms, resp.retries)
             cost = resp.usage.cost_usd
             if cost is None:
                 # Reported, not counted: a model litellm has no price for
                 # would otherwise be summed into the total as free.
                 nunpriced[model_name] += 1
-                print(f"{prefix}  cost unknown, {resp.usage.tokens()}{eta}", flush=True)
+                print(
+                    f"{prefix}  cost unknown, {resp.usage.tokens()}{took}{eta}",
+                    flush=True,
+                )
             else:
                 # Cents: a single batch is a fraction of a cent to a few
                 # cents, which dollars would print as 0.00.
                 model_cost[model_name] += cost
                 print(
-                    f"{prefix}  {cost * 100:.3f}c, {resp.usage.tokens()}{eta}",
+                    f"{prefix}  {cost * 100:.3f}c, {resp.usage.tokens()}{took}{eta}",
                     flush=True,
                 )
             g.warn_if_truncated(model_name, resp.finish_reason, max_tokens)

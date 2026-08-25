@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from .. import module_globals as g
 from ..module_globals import warn_if_truncated
-from ..prompting import PromptJob, format_eta, run_prompts
+from ..prompting import PromptJob, format_eta, format_latency, run_prompts
 from ..usage import CallUsage
 from ..usage import load_usage as read_usage
 from ..usage import save_usage as write_usage
@@ -314,11 +314,15 @@ def get_model_answers(
 
             resp = result.response
             raw = resp.text
-            # Usage on the header line even for a blank reply: a model that
-            # spent its whole budget thinking still billed for it, and this is
-            # the only place that spend is ever reported — there's no response
-            # to cache it beside, so it isn't recorded on disk.
-            print(f"[{done}/{len(jobs)}] {model_name}: {resp.usage.describe()}{eta}")
+            # Usage and how long the call took on the header line even for a
+            # blank reply: a model that spent its whole budget thinking still
+            # billed for it and still made you wait, and this is the only
+            # place that spend is ever reported — there's no response to cache
+            # it beside, so it isn't recorded on disk.
+            took = format_latency(resp.usage.latency_ms, resp.retries)
+            print(
+                f"[{done}/{len(jobs)}] {model_name}: {resp.usage.describe()}{took}{eta}"
+            )
             print(f"  finish_reason: {resp.finish_reason}")
             if resp.usage.cost_usd is None:
                 nunpriced += 1

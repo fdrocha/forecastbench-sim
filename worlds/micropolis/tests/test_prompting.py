@@ -16,6 +16,7 @@ from micropolis_world.prompting import (
     PromptJob,
     PromptResult,
     format_eta,
+    format_latency,
     prompt_model_async,
     run_prompts,
 )
@@ -150,6 +151,8 @@ def test_retries_rate_limits_with_a_stderr_warning(monkeypatch, capsys):
 
     assert got.text == "hello"
     assert len(attempts) == 3
+    # Two failures before the reply, reported so the progress line can say so.
+    assert got.retries == 2
     err = capsys.readouterr().err
     assert err.count("RateLimitError") == 2
     assert "openai/gpt-4o" in err
@@ -305,3 +308,26 @@ def test_captures_failures_per_job_and_continues(monkeypatch):
     assert succeeded.ok
     assert succeeded.error is None
     assert succeeded.response.text == "hello"
+
+
+def test_first_try_success_reports_no_retries(calls):
+    got = asyncio.run(
+        prompt_model_async(
+            LiteLLMModel("openai/gpt-4o"),
+            [{"role": "user", "content": "hi"}],
+            max_tokens=10,
+        )
+    )
+
+    assert got.retries == 0
+
+
+def test_format_latency_names_retries_only_when_there_were_some():
+    assert format_latency(8321.4) == ", 8.3s"
+    assert format_latency(8321.4, 0) == ", 8.3s"
+    assert format_latency(8321.4, 1) == ", 8.3s 1 RETRY"
+    assert format_latency(8321.4, 3) == ", 8.3s 3 RETRIES"
+    # No recorded latency: nothing to append, retries or not. Every cached
+    # response gathered before latency tracking lands here.
+    assert format_latency(None) == ""
+    assert format_latency(None, 2) == ""

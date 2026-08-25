@@ -101,11 +101,17 @@ class LLMResponse:
         text: The reply, or None if the model wrote nothing.
         finish_reason: Why generation stopped ("stop", "length", ...).
         usage: Tokens and cost for the call.
+        retries: Failed attempts before the one that returned this reply, so 0
+            on a first-try success. Lives here rather than on CallUsage
+            because it describes getting the answer, not what was billed for
+            it: the usage sidecars record one paid call, while a retried call
+            may have burned minutes of wall clock the latency never shows.
     """
 
     text: str | None
     finish_reason: str | None
     usage: CallUsage
+    retries: int = 0
 
 
 def save_usage(path: Path, usage: CallUsage) -> None:
