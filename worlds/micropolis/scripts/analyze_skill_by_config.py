@@ -14,12 +14,15 @@ against each other:
     many forecasts back the row, what share of them failed to parse, its
     average skill on the behavioral metrics, on city funds, and over both,
     each with a 95% CI, and how strongly that skill tracks ECI
-  - a bar chart of that last column, so the headline comparison is visible
-    without reading the table
+  - a scatter of ECI against skill pooled over all six metrics, in the same
+    format as the per-split ones below it
+  - a bar chart of the summary's last skill column, so the headline
+    comparison is visible without reading the table
   - a models x configs table of skill scores, with each model's ECI beside
     its name and the rows sorted by it
   - a scatter of ECI against skill with 95% confidence intervals on the
-    geometric means as error bars, one color and one fitted line per config
+    geometric means as error bars, one color and one fitted line per config,
+    once per side of the city-funds split
 
 The summary's averages give every model one vote — the geometric mean of the
 per-model geometric means — rather than pooling questions, so a config is not
@@ -102,6 +105,21 @@ CI_LEVEL = 0.95
 # worth drawing, and a bar built from a handful of trajectories would imply a
 # precision the data cannot support. Such cells get a point and no bar.
 MIN_CLUSTERS = 4
+
+
+# The pooled view, for the summary scatter that opens the report. Kept out of
+# SPLITS — which drives the per-split sections and must stay the two-way funds
+# split the parent script defines — while matching its (name, how) shape so the
+# plotting code can take either without knowing which it was handed.
+POOLED_SPLIT = (
+    "all metrics",
+    "the five behavioral metrics and city funds pooled",
+)
+
+
+def split_display(split: str) -> tuple[str, str]:
+    """(name, description) for a split, including the pooled pseudo-split."""
+    return POOLED_SPLIT if split == "all" else SPLITS[split]
 
 
 def cluster_key(row: dict) -> tuple:
@@ -704,12 +722,14 @@ def plot_eci_vs_skill_by_config(
             series[label] = sorted(points)
     if not series:
         report.text(
-            f"ECI vs skill ({SPLITS[split][0]}): no config has 4+ models with "
-            "an ECI score; skipping the plot."
+            f"ECI vs skill ({split_display(split)[0]}): no config has 4+ "
+            "models with an ECI score; skipping the plot."
         )
         return None
 
-    report.heading(f"ECI vs skill vs baseline by config — {SPLITS[split][0]}")
+    report.heading(
+        f"ECI vs skill vs baseline by config — {split_display(split)[0]}"
+    )
     lines = [
         baseline_note(kind),
         "skill is lower-is-better, so rho<0 means the more capable models beat "
@@ -786,7 +806,7 @@ def plot_eci_vs_skill_by_config(
     ax.set_yticklabels([f"{t:g}x" if t != 1 else "1x (baseline)" for t in ticks])
     ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
     ax.set_title(
-        f"Skill vs baseline against ECI, by config — {SPLITS[split][0]}\n"
+        f"Skill vs baseline against ECI, by config — {split_display(split)[0]}\n"
         f"{len(series)} configs; 95% CIs clustered on (scenario, snapshot)\n"
         f"baseline: {BASELINES[kind][0]}; below the dashed line beats it"
     )
@@ -1027,6 +1047,16 @@ def main() -> None:
     if scored:
         overall = print_summary_table(report, scored, counts, args.baseline)
         if args.plot:
+            # The pooled scatter first: it is the same figure the per-split
+            # sections end with, over all six metrics at once, and it answers
+            # the report's headline question — does capability predict skill,
+            # and does one config sit above another — before the reader has to
+            # decide which split to look at.
+            fig = plot_eci_vs_skill_by_config(
+                report, scored, args.baseline, "all", outdir
+            )
+            if fig is not None:
+                written.append(fig)
             fig = plot_avg_skill_bars(report, overall, args.baseline, outdir)
             if fig is not None:
                 written.append(fig)
