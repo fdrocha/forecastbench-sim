@@ -10,10 +10,22 @@ This script runs that same scoring over a *set* of configs — typically the
 prompt variants, each of which names its own dataset label — and reports them
 against each other:
 
+  - a summary table, one row per config in command-line order, carrying how
+    many forecasts back the row, what share of them failed to parse, and its
+    average skill on the behavioral metrics, on city funds, and over both,
+    each with a 95% CI
+  - a bar chart of that last column, so the headline comparison is visible
+    without reading the table
   - a models x configs table of skill scores, with each model's ECI beside
     its name and the rows sorted by it
   - a scatter of ECI against skill with 95% confidence intervals on the
     geometric means as error bars, one color and one fitted line per config
+
+The summary's averages give every model one vote — the geometric mean of the
+per-model geometric means — rather than pooling questions, so a config is not
+favored merely for covering more of some model's questions than another config
+does. This makes them deliberately different from the models x configs cells,
+which stay pooled per model to keep matching the parent script.
 
 Scoring is imported from analyze_baseline_skill.py rather than reimplemented,
 so a cell here is by construction the same number as that script's "all"
@@ -58,6 +70,7 @@ from micropolis_world.single_city import (
     OUT_DIR,
     DatasetError,
     MdReport,
+    ResponseId,
     data_path,
     load_dataset,
     select_for_config,
@@ -77,7 +90,7 @@ from analyze_baseline_skill import (
     split_note,
     split_rows,
 )
-from analyze_single_city import eci_of, stars_for
+from analyze_single_city import eci_of, is_forecast, stars_for
 
 # Two-sided 95%. The t quantile is taken at cluster_count-1 degrees of freedom
 # rather than a flat z, since the clustering leaves tens of effective
@@ -157,6 +170,90 @@ def skill_stats(rows: list[dict]) -> tuple[float, float | None, float | None, in
     )
 
 
+def response_counts(
+    corpus: list[dict], responses: dict, model_names: list[str]
+) -> tuple[int, int]:
+    """(responses cached, responses that parsed) over one config's selection.
+
+    Counts (model, question) pairs rather than distinct questions: each question
+    is put to every model, and it is the pair that a response file corresponds
+    to. So a config putting 960 questions to 9 models counts 8640, not 960 —
+    the corpus size is the same for every config here and would say nothing
+    about them. Both numbers are whole-config totals over the forecast horizons
+    — they describe how much data stands behind the row, so they are
+    deliberately not narrowed to either side of the city-funds split the skill
+    columns take.
+
+    The read-off horizon is excluded, matching score_skill: it is a
+    comprehension check that is never scored, so counting it would inflate the
+    denominator with questions no skill column could ever draw on.
+
+    A pair with a cached response that could not be parsed is present in the
+    dataset with null percentiles, so it counts toward the first number and not
+    the second. A pair never gathered at all has no row — but select_for_config
+    has already refused to return a selection containing one, so within a scored
+    config every pair here is cached and the gap between the two numbers is
+    exactly the unparseable responses.
+    """
+    asked = parsed = 0
+    for c in corpus:
+        if not is_forecast(c["horizon"]):
+            continue
+        for model_id in model_names:
+            r = responses.get(ResponseId(model_id, c["question_id"]))
+            if r is None:
+                continue
+            asked += 1
+            if r.percentiles is not None:
+                parsed += 1
+    return asked, parsed
+
+
+def mean_of_model_means(rows: list[dict]) -> tuple[float, float | None, float | None] | None:
+    """One config's average skill, giving every model one vote.
+
+    The point estimate is the geometric mean of the per-model geometric means,
+    not the pooled mean over rows. A config that happens to cover more of one
+    model's questions than another's should not thereby weight that model more
+    heavily, and configs here differ in exactly that way — the whole point of
+    the table is to compare configs, so the average has to be over a comparable
+    quantity rather than over whatever each config's row count happens to be.
+
+    Note this is deliberately *not* the number in the models x configs table
+    below, whose cells are per-model pooled means; averaging those cells is what
+    this does. It will differ from a pooled-over-everything mean whenever models
+    have unequal row counts.
+
+    The interval keeps the same (scenario, snapshot turn) clustering used
+    throughout: each trajectory's rows — across all models — are averaged into
+    one value, and the spread is taken over those cluster means. So it reads as
+    "would this config's average hold up on a fresh set of scenarios", holding
+    the model set fixed; it does not attempt to also cover model-sampling
+    uncertainty.
+
+    Returns None when there are no rows.
+    """
+    if not rows:
+        return None
+
+    by_model: dict[str, list[float]] = {}
+    for r in rows:
+        by_model.setdefault(r["model_id"], []).append(r["log_skill"])
+    mean = statistics.fmean(statistics.fmean(v) for v in by_model.values())
+
+    grouped: dict[tuple, list[float]] = {}
+    for r in rows:
+        grouped.setdefault(cluster_key(r), []).append(r["log_skill"])
+    cluster_means = [statistics.fmean(v) for v in grouped.values()]
+
+    if len(cluster_means) < MIN_CLUSTERS:
+        return math.exp(mean), None, None
+
+    sem = statistics.stdev(cluster_means) / math.sqrt(len(cluster_means))
+    crit = stats.t.ppf(1 - (1 - CI_LEVEL) / 2, len(cluster_means) - 1)
+    return math.exp(mean), math.exp(mean - crit * sem), math.exp(mean + crit * sem)
+
+
 def stats_by_model(rows: list[dict]) -> dict[str, tuple]:
     """skill_stats per model over `rows`, keyed by model id."""
     grouped: dict[str, list[dict]] = {}
@@ -187,6 +284,238 @@ def ordered_models(per_config: dict[str, list[dict]]) -> list[str]:
         for r in rows:
             pooled.setdefault(r["model_id"], []).append(r["log_skill"])
     return sorted(pooled, key=lambda m: statistics.fmean(pooled[m]))
+
+
+def format_avg_cell(cell: tuple | None) -> str:
+    """One summary-table skill cell: the mean with its 95% interval.
+
+    Unlike the models x configs table — where an interval per cell would triple
+    every column's width and the bars are drawn on the scatter instead — this
+    table has one row per config and a handful of columns, so the interval fits
+    beside the mean and belongs there: the whole reason to compare configs in
+    one table is to see whether they differ by more than their own noise.
+    """
+    if cell is None:
+        return "-"
+    mean, lo, hi = cell
+    if lo is None:
+        return f"{mean:.3f}"
+    return f"{mean:.3f} [{lo:.3f}, {hi:.3f}]"
+
+
+def print_summary_table(
+    report: MdReport,
+    per_config: dict[str, list[dict]],
+    counts: dict[str, tuple[int, int]],
+    kind: str,
+) -> dict[str, tuple[float, float | None, float | None]]:
+    """One row per config: how much data it has and what it scored on average.
+
+    The report's other tables are per split and per model, which answers "which
+    model, under which config" but makes "is this config better than that one"
+    something the reader has to assemble by eye across two sections. This is
+    that comparison directly, at the top, at the cost of collapsing the model
+    axis entirely.
+
+    Rows stay in the order the configs were given on the command line — the
+    order the person running it chose, which usually encodes the comparison
+    they have in mind — rather than being re-sorted by score.
+
+    Returns the "all" column's cells, which the bar chart draws.
+    """
+    behavioral = {
+        label: mean_of_model_means(split_rows(rows, "behavioral"))
+        for label, rows in per_config.items()
+    }
+    funds = {
+        label: mean_of_model_means(split_rows(rows, "funds"))
+        for label, rows in per_config.items()
+    }
+    # "all" pools the two splits rather than averaging the two columns beside
+    # it: the splits hold very different numbers of questions, so averaging the
+    # columns would silently promote city funds — one metric — to half the
+    # weight of the five behavioral ones.
+    overall = {
+        label: mean_of_model_means(rows) for label, rows in per_config.items()
+    }
+
+    report.heading("Summary by config", level=1)
+    report.text(
+        f"{baseline_note(kind)}\n\n"
+        "one row per config, in the order given on the command line. The skill "
+        "columns are the geometric mean of the per-model geometric means — one "
+        "vote per model, so a config is not favored merely for covering more "
+        "of some model's questions — with 95% CIs clustered on (scenario, "
+        "snapshot turn). Below 1 beats the baseline.\n\n"
+        "'all' pools the behavioral and funds questions rather than averaging "
+        "the two columns beside it, so it is not an average of them: city funds "
+        "is one metric against five, and averaging the columns would weight it "
+        "as half. See analyze_baseline_skill.py for why funds is reported "
+        "apart.\n\n"
+        "#forecasts is a whole-config total over the forecast horizons, "
+        "excluding the never-scored read-off horizon: it counts one per "
+        "(model, question) pair that has a cached response, so a config putting "
+        "960 questions to 9 models shows 8640, not 960. It includes forecasts "
+        "whose numbers could not be parsed.\n\n"
+        "pct invalid is the share of those forecasts that failed to parse — the "
+        "rest is what the skill columns are computed from. It is a rate rather "
+        "than a count so that configs of different sizes can be compared."
+    )
+
+    def pct_invalid(label: str) -> str:
+        """Share of this config's cached responses that did not parse.
+
+        A rate rather than a count, so it is comparable across configs that put
+        different numbers of questions to different numbers of models — which is
+        the whole reason the column is here, since an absolute count of failures
+        says more about a config's size than about its prompt.
+        """
+        asked, valid = counts[label]
+        if not asked:
+            return "-"
+        return f"{100 * (asked - valid) / asked:.2f}%"
+
+    cols = [
+        # Named "forecasts" rather than "#questions": the number is one per
+        # (model, question) pair, not per question, and a config putting 960
+        # questions to 9 models shows 8640 here. Calling it questions invited
+        # reading it as the corpus size, which is the same for every config and
+        # would make the column carry nothing. It also matches what the dataset
+        # calls these rows.
+        ("#forecasts", lambda l: f"{counts[l][0]}"),
+        ("pct invalid", pct_invalid),
+        ("avg skill behavioral", lambda l: format_avg_cell(behavioral[l])),
+        ("avg skill funds", lambda l: format_avg_cell(funds[l])),
+        ("avg skill all", lambda l: format_avg_cell(overall[l])),
+    ]
+    label_col = max([len("Config")] + [len(l) for l in per_config])
+    widths = [
+        max(len(head), *(len(fn(l)) for l in per_config)) for head, fn in cols
+    ]
+
+    header = f"{'Config':<{label_col}}  " + "  ".join(
+        f"{head:>{w}}" for (head, _), w in zip(cols, widths)
+    )
+    lines = [header, "-" * len(header)]
+    for label in per_config:
+        row = [f"{label:<{label_col}}"]
+        row += [f"{fn(label):>{w}}" for (_, fn), w in zip(cols, widths)]
+        lines.append("  ".join(row))
+    report.table("\n".join(lines))
+    return overall
+
+
+def plot_avg_skill_bars(
+    report: MdReport,
+    overall: dict[str, tuple[float, float | None, float | None]],
+    kind: str,
+    outdir: Path,
+) -> Path | None:
+    """Bar chart of each config's average skill, with 95% error bars.
+
+    The summary table's last column, drawn: bars are in command-line order so
+    the figure and the table read the same way down the page, and the baseline
+    is a reference line so whether a bar clears it is visible without reading
+    the axis.
+
+    The y axis is logarithmic, as on the scatter — skill is a ratio, and half
+    as good should be as far from 1 as twice as good. That means the bars grow
+    from the baseline at 1 rather than from 0, which is also the honest
+    rendering: 0 is not a reachable score, and a bar based there would make
+    every config look similar by burying the differences at the top.
+
+    Returns None if no config has a mean to draw.
+    """
+    drawable = {l: c for l, c in overall.items() if c is not None}
+    if not drawable:
+        report.text("no config has scored rows; skipping the summary bar chart.")
+        return None
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    labels = list(drawable)
+    means = [drawable[l][0] for l in labels]
+    # Asymmetric, since the interval is multiplicative; a config with too few
+    # clusters to bound gets a bar with no whisker rather than a fake zero one.
+    lower = [m - (lo if lo is not None else m) for m, lo, _ in drawable.values()]
+    upper = [(hi if hi is not None else m) - m for m, _, hi in drawable.values()]
+
+    fig, ax = plt.subplots(figsize=(max(6, 1.6 * len(labels) + 2), 6))
+    palette = plt.get_cmap("tab10")
+    xs = range(len(labels))
+    # Spanning baseline -> mean, so a bar's length is how far the config is
+    # from breaking even and a config that beats the baseline hangs below the
+    # line. Given as (bottom, height) rather than bottom=BASELINE_SKILL: bar()
+    # draws bottom to bottom+height, which on a log axis would put a mean of
+    # 0.845 at 1.845 — pointing the wrong way, and past the baseline it beat.
+    ax.bar(
+        xs,
+        [m - BASELINE_SKILL for m in means],
+        bottom=BASELINE_SKILL,
+        color=[palette(i % 10) for i in xs],
+        alpha=0.85,
+        zorder=3,
+    )
+    # The mean is marked as well as barred: the bar's end and the interval's
+    # center are the same number, but with the whiskers running well past the
+    # bar it is otherwise easy to read the bar top as the estimate's edge
+    # rather than as the estimate.
+    ax.errorbar(
+        list(xs),
+        means,
+        yerr=[lower, upper],
+        fmt="_",
+        ms=14,
+        mec="black",
+        mew=1.6,
+        ecolor="black",
+        elinewidth=1.2,
+        capsize=4,
+        zorder=4,
+    )
+    ax.axhline(
+        BASELINE_SKILL,
+        color="crimson",
+        lw=2,
+        ls="--",
+        zorder=2,
+        label=f"baseline ({BASELINES[kind][0]})",
+    )
+
+    ax.set_xticks(list(xs))
+    ax.set_xticklabels(labels, rotation=20, ha="right")
+    ax.set_ylabel("Avg skill vs baseline (CRPS_model / CRPS_baseline, log scale)")
+    ax.set_yscale("log")
+    lo_lim, hi_lim = ax.get_ylim()
+    # Finer than the scatter's ladder: configs of the same family land within a
+    # factor of two of each other, so that axis's steps would leave a plot
+    # spanning 0.7-1.1 labeled at one or two ticks.
+    candidates = [
+        0.1, 0.125, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+        1.0, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 6, 8, 12, 16,
+    ]
+    ticks = [t for t in candidates if lo_lim <= t <= hi_lim]
+    ax.set_yticks(ticks)
+    ax.set_yticklabels([f"{t:g}x" if t != 1 else "1x (baseline)" for t in ticks])
+    ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+    ax.set_title(
+        "Average skill vs baseline by config — all metrics\n"
+        "one vote per model; 95% CIs clustered on (scenario, snapshot)\n"
+        f"baseline: {BASELINES[kind][0]}; below the dashed line beats it"
+    )
+    ax.grid(alpha=0.3, axis="y", which="both", zorder=0)
+    ax.legend(loc="best", fontsize=9, framealpha=0.9)
+    fig.tight_layout()
+
+    out = outdir / f"avg_skill_by_config{plot_suffix(kind)}.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    report.image(out)
+    return out
 
 
 def print_skill_table(
@@ -447,12 +776,17 @@ def intersect_models(
 
 def load_and_score(
     config_path: str, seed_override: int | None, models: list[str] | None, kind: str
-) -> tuple[str, list[dict], dict[str, int]]:
-    """One config's (label, scored rows, dropped tally).
+) -> tuple[str, list[dict], dict[str, int], dict]:
+    """One config's (label, scored rows, dropped tally, selection).
 
     Loads the dataset the config's label names and narrows it to what the
     config asks for, exactly as the single-config script does, so a config that
     scores there scores identically here.
+
+    The narrowed selection is returned alongside the scores because the summary
+    table counts responses that produced no scored row at all — a response that
+    failed to parse has no row to be counted from, so the counts have to come
+    from the selection rather than from `rows`.
     """
     cfg = Config.load(config_path)
     seed = cfg.get_seed(seed_override)
@@ -462,7 +796,12 @@ def load_and_score(
         corpus, responses, model_names, cfg, seed, models=models
     )
     rows, dropped = score_skill(corpus, responses, model_names, seed, kind)
-    return label, rows, dropped
+    selection = {
+        "corpus": corpus,
+        "responses": responses,
+        "model_names": model_names,
+    }
+    return label, rows, dropped, selection
 
 
 @main_with_config
@@ -523,9 +862,10 @@ def main() -> None:
 
     per_config: dict[str, list[dict]] = {}
     tallies: dict[str, dict[str, int]] = {}
+    selections: dict[str, dict] = {}
     for path in args.configs:
         try:
-            label, rows, dropped = load_and_score(
+            label, rows, dropped, selection = load_and_score(
                 path, args.seed, args.models, args.baseline
             )
         except (FileNotFoundError, DatasetError, ConfigError) as e:
@@ -537,10 +877,20 @@ def main() -> None:
             )
         per_config[label] = rows
         tallies[label] = dropped
+        selections[label] = selection
 
     dropped_models: list[str] = []
     if args.intersect_models:
         per_config, dropped_models = intersect_models(per_config)
+        # The counts describe the same data the skill columns do, so they are
+        # narrowed to the common model set as well; leaving them at the config's
+        # full coverage would put a #questions in the row that no other cell in
+        # it was computed from.
+        common = {r["model_id"] for rows in per_config.values() for r in rows}
+        for sel in selections.values():
+            sel["model_names"] = [
+                m for m in sel["model_names"] if m in common
+            ]
         if not any(per_config.values()):
             sys.exit(
                 "[error] --intersect-models: no model has scored rows in every "
@@ -589,7 +939,32 @@ def main() -> None:
         report.text(f"**{label}**")
         print_dropped(report, dropped, len(per_config[label]))
 
+    counts = {
+        label: response_counts(
+            sel["corpus"], sel["responses"], sel["model_names"]
+        )
+        for label, sel in selections.items()
+        if label in per_config
+    }
+
     written = []
+    # Before the per-split sections: the summary is the comparison the script
+    # exists to make, and a reader who wants only "which config did better"
+    # should not have to scroll past two full models x configs tables to find
+    # it. Configs with no scored rows are omitted rather than shown as dashes.
+    scored = {label: rows for label, rows in per_config.items() if rows}
+    if scored:
+        overall = print_summary_table(report, scored, counts, args.baseline)
+        if args.plot:
+            fig = plot_avg_skill_bars(report, overall, args.baseline, outdir)
+            if fig is not None:
+                written.append(fig)
+        empty = [label for label in per_config if not per_config[label]]
+        if empty:
+            report.text(
+                "omitted from the summary, no scored rows: " + ", ".join(empty)
+            )
+
     for split in SPLITS:
         selected = {
             label: split_rows(rows, split) for label, rows in per_config.items()
