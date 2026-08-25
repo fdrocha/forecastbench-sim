@@ -92,6 +92,7 @@ def gather_responses(
     preamble_path: Path | None = None,
     epilogue_path: Path | None = None,
     question_tagging: str = QUESTION_TAGGING_NUMERIC,
+    questions_per_prompt: int = -1,
 ) -> Responses:
     """Prompt each model on each batch of questions, reusing cached responses.
 
@@ -99,8 +100,8 @@ def gather_responses(
     so a response is only ever reused when it was gathered under the exact
     prompt being asked now — a config change to horizons, templates,
     history_freq, history_length, snapshot_only_report, preamble_path or
-    epilogue_path or question_tagging changes the hash, which simply misses
-    the cache rather than risking a stale match.
+    epilogue_path, question_tagging or questions_per_prompt changes the hash,
+    which simply misses the cache rather than risking a stale match.
     An empty reply — a reasoning model can burn the whole token budget
     thinking — is not cached, so the next run retries it; a non-empty reply is
     cached even when unparseable, since retrying greedy decoding would return
@@ -112,7 +113,7 @@ def gather_responses(
     is reported and skipped rather than aborting the run — nothing is cached
     for it, so re-running the script retries exactly the failures.
     """
-    batches = group_into_batches(corpus)
+    batches = group_into_batches(corpus, questions_per_prompt)
     prompts = {
         bid: build_batch_prompt_continuous(
             questions[0]["context"],
@@ -295,6 +296,7 @@ def main() -> None:
     epilogue_path = cfg.get_epilogue_path()
     questions_sort = cfg.get_questions_sort()
     question_tagging = cfg.get_question_tagging()
+    questions_per_prompt = cfg.get_questions_per_prompt()
 
     print("=" * 70)
     print("MICROPOLIS WORLD — single city eval")
@@ -311,6 +313,8 @@ def main() -> None:
         print(f"questions sorted by: {questions_sort}")
     if question_tagging != QUESTION_TAGGING_NUMERIC:
         print(f"question tagging: {question_tagging}")
+    if questions_per_prompt > 0:
+        print(f"questions per prompt: at most {questions_per_prompt}")
 
     scenarios = get_single_city_base_scenarios(
         seed=seed,
@@ -345,6 +349,7 @@ def main() -> None:
         preamble_path,
         epilogue_path,
         question_tagging,
+        questions_per_prompt,
     )
     print("Done gathering")
 

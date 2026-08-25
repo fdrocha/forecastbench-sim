@@ -78,12 +78,60 @@ def batch_id_for(question: dict) -> str:
     return f"{question['scenario_id']}_T{question['snapshot_turn']}"
 
 
-def group_into_batches(corpus: list[dict]) -> dict[str, list[dict]]:
-    """Group corpus questions by batch_id, preserving corpus order."""
+def _split_evenly(questions: list[dict], limit: int) -> list[list[dict]]:
+    """`questions` cut into consecutive chunks of at most `limit` each.
+
+    The chunk count is what `limit` really fixes: enough chunks that none
+    exceeds it. Their sizes are then evened out rather than filling each chunk
+    before starting the next, so 20 questions at a limit of 12 come out 10 and
+    10 instead of 12 and 8 — no prompt is left with a lopsided tail asking
+    about only a question or two.
+    """
+    nchunks = -(-len(questions) // limit)  # ceiling division
+    base, extra = divmod(len(questions), nchunks)
+    chunks = []
+    start = 0
+    for i in range(nchunks):
+        # The first `extra` chunks take one more, so sizes differ by at most 1.
+        stop = start + base + (1 if i < extra else 0)
+        chunks.append(questions[start:stop])
+        start = stop
+    return chunks
+
+
+def group_into_batches(
+    corpus: list[dict], questions_per_prompt: int = -1
+) -> dict[str, list[dict]]:
+    """Group corpus questions by batch_id, preserving corpus order.
+
+    `questions_per_prompt` caps how many questions one prompt may ask. The
+    default -1 means no cap: a scenario's whole snapshot goes in one prompt,
+    which is the cheapest way to ask them since they share a game report. A
+    positive value splits a batch that would exceed it into consecutive chunks
+    (see _split_evenly), each becoming its own batch — its own prompt repeating
+    the report, its own cache directory, and its own response — so a split
+    batch stays one hash per batch id for analyze_usage, and a chunk that fails
+    is retried on its own. Chunk ids are suffixed "_c{i}of{n}"; an unsplit
+    batch keeps the plain id, so existing caches stay addressable.
+    """
     batches: dict[str, list[dict]] = {}
     for c in corpus:
         batches.setdefault(batch_id_for(c), []).append(c)
-    return batches
+    if questions_per_prompt < 0:
+        return batches
+
+    if questions_per_prompt == 0:
+        raise ValueError("questions_per_prompt must be -1 or a positive integer")
+
+    split: dict[str, list[dict]] = {}
+    for bid, questions in batches.items():
+        if len(questions) <= questions_per_prompt:
+            split[bid] = questions
+            continue
+        chunks = _split_evenly(questions, questions_per_prompt)
+        for i, chunk in enumerate(chunks, 1):
+            split[f"{bid}_c{i}of{len(chunks)}"] = chunk
+    return split
 
 
 def batch_dir(batch_id: str) -> Path:

@@ -103,6 +103,16 @@
   // switching hashes to a new cache entry rather than mixing variants.
   "question_tagging": "numeric",
 
+  // Most questions one prompt may ask. -1 (the default) means no cap: every
+  // question a scenario asks at one snapshot goes in a single prompt, which is
+  // cheapest since they share a game report. A positive value splits a batch
+  // that would exceed it into that many prompts, each repeating the preamble,
+  // report and epilogue — so a smaller number costs more input tokens but
+  // gives the model fewer questions to hold at once. Sizes are evened out, so
+  // 20 questions capped at 12 become two prompts of 10 rather than 12 and 8.
+  // Part of what the prompt asks, so changing it hashes to a new cache entry.
+  "questions_per_prompt": -1,
+
   // Models to prompt, in provider/name form, and the response token cap.
   // See README.md for the ForecastBench, frontier and pandemic model sets.
   "models": [

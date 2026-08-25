@@ -25,7 +25,11 @@ from micropolis_world.scenarios import (
     parse_batch_percentiles,
     parse_batch_percentiles_semantic,
 )
-from micropolis_world.single_city import batch_id_for, response_path
+from micropolis_world.single_city import (
+    batch_id_for,
+    group_into_batches,
+    response_path,
+)
 from micropolis_world.templates import ALL_TEMPLATES
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -358,6 +362,85 @@ class TestSemanticTagging:
         assert parse_batch_percentiles_semantic("", LABELS, TAGS, quiet=True) == [
             None
         ] * 3
+
+
+class TestQuestionsPerPrompt:
+    """Splitting a scenario's questions across several prompts."""
+
+    def _corpus(self, n, snapshots=(240,)):
+        return [
+            {
+                "scenario_id": "bruce_s42",
+                "snapshot_turn": t,
+                "question_id": f"q{t}_{i}",
+            }
+            for t in snapshots
+            for i in range(n)
+        ]
+
+    def test_default_keeps_one_prompt_per_batch(self):
+        batches = group_into_batches(self._corpus(20))
+        assert {k: len(v) for k, v in batches.items()} == {"bruce_s42_T240": 20}
+
+    def test_cap_at_or_above_batch_size_does_not_split(self):
+        # The plain batch id must survive, or every existing cache entry would
+        # be orphaned the moment a cap was set generously.
+        for cap in (20, 21, 999):
+            assert list(group_into_batches(self._corpus(20), cap)) == ["bruce_s42_T240"]
+
+    def test_split_ids_are_suffixed(self):
+        batches = group_into_batches(self._corpus(20), 12)
+        assert list(batches) == ["bruce_s42_T240_c1of2", "bruce_s42_T240_c2of2"]
+
+    def test_chunks_are_evened_out(self):
+        # 20 capped at 12 is two prompts, so they split 10/10 rather than
+        # filling one to 12 and leaving 8 in the other.
+        batches = group_into_batches(self._corpus(20), 12)
+        assert [len(v) for v in batches.values()] == [10, 10]
+
+    def test_no_chunk_exceeds_the_cap(self):
+        for n in (13, 20, 25, 36, 37, 72):
+            sizes = [len(v) for v in group_into_batches(self._corpus(n), 12).values()]
+            assert max(sizes) <= 12
+            assert sum(sizes) == n
+            assert max(sizes) - min(sizes) <= 1  # evened out
+
+    def test_questions_are_neither_lost_nor_reordered(self):
+        corpus = self._corpus(20)
+        batches = group_into_batches(corpus, 7)
+        flat = [q for v in batches.values() for q in v]
+        assert flat == corpus
+
+    def test_each_snapshot_splits_independently(self):
+        batches = group_into_batches(self._corpus(20, snapshots=(240, 480)), 12)
+        assert list(batches) == [
+            "bruce_s42_T240_c1of2",
+            "bruce_s42_T240_c2of2",
+            "bruce_s42_T480_c1of2",
+            "bruce_s42_T480_c2of2",
+        ]
+
+    def test_cap_of_one_gives_a_prompt_per_question(self):
+        batches = group_into_batches(self._corpus(3), 1)
+        assert [len(v) for v in batches.values()] == [1, 1, 1]
+
+    def test_each_chunk_is_a_self_contained_prompt(self):
+        # A chunk repeats the report and renumbers from 1, and its epilogue
+        # states its own count — the model never sees a question number it was
+        # not asked about, nor a count that disagrees with the list.
+        questions = [dict(q, question_text=f"What about {i}?", context=REPORT)
+                     for i, q in enumerate(self._corpus(6))]
+        chunks = list(group_into_batches(questions, 4).values())
+        assert [len(c) for c in chunks] == [3, 3]
+        for chunk in chunks:
+            prompt = build_batch_prompt_continuous(chunk[0]["context"], chunk)
+            assert prompt.count(REPORT) == 1
+            assert "1. What about" in prompt
+            assert "each of the 3 questions" in prompt
+
+    def test_zero_is_rejected(self):
+        with pytest.raises(ValueError, match="questions_per_prompt"):
+            group_into_batches(self._corpus(20), 0)
 
 
 class TestBatchCacheHelpers:

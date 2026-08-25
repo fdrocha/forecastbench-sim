@@ -277,6 +277,24 @@ class Config:
             )
         return value
 
+    def get_questions_per_prompt(self) -> int:
+        """The optional 'questions_per_prompt', capping questions per prompt.
+
+        -1 (the default) means no cap: every question a scenario asks at one
+        snapshot goes in a single prompt, which is the cheapest way to ask them
+        since they share a game report. A positive value splits a batch that
+        would exceed it, repeating the report in each prompt (see
+        single_city.group_into_batches). Part of what the prompt asks, so
+        changing it misses the response cache rather than mixing variants.
+        """
+        value = self.get_int_or("questions_per_prompt", -1)
+        if value == 0 or value < -1:
+            raise ConfigError(
+                f"parameter 'questions_per_prompt' in {self.path} must be -1 "
+                f"(no cap) or a positive integer, got {value!r}"
+            )
+        return value
+
     def get_cities(self, override: list[str] | None = None) -> list[str]:
         """The 'cities' list, or override when one was passed on the command line.
 

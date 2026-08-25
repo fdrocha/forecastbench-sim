@@ -78,6 +78,7 @@ def collect_from_config(
     preamble_path = cfg.get_preamble_path()
     epilogue_path = cfg.get_epilogue_path()
     question_tagging = cfg.get_question_tagging()
+    questions_per_prompt = cfg.get_questions_per_prompt()
 
     print(f"config: {cfg.path}")
     print(f"label:  {label}")
@@ -99,7 +100,7 @@ def collect_from_config(
         cfg.get_questions_sort(),
     )
 
-    batches = group_into_batches(corpus)
+    batches = group_into_batches(corpus, questions_per_prompt)
     batch_hashes = {
         bid: prompt_hash(
             build_batch_prompt_continuous(

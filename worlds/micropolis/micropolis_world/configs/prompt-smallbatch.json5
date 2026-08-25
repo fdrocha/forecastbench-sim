@@ -1,0 +1,47 @@
+{
+  // RNG seed for the simulations. Override per-run with --seed.
+  "seed": 42,
+
+  // Cities to run. Names come from module_globals.CITY_CHOICES.
+  "cities": [
+    "bruce",
+    "haight",
+    "freds",
+    "happisle",
+    "joffburg",
+    "kamakura",
+    "kowloon",
+    "linecity",
+  ],
+
+  // Disaster settings to run each city under; crossed with "cities".
+  // [false, true] runs both variants of every city.
+  "disasters": [false, true],
+
+  // How many turns run_sim.py simulates. The corpus scripts ignore this and
+  // derive their own length from snapshot_turns + horizons.
+  "turns": 1000,
+
+  // Turns at which a world report is generated and questions are asked,
+  // and the forecast horizons past each snapshot. 48 turns per year.
+  "snapshot_turns": [240, 480],    // years 5 and 10
+  "horizons": [0, 48, 96, 144, 192, 240],  // 1-5 out
+  "preamble_path" : "preamble2.txt",
+
+  "question_tagging": "numeric",
+  "questions_per_prompt" : 6,
+
+  // Ask every horizon for one metric before moving to the next metric, so a
+  // metric's whole trajectory is asked about in one run of consecutive lines.
+  "questions_sort": "metric",
+
+  // gen_report.py: turn to print the report for (negative counts back from the
+  // last logged turn), and how often the report includes historical data.
+  "snapshot_only_report" : false,
+  "report_turn": -1,
+  "history_freq": 4,
+  "report_effectiveness": false,
+
+  "models": "models-for-prompt-variants.json5",
+  "max_tokens": 30000,
+}
