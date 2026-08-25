@@ -8,8 +8,14 @@ from .city_sim import CitySimulation, turn_of
 _difficulty_labels = {0: "Easy", 1: "Medium", 2: "Hard"}
 
 
-def _snapshot_section(row: dict) -> list[str]:
-    """Current-state block from a single log_data row."""
+def _snapshot_section(row: dict, report_effectiveness: bool = False) -> list[str]:
+    """Current-state block from a single log_data row.
+
+    report_effectiveness includes the three funding-effectiveness readouts
+    (road, police, fire). They are omitted by default: they are derived from
+    the budget rather than observed, so a variant can ask what the city looks
+    like without them.
+    """
     lines = [f"CURRENT STATE (turn {turn_of(row)})", ""]
     difficulty = _difficulty_labels[row["gameLevel"]]
     lines.append(f"  Difficulty: {difficulty}")
@@ -24,9 +30,10 @@ def _snapshot_section(row: dict) -> list[str]:
         lines.append(f"  {label}: {row[metric]}")
     lines.append(f"  Cash flow: {row['cashFlow']}")
     lines.append(f"  Tax rate: {row['cityTax']}%")
-    lines.append(f"  Road funding effectiveness: {row['roadEffect']}")
-    lines.append(f"  Police funding effectiveness: {row['policeEffect']}")
-    lines.append(f"  Fire department funding effectiveness: {row['fireEffect']}")
+    if report_effectiveness:
+        lines.append(f"  Road funding effectiveness: {row['roadEffect']}")
+        lines.append(f"  Police funding effectiveness: {row['policeEffect']}")
+        lines.append(f"  Fire department funding effectiveness: {row['fireEffect']}")
     lines.append("")
     lines.append(
         "  Infrastructure — "
@@ -124,6 +131,7 @@ def gen_world_report(
     label: str,
     snapshot_only: bool = False,
     history_length: int = -1,
+    report_effectiveness: bool = False,
 ) -> str:
     """Build the model-facing situation report for `sim` as of `turn`.
 
@@ -145,6 +153,9 @@ def gen_world_report(
             config that sets it nonsensically fails the same either way.
         history_length: Cap the HISTORY table at this many rows, keeping the
             most recent ones. -1 (the default) keeps every sampled turn.
+        report_effectiveness: Include the road, police and fire funding
+            effectiveness lines in CURRENT STATE. False (the default) drops
+            all three.
 
     As a side effect it saves the world report to disk and prints out the path to it.
     """
@@ -167,7 +178,7 @@ def gen_world_report(
             f"City: {sim.city_name}",
             f"Disasters: {'enabled' if sim.disasters else 'disabled'}",
         ],
-        _snapshot_section(row),
+        _snapshot_section(row, report_effectiveness),
     ]
     if not snapshot_only:
         sections.append(
@@ -177,10 +188,10 @@ def gen_world_report(
     report_text = "\n\n".join("\n".join(section) for section in sections)
 
     # Labelled rather than suffixed by variant: what goes into a report depends
-    # on more than snapshot_only (history_freq, history_length, and whatever a
-    # later variant adds), so keying the file by the config that produced it
-    # keeps any two configs' reports side by side instead of one overwriting
-    # the other.
+    # on more than snapshot_only (history_freq, history_length,
+    # report_effectiveness, and whatever a later variant adds), so keying the
+    # file by the config that produced it keeps any two configs' reports side
+    # by side instead of one overwriting the other.
     report_path = sim.get_data_file_path(f"worldreport-{label}-T{turn}", ext="txt")
     report_path.parent.mkdir(parents=True, exist_ok=True)
     # Read before writing so the message can say whether this run actually

@@ -32,6 +32,7 @@
   "snapshot_only_report" : false,
   "report_turn": -1,
   "history_freq": 4,
+  "report_effectiveness": true,
 
   // Models to prompt (a string names a JSON5 file, relative to this one,
   // holding the list) and the response token cap.

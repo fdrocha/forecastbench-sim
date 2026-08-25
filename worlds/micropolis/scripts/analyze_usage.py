@@ -93,6 +93,7 @@ def collect_from_config(
         label,
         snapshot_only,
         cfg.get_int_or("history_length", -1),
+        cfg.get_bool_or("report_effectiveness", False),
     )
 
     batches = group_into_batches(corpus)

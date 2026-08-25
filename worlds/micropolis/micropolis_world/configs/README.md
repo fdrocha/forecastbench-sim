@@ -115,6 +115,7 @@ dataset rather than to run anything.
 | `report_turn` | int | `gen_report.py` | Turn to print the report for; negative counts back from the last logged turn. |
 | `history_freq` | int | `gen_report.py` | The report includes data every this many turns. |
 | `history_length` | int | `gen_report.py`, `gen_corpus.py`, `run_single_city_eval.py` | Cap the HISTORY table at this many rows, keeping the most recent ones. Optional; `-1` (the default) keeps the whole history. |
+| `report_effectiveness` | bool | `gen_report.py`, `gen_corpus.py`, `run_single_city_eval.py` | Include the road, police and fire funding effectiveness lines in the report's CURRENT STATE block. Optional; `false` (the default) drops all three. |
 | `preamble_path` | str | `run_single_city_eval.py`, `analyze_usage.py` | File holding the forecasting prompt's preamble, relative to the config file's directory. Must contain a `{sources}` placeholder, filled in with the report sections the variant has. Optional; `preamble1.txt` is the default. Part of the prompt, so changing it misses the response cache rather than mixing variants. |
 | `models` | list[str] | `run_single_city_eval.py`, reporting | Model ids to prompt, in `provider/name` form. Reporting selects on them, so trimming this list is how you get a readable figure from a large run. Overridable with `--models`. |
 | `max_tokens` | int | `run_single_city_eval.py` | Response token cap per model call. For a reasoning model this covers thinking as well as the answer, so too low a cap yields an empty reply; the script warns when one is hit. |

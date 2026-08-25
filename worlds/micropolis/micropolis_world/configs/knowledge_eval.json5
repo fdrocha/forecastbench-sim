@@ -65,4 +65,5 @@
   "horizons": [48, 240, 480],
   "report_turn": -1,
   "history_freq": 4,
+  "report_effectiveness": true,
 }

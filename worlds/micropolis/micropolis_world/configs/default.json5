@@ -57,6 +57,10 @@
   "report_turn": -1,
   "history_freq": 4,
 
+  // Include the road, police and fire funding effectiveness lines in the
+  // world report's CURRENT STATE block. false (the default) drops all three.
+  "report_effectiveness": true,
+
   // Cap the HISTORY table at this many rows, keeping the most recent ones.
   // -1 keeps the whole history.
   "history_length": -1,

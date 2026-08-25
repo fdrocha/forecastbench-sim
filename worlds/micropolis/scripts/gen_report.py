@@ -35,6 +35,7 @@ def main() -> None:
     history_freq = cfg.get_int("history_freq")
     history_length = cfg.get_int_or("history_length", -1)
     snapshot_only = cfg.get_bool_or("snapshot_only_report", False)
+    report_effectiveness = cfg.get_bool_or("report_effectiveness", False)
     label = cfg.get_label(args.label)
     scenarios = scenarios_from(cfg, args.cities, args.disasters)
 
@@ -65,6 +66,7 @@ def main() -> None:
                 label=label,
                 snapshot_only=snapshot_only,
                 history_length=history_length,
+                report_effectiveness=report_effectiveness,
             )
         )
         print()

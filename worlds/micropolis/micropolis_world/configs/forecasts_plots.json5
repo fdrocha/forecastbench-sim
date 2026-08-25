@@ -53,6 +53,10 @@
   "report_turn": -1,
   "history_freq": 4,
 
+  // Include the road, police and fire funding effectiveness lines in the
+  // world report's CURRENT STATE block. false (the default) drops all three.
+  "report_effectiveness": true,
+
   // Models to prompt, in provider/name form, and the response token cap.
   // See README.md for the ForecastBench, frontier and pandemic model sets.
   "models": [

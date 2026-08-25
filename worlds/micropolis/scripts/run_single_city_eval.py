@@ -294,6 +294,7 @@ def main() -> None:
         label,
         snapshot_only,
         cfg.get_int_or("history_length", -1),
+        cfg.get_bool_or("report_effectiveness", False),
     )
 
     if args.dry_run:
