@@ -108,7 +108,7 @@ def gather_responses(
     batches = group_into_batches(corpus)
     prompts = {
         bid: build_batch_prompt_continuous(
-            questions[0]["context"], questions, snapshot_only_report, preamble_path
+            questions[0]["context"], questions, preamble_path
         )
         for bid, questions in batches.items()
     }
@@ -180,9 +180,7 @@ def gather_responses(
             if not result.ok:
                 failures.append(result)
                 err = result.error
-                print(
-                    f"{prefix}  FAILED: {type(err).__name__}: {err}{eta}", flush=True
-                )
+                print(f"{prefix}  FAILED: {type(err).__name__}: {err}{eta}", flush=True)
                 continue
             resp = result.response
             # How long this one call took, next to what it cost: a batch that

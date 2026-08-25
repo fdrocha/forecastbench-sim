@@ -132,7 +132,6 @@ def build_corpus(
 def build_batch_prompt_continuous(
     context: str,
     questions: list[dict],
-    snapshot_only_report: bool = False,
     preamble_path: Path | str | None = None,
 ) -> str:
     """Ask for one p10/p25/p50/p75/p90 quantile forecast per question.
@@ -143,57 +142,34 @@ def build_batch_prompt_continuous(
     block match FreeCiv's build_continuous_batch_prompt, so responses from the
     two worlds are parsed the same way and scored on the same CRPS.
     parse_batch_percentiles reads the answers back.
-
-    `snapshot_only_report` says whether `context` was built without its HISTORY
-    table, which only changes which report sections the preamble points the
-    model at (see prompt_preamble). `preamble_path` names the preamble template
-    to use, defaulting to configs/preamble1.txt.
     """
     n = len(questions)
-    if n == 1:
-        question_section = f"## Question\n{questions[0]['question_text']}"
-        must_answer = "You MUST provide percentile estimates UNDER ALL CIRCUMSTANCES."
-        format_example = "p10=5, p25=10, p50=15, p75=20, p90=25"
-        format_hint = (
-            "Replace the example values with your actual percentile estimates."
-        )
-    else:
-        numbered = "\n".join(
-            f"{i}. {q['question_text']}" for i, q in enumerate(questions, 1)
-        )
-        question_section = f"## Questions\n{numbered}"
-        must_answer = (
-            "You MUST provide percentile estimates for every question "
-            "UNDER ALL CIRCUMSTANCES."
-        )
-        format_example = (
-            "Q1: p10=5, p25=10, p50=15, p75=20, p90=25\n"
-            "Q2: p10=100, p25=200, p50=300, p75=400, p90=500"
-        )
-        format_hint = (
-            f"Provide one such line for each of the {n} questions, in order, "
-            "replacing the example values with your actual percentile estimates."
-        )
-    return f"""{read_preamble(preamble_path)}
-
-## Game report
-{context}
-
-{question_section}
-
-{must_answer} If for some reason you can't answer, provide reasonable mid-range estimates, but always return numeric percentile values.
+    numbered_questions = "\n".join(
+        f"{i}. {q['question_text']}" for i, q in enumerate(questions, 1)
+    )
+    epilogue = f"""You MUST provide percentile estimates for every question UNDER ALL CIRCUMSTANCES. If for some reason you can't answer, provide reasonable mid-range estimates, but always return numeric percentile values.
 
 You may analyze the data, but you MUST end your response with your percentile estimates in this exact format:
 <<<PERCENTILES>>>
-{format_example}
+Q1: p10=5, p25=10, p50=15, p75=20, p90=25
+Q2: p10=100, p25=200, p50=300, p75=400, p90=500
 <<<END>>>
 
-{format_hint}
+Provide one such line for each of the {n} questions, in order, replacing the example values with your actual percentile estimates.
 - p10 means you estimate there's a 10% chance the true value is below this number
 - p25 means you estimate there's a 25% chance the true value is below this number
 - p50 (median) means you estimate there's a 50% chance the true value is below this number
 - p75 means you estimate there's a 75% chance the true value is below this number
 - p90 means you estimate there's a 90% chance the true value is below this number"""
+    return f"""{read_preamble(preamble_path)}
+
+## Game report
+{context}
+
+## Questions
+{numbered_questions}
+
+{epilogue}"""
 
 
 def _validate_monotonic(

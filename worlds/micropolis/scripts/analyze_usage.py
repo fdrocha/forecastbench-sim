@@ -100,7 +100,7 @@ def collect_from_config(
     batch_hashes = {
         bid: prompt_hash(
             build_batch_prompt_continuous(
-                questions[0]["context"], questions, snapshot_only, preamble_path
+                questions[0]["context"], questions, preamble_path
             )
         )
         for bid, questions in batches.items()
