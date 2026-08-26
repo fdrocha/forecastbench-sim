@@ -35,6 +35,11 @@ PREAMBLE_PATH = HERE / "prompt_preamble.txt"
 
 OUT_DIR = g.DATA_DIR / "knowledge_eval"
 
+# Prompts, raw model responses and their usage sidecars live below OUT_DIR,
+# mirroring the single-city eval's cache layout, so OUT_DIR itself holds only
+# analysis outputs (plots, report, scores).
+CACHE_DIR = OUT_DIR / "cache"
+
 
 class Answer(Enum):
     """A model's parsed verdict on a single statement."""
@@ -102,12 +107,12 @@ def build_prompt() -> tuple[str, str]:
 
 
 def save_prompt(prompt: str, phash: str) -> None:
-    """Write the prompt to prompt-<HASH>.txt in OUT_DIR.
+    """Write the prompt to prompt-<HASH>.txt in CACHE_DIR.
 
     Keeps every prompt a response was gathered under on disk alongside it.
     """
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    (OUT_DIR / f"prompt-{phash}.txt").write_text(prompt, encoding="utf-8")
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    (CACHE_DIR / f"prompt-{phash}.txt").write_text(prompt, encoding="utf-8")
 
 
 def model_slug(model_id: str) -> str:
@@ -128,7 +133,7 @@ def response_path(model_id: str, phash: str) -> Path:
     statement set simply misses the cache instead of silently reusing answers
     to different questions.
     """
-    return OUT_DIR / f"response-{model_slug(model_id)}-{phash}.txt"
+    return CACHE_DIR / f"response-{model_slug(model_id)}-{phash}.txt"
 
 
 def usage_path(model_id: str, phash: str) -> Path:
@@ -138,7 +143,7 @@ def usage_path(model_id: str, phash: str) -> Path:
     when it is first paid or it is lost on every later run. The slug must match
     response_path's, or the sidecar lands next to nothing.
     """
-    return OUT_DIR / f"usage-{model_slug(model_id)}-{phash}.json"
+    return CACHE_DIR / f"usage-{model_slug(model_id)}-{phash}.json"
 
 
 def save_usage(model_id: str, phash: str, usage: CallUsage) -> None:
@@ -174,7 +179,7 @@ def cached_models(phash: str) -> list[str]:
     prefix, suffix = "response-", f"-{phash}.txt"
     return sorted(
         p.name[len(prefix) : -len(suffix)]
-        for p in OUT_DIR.glob(f"{prefix}*{suffix}")
+        for p in CACHE_DIR.glob(f"{prefix}*{suffix}")
         if p.read_text(encoding="utf-8").strip()
     )
 
@@ -227,7 +232,7 @@ def get_model_answers(
 ) -> dict[str, list[Answer]]:
     """Administer the statement test to each model and parse the replies.
 
-    The response-<MODEL>-<HASH>.txt files in OUT_DIR are the cache and the
+    The response-<MODEL>-<HASH>.txt files in CACHE_DIR are the cache and the
     source of truth: a model with a stored response for the current prompt is
     re-read and re-parsed rather than prompted again. Because the filename
     carries the prompt hash, editing the statements simply misses the cache
@@ -252,7 +257,7 @@ def get_model_answers(
 
     prompt, phash = build_prompt()
     save_prompt(prompt, phash)
-    print(f"prompt hash {phash} ({OUT_DIR / f'prompt-{phash}.txt'})")
+    print(f"prompt hash {phash} ({CACHE_DIR / f'prompt-{phash}.txt'})")
 
     data: dict[str, list[Answer]] = {}
 
@@ -374,6 +379,6 @@ def get_cached_answers() -> dict[str, list[Answer]]:
     _, phash = build_prompt()
     answers = {}
     for slug in cached_models(phash):
-        path = OUT_DIR / f"response-{slug}-{phash}.txt"
+        path = CACHE_DIR / f"response-{slug}-{phash}.txt"
         answers[slug] = parse_response(path.read_text(encoding="utf-8"))
     return answers

@@ -30,7 +30,7 @@ Usage:
     scripts/analyze_usage.py configs/*.json5 --per-config
     scripts/analyze_usage.py --cities kyoto --disasters false
     scripts/analyze_usage.py --glob 'single_city/cache/*/usage-*.json'
-    scripts/analyze_usage.py --glob 'knowledge_eval/usage-*.json' --per-model
+    scripts/analyze_usage.py --glob 'knowledge_eval/cache/usage-*.json' --per-model
     scripts/analyze_usage.py --glob '**/usage-*.json' --per-model
 """
 

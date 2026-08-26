@@ -26,7 +26,7 @@ from micropolis_world.config import (
     main_with_config,
 )
 from micropolis_world.knowledge_eval.runner import (
-    OUT_DIR,
+    CACHE_DIR,
     get_model_answers,
     statements,
 )
@@ -66,7 +66,7 @@ def main() -> None:
     missing = [m for m in models if m not in answers]
     if missing:
         print(f"No response from: {', '.join(missing)}")
-    print(f"Responses saved under {OUT_DIR}")
+    print(f"Responses saved under {CACHE_DIR}")
     print("\nTo score them, run scripts/analyze_knowledge.py")
 
 

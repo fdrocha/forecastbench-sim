@@ -7,8 +7,10 @@ and honeypot status. The question is whether knowing Micropolis tracks general
 capability.
 
 Reads only the responses already cached by scripts/run_knowledge_eval.py, so it
-prompts no models and needs no API keys or network. The only thing it writes is
-one scatter plot per statement subset, which --no-plot suppresses.
+prompts no models and needs no API keys or network. It writes knowledge.csv
+(per-model scores by subset), one scatter plot per statement subset, a bar
+chart of the full-set correlations, and report.md tying the plots and the
+correlation table together; --no-plot skips everything but the csv.
 
 Usage:
     scripts/analyze_knowledge.py
@@ -17,6 +19,8 @@ Usage:
 """
 
 import argparse
+import csv
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +45,8 @@ from micropolis_world.plot_labels import place_labels
 CONFIG_PATH = CONFIG_DIR / "knowledge_eval.json5"
 
 PLOTS_PATH = OUT_DIR / "plots"
+REPORT_PATH = OUT_DIR / "report.md"
+KNOWLEDGE_CSV_PATH = OUT_DIR / "knowledge.csv"
 
 
 @dataclass(frozen=True)
@@ -176,6 +182,23 @@ def direction(rho: float) -> str:
     return "pro-g" if rho > 0 else "anti-g"
 
 
+def fisher_ci(
+    coef: float, n: int, spearman: bool = False
+) -> tuple[float, float] | None:
+    """95% confidence interval for a correlation, via the Fisher z-transform.
+
+    Spearman's ρ uses the Bonett–Wright standard error, sqrt((1 + ρ²/2)/(n-3)),
+    which widens the Pearson interval to account for the ranking. None when n
+    is too small for the transform, or at coefficients of exactly ±1, where the
+    transform diverges.
+    """
+    if n <= 3 or abs(coef) >= 1:
+        return None
+    se = math.sqrt(((1 + coef**2 / 2) if spearman else 1) / (n - 3))
+    z = math.atanh(coef)
+    return math.tanh(z - 1.96 * se), math.tanh(z + 1.96 * se)
+
+
 def correlate(xs: list[float], ys: list[float], min_n: int) -> dict | None:
     """Spearman and Pearson correlation of ECI against score, or None.
 
@@ -189,7 +212,15 @@ def correlate(xs: list[float], ys: list[float], min_n: int) -> dict | None:
         return None
     rho, p_rho = stats.spearmanr(xs, ys)
     r, p_r = stats.pearsonr(xs, ys)
-    return {"rho": rho, "p_rho": p_rho, "r": r, "p_r": p_r, "n": len(xs)}
+    return {
+        "rho": rho,
+        "p_rho": p_rho,
+        "rho_ci": fisher_ci(rho, len(xs), spearman=True),
+        "r": r,
+        "p_r": p_r,
+        "r_ci": fisher_ci(r, len(xs)),
+        "n": len(xs),
+    }
 
 
 def print_table(headers: list[str], rows: list[list[str]]) -> None:
@@ -384,6 +415,153 @@ def plot_scatter(
     return out
 
 
+def plot_correlation_bars(
+    sub: Subset, result: dict, outdir: Path = PLOTS_PATH
+) -> Path:
+    """Bar chart of one subset's ρ and r, with 95% confidence intervals.
+
+    The intervals are the point of the figure: with this few models they are
+    wide, and the bar heights alone would overstate how settled the
+    correlations are.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    bars = [
+        ("Spearman ρ", result["rho"], result["rho_ci"]),
+        ("Pearson r", result["r"], result["r_ci"]),
+    ]
+    # Asymmetric error bars: the Fisher interval is not centered on the
+    # coefficient. A coefficient whose interval is undefined gets no bar.
+    lows = [coef - ci[0] if ci else 0.0 for _, coef, ci in bars]
+    highs = [ci[1] - coef if ci else 0.0 for _, coef, ci in bars]
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(5.5, 5))
+    ax.bar(
+        [label for label, _, _ in bars],
+        [coef for _, coef, _ in bars],
+        yerr=[lows, highs],
+        width=0.55,
+        color=["#3266a8", "#c2432d"],
+        capsize=6,
+        zorder=3,
+    )
+    ax.axhline(0.0, color="#555555", lw=0.8, zorder=2)
+    ax.set_ylim(-1.05, 1.05)
+    ax.set_ylabel("Correlation with ECI")
+    ax.set_title(
+        f"ECI × knowledge score — {sub.name}\n"
+        f"95% CI, n={result['n']} models, {len(sub.stmts)} statements"
+    )
+    ax.grid(axis="y", alpha=0.3, zorder=0)
+    fig.tight_layout()
+
+    out = outdir / f"correlations-{sub.slug}.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    return out
+
+
+def csv_columns() -> list[tuple[str, Subset]]:
+    """The knowledge.csv columns: (header, subset), one per reported score.
+
+    Every subset except Non-honeypot, which is nearly the whole set; the
+    header flattens the subset slug ("difficulty-0" -> "difficulty0").
+    """
+    return [
+        (f"knowledge_score_{sub.slug.replace('-', '')}", sub)
+        for sub in subsets()
+        if sub.name != "Non-honeypot"
+    ]
+
+
+def write_knowledge_csv(entries: list[Entry], skipped: list[Unscored]) -> Path:
+    """Each cached model's normalized score per subset, as knowledge.csv.
+
+    The models without an ECI score are included too: the scores need only the
+    cached answers, not the join. Rows are sorted by the all-statements score,
+    best first, like the printed table.
+    """
+    columns = csv_columns()
+    rows = [
+        [name] + [score(tally(answers, sub.stmts)) for _, sub in columns]
+        for name, answers in sorted(
+            [(e.name, e.answers) for e in entries]
+            + [(u.name, u.answers) for u in skipped]
+        )
+    ]
+    rows.sort(key=lambda row: -row[1])
+
+    with KNOWLEDGE_CSV_PATH.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["model"] + [header for header, _ in columns])
+        writer.writerows([row[0]] + [f"{s:.4f}" for s in row[1:]] for row in rows)
+    return KNOWLEDGE_CSV_PATH
+
+
+def format_ci(ci: tuple[float, float] | None) -> str:
+    """A confidence interval as "[lo, hi]", or a dash when undefined."""
+    if ci is None:
+        return "—"
+    return f"[{ci[0]:+.3f}, {ci[1]:+.3f}]"
+
+
+def write_report(
+    entries: list[Entry],
+    results: list[tuple[Subset, dict | None]],
+    scatters: list[tuple[Subset, Path]],
+    bars: Path | None,
+) -> Path:
+    """Assemble the plots and the correlation table into report.md.
+
+    Image paths are relative to the report's own directory, so the file renders
+    wherever the knowledge_eval directory is copied to.
+    """
+    lines = [
+        "# Micropolis domain knowledge vs. ECI",
+        "",
+        f"{len(entries)} models with an ECI score, {len(statements)} statements. "
+        "Generated by `scripts/analyze_knowledge.py` from the responses cached "
+        "under `cache/`; the per-model scores are in `knowledge.csv`.",
+        "",
+        "## Knowledge score vs. ECI by statement subset",
+    ]
+    for sub, path in scatters:
+        lines += ["", f"### {sub.label}", "", f"![{sub.name}]({path.relative_to(OUT_DIR)})"]
+    if bars is not None:
+        lines += [
+            "",
+            "## Correlations on the full statement set",
+            "",
+            f"![All-statements correlations]({bars.relative_to(OUT_DIR)})",
+        ]
+    lines += [
+        "",
+        "## Correlations by statement subset",
+        "",
+        "ECI × normalized knowledge score; 95% confidence intervals via the "
+        "Fisher z-transform (Bonett–Wright standard error for ρ).",
+        "",
+        "| Subset | ρ (95% CI) | r (95% CI) |",
+        "|---|---|---|",
+    ]
+    for sub, result in results:
+        if result is None:
+            lines.append(f"| {sub.label} | — | — |")
+        else:
+            lines.append(
+                f"| {sub.label} "
+                f"| {result['rho']:+.3f} {format_ci(result['rho_ci'])} "
+                f"| {result['r']:+.3f} {format_ci(result['r_ci'])} |"
+            )
+    lines.append("")
+    REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
+    return REPORT_PATH
+
+
 def print_caveats(entries: list[Entry]) -> None:
     print(f"\n{'=' * 70}")
     print("NOTES")
@@ -418,7 +596,8 @@ def main() -> None:
     ap.add_argument(
         "--no-plot",
         action="store_true",
-        help="Print the tables without writing the scatter plots",
+        help="Print the tables and write knowledge.csv, but skip the plots "
+        "and report.md",
     )
     args = ap.parse_args()
 
@@ -438,10 +617,24 @@ def main() -> None:
     print_correlations(results)
     print_caveats(entries)
 
+    print()
+    print(f"Wrote {write_knowledge_csv(entries, skipped)}")
+
     if not args.no_plot:
-        print()
+        scatters = []
         for sub, result in results:
-            print(f"Wrote {plot_scatter(entries, sub, result)}")
+            path = plot_scatter(entries, sub, result)
+            scatters.append((sub, path))
+            print(f"Wrote {path}")
+        # The bar chart reports the headline numbers, so it plots the full-set
+        # correlations; skipped entirely when they were not computable.
+        all_result = next(res for sub, res in results if sub.name == "All")
+        bars = None
+        if all_result is not None:
+            all_sub = next(sub for sub, _ in results if sub.name == "All")
+            bars = plot_correlation_bars(all_sub, all_result)
+            print(f"Wrote {bars}")
+        print(f"Wrote {write_report(entries, results, scatters, bars)}")
 
 
 if __name__ == "__main__":
