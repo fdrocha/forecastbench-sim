@@ -8,9 +8,9 @@ capability.
 
 Reads only the responses already cached by scripts/run_knowledge_eval.py, so it
 prompts no models and needs no API keys or network. It writes knowledge.csv
-(per-model scores by subset), one scatter plot per statement subset, a bar
-chart of the full-set correlations, and report.md tying the plots and the
-correlation table together; --no-plot skips everything but the csv.
+(per-model scores by subset), one scatter plot per statement subset, a summary
+figure of ρ and r across the subsets, and report.md tying the plots together;
+--no-plot skips everything but the csv.
 
 Usage:
     scripts/analyze_knowledge.py
@@ -415,58 +415,92 @@ def plot_scatter(
     return out
 
 
-def plot_correlation_bars(
+def plot_correlations_by_subset(
     results: list[tuple[Subset, dict | None]], outdir: Path = PLOTS_PATH
 ) -> Path:
-    """Spearman ρ per statement subset, with 95% confidence intervals.
+    """ρ and r per statement subset, as two lines with 95% intervals.
 
-    One bar per subset the scatter plots cover, so the whole breakdown is
-    readable at once. The intervals are the point of the figure: with this few
-    models they overlap heavily, and the bar heights alone would suggest the
-    subsets are ordered more firmly than they are.
+    The whole breakdown in one figure, which is why the report carries no
+    correlation table beside it. The intervals are the point: with this few
+    models they overlap across every subset, so the ups and downs of the lines
+    are not differences the data supports.
+
+    The x-axis is categorical, so the lines connect neighboring subsets rather
+    than interpolating anything — they are there to make each series easy to
+    follow across the categories, not to suggest a trend.
+
+    The y-axis is scaled to the intervals drawn, not to the full [-1, 1] a
+    correlation could occupy, so read the spread between subsets against the
+    axis labels rather than as a fraction of the frame.
 
     Subsets whose correlation was not computable are dropped rather than drawn
-    as a gap, since an empty slot reads like a ρ of zero.
+    as a gap, since a missing point reads like a coefficient of zero.
     """
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    bars = [(sub, res) for sub, res in results if res is not None]
-    # Asymmetric error bars: the Fisher interval is not centered on ρ. A ρ whose
-    # interval is undefined gets a bar with no whisker.
-    lows = [res["rho"] - res["rho_ci"][0] if res["rho_ci"] else 0.0 for _, res in bars]
-    highs = [res["rho_ci"][1] - res["rho"] if res["rho_ci"] else 0.0 for _, res in bars]
+    points = [(sub, res) for sub, res in results if res is not None]
+    xs = range(len(points))
 
     outdir.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(1.15 * len(bars) + 2.5, 5.5))
-    ax.bar(
-        [sub.name for sub, _ in bars],
-        [res["rho"] for _, res in bars],
-        yerr=[lows, highs],
-        width=0.6,
-        color="#3266a8",
-        capsize=6,
-        zorder=3,
-    )
+    fig, ax = plt.subplots(figsize=(1.3 * len(points) + 3.0, 5.5))
+
+    extents = []
+    for key, ci_key, label, color, marker in (
+        ("rho", "rho_ci", "Spearman ρ", "#3266a8", "o"),
+        ("r", "r_ci", "Pearson r", "#c2432d", "s"),
+    ):
+        coefs = [res[key] for _, res in points]
+        # Asymmetric: the Fisher interval is not centered on the coefficient. A
+        # point whose interval is undefined gets no whisker.
+        lows = [res[key] - res[ci_key][0] if res[ci_key] else 0.0 for _, res in points]
+        highs = [res[ci_key][1] - res[key] if res[ci_key] else 0.0 for _, res in points]
+        extents += [c - lo for c, lo in zip(coefs, lows)]
+        extents += [c + hi for c, hi in zip(coefs, highs)]
+        ax.errorbar(
+            xs,
+            coefs,
+            yerr=[lows, highs],
+            label=label,
+            color=color,
+            marker=marker,
+            markersize=7,
+            lw=1.8,
+            capsize=5,
+            zorder=3,
+        )
+
     # The statement count varies per subset and drives how noisy its score is,
-    # so it belongs on the tick rather than only in the report's table.
-    ax.set_xticks(
-        range(len(bars)), [f"{sub.name}\n(n={len(sub.stmts)})" for sub, _ in bars]
-    )
+    # so it belongs on the tick where the point it explains is read.
+    ax.set_xticks(xs, [f"{sub.name}\n(n={len(sub.stmts)})" for sub, _ in points])
     ax.axhline(0.0, color="#555555", lw=0.8, zorder=2)
-    ax.set_ylim(-1.05, 1.05)
-    ax.set_ylabel("Spearman ρ (ECI × knowledge score)")
-    n_models = max(res["n"] for _, res in bars)
+    # Scaled to the intervals rather than the full [-1, 1], which the
+    # coefficients never come close to filling. Zero stays in view when the data
+    # is anywhere near it, since whether an interval clears zero is the first
+    # thing read off the figure; a set of coefficients far from zero drops it
+    # rather than spend most of the axis on empty space. Clipped to [-1, 1]
+    # because no correlation lies outside it.
+    lo, hi = min(extents), max(extents)
+    if lo > 0:
+        lo = 0.0 if lo < 0.35 else lo
+    elif hi < 0:
+        hi = 0.0 if hi > -0.35 else hi
+    pad = 0.06 * max(hi - lo, 0.1)
+    ax.set_ylim(max(-1.0, lo - pad), min(1.0, hi + pad))
+    ax.set_ylabel("Correlation with ECI")
+    n_models = max(res["n"] for _, res in points)
     ax.set_title(
         "Micropolis domain knowledge vs. ECI by statement subset\n"
-        f"Spearman ρ with 95% CI, {n_models} models"
+        f"95% CI, {n_models} models"
     )
+    ax.legend(loc="lower right", fontsize=9, framealpha=0.9)
     ax.grid(axis="y", alpha=0.3, zorder=0)
+    ax.margins(x=0.08)
     fig.tight_layout()
 
-    out = outdir / "correlations-spearman-by-subset.png"
+    out = outdir / "correlations-by-subset.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     return out
@@ -509,20 +543,15 @@ def write_knowledge_csv(entries: list[Entry], skipped: list[Unscored]) -> Path:
     return KNOWLEDGE_CSV_PATH
 
 
-def format_ci(ci: tuple[float, float] | None) -> str:
-    """A confidence interval as "[lo, hi]", or a dash when undefined."""
-    if ci is None:
-        return "—"
-    return f"[{ci[0]:+.3f}, {ci[1]:+.3f}]"
-
-
 def write_report(
     entries: list[Entry],
-    results: list[tuple[Subset, dict | None]],
     scatters: list[tuple[Subset, Path]],
-    bars: Path | None,
+    summary: Path | None,
 ) -> Path:
-    """Assemble the plots and the correlation table into report.md.
+    """Assemble the plots into report.md.
+
+    The summary figure carries every coefficient and interval the old table
+    reported, so there is no table here.
 
     Image paths are relative to the report's own directory, so the file renders
     wherever the knowledge_eval directory is copied to.
@@ -537,33 +566,24 @@ def write_report(
         "## Knowledge score vs. ECI by statement subset",
     ]
     for sub, path in scatters:
-        lines += ["", f"### {sub.label}", "", f"![{sub.name}]({path.relative_to(OUT_DIR)})"]
-    if bars is not None:
         lines += [
             "",
-            "## Spearman ρ by statement subset",
+            f"### {sub.label}",
             "",
-            f"![Spearman ρ by subset]({bars.relative_to(OUT_DIR)})",
+            f"![{sub.name}]({path.relative_to(OUT_DIR)})",
         ]
-    lines += [
-        "",
-        "## Correlations by statement subset",
-        "",
-        "ECI × normalized knowledge score; 95% confidence intervals via the "
-        "Fisher z-transform (Bonett–Wright standard error for ρ).",
-        "",
-        "| Subset | ρ (95% CI) | r (95% CI) |",
-        "|---|---|---|",
-    ]
-    for sub, result in results:
-        if result is None:
-            lines.append(f"| {sub.label} | — | — |")
-        else:
-            lines.append(
-                f"| {sub.label} "
-                f"| {result['rho']:+.3f} {format_ci(result['rho_ci'])} "
-                f"| {result['r']:+.3f} {format_ci(result['r_ci'])} |"
-            )
+    if summary is not None:
+        lines += [
+            "",
+            "## Correlations by statement subset",
+            "",
+            "ECI × normalized knowledge score; 95% confidence intervals via the "
+            "Fisher z-transform (Bonett–Wright standard error for ρ). The "
+            "intervals reflect the 16-model sample only, not the statement "
+            "sampling the subsets vary.",
+            "",
+            f"![Correlations by subset]({summary.relative_to(OUT_DIR)})",
+        ]
     lines.append("")
     REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
     return REPORT_PATH
@@ -634,12 +654,12 @@ def main() -> None:
             scatters.append((sub, path))
             print(f"Wrote {path}")
         # Skipped entirely when no subset yielded a correlation, which leaves
-        # the chart nothing to draw.
-        bars = None
+        # the figure nothing to draw.
+        summary = None
         if any(res is not None for _, res in results):
-            bars = plot_correlation_bars(results)
-            print(f"Wrote {bars}")
-        print(f"Wrote {write_report(entries, results, scatters, bars)}")
+            summary = plot_correlations_by_subset(results)
+            print(f"Wrote {summary}")
+        print(f"Wrote {write_report(entries, scatters, summary)}")
 
 
 if __name__ == "__main__":
