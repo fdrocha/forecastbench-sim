@@ -416,50 +416,57 @@ def plot_scatter(
 
 
 def plot_correlation_bars(
-    sub: Subset, result: dict, outdir: Path = PLOTS_PATH
+    results: list[tuple[Subset, dict | None]], outdir: Path = PLOTS_PATH
 ) -> Path:
-    """Bar chart of one subset's ρ and r, with 95% confidence intervals.
+    """Spearman ρ per statement subset, with 95% confidence intervals.
 
-    The intervals are the point of the figure: with this few models they are
-    wide, and the bar heights alone would overstate how settled the
-    correlations are.
+    One bar per subset the scatter plots cover, so the whole breakdown is
+    readable at once. The intervals are the point of the figure: with this few
+    models they overlap heavily, and the bar heights alone would suggest the
+    subsets are ordered more firmly than they are.
+
+    Subsets whose correlation was not computable are dropped rather than drawn
+    as a gap, since an empty slot reads like a ρ of zero.
     """
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    bars = [
-        ("Spearman ρ", result["rho"], result["rho_ci"]),
-        ("Pearson r", result["r"], result["r_ci"]),
-    ]
-    # Asymmetric error bars: the Fisher interval is not centered on the
-    # coefficient. A coefficient whose interval is undefined gets no bar.
-    lows = [coef - ci[0] if ci else 0.0 for _, coef, ci in bars]
-    highs = [ci[1] - coef if ci else 0.0 for _, coef, ci in bars]
+    bars = [(sub, res) for sub, res in results if res is not None]
+    # Asymmetric error bars: the Fisher interval is not centered on ρ. A ρ whose
+    # interval is undefined gets a bar with no whisker.
+    lows = [res["rho"] - res["rho_ci"][0] if res["rho_ci"] else 0.0 for _, res in bars]
+    highs = [res["rho_ci"][1] - res["rho"] if res["rho_ci"] else 0.0 for _, res in bars]
 
     outdir.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(5.5, 5))
+    fig, ax = plt.subplots(figsize=(1.15 * len(bars) + 2.5, 5.5))
     ax.bar(
-        [label for label, _, _ in bars],
-        [coef for _, coef, _ in bars],
+        [sub.name for sub, _ in bars],
+        [res["rho"] for _, res in bars],
         yerr=[lows, highs],
-        width=0.55,
-        color=["#3266a8", "#c2432d"],
+        width=0.6,
+        color="#3266a8",
         capsize=6,
         zorder=3,
     )
+    # The statement count varies per subset and drives how noisy its score is,
+    # so it belongs on the tick rather than only in the report's table.
+    ax.set_xticks(
+        range(len(bars)), [f"{sub.name}\n(n={len(sub.stmts)})" for sub, _ in bars]
+    )
     ax.axhline(0.0, color="#555555", lw=0.8, zorder=2)
     ax.set_ylim(-1.05, 1.05)
-    ax.set_ylabel("Correlation with ECI")
+    ax.set_ylabel("Spearman ρ (ECI × knowledge score)")
+    n_models = max(res["n"] for _, res in bars)
     ax.set_title(
-        f"ECI × knowledge score — {sub.name}\n"
-        f"95% CI, n={result['n']} models, {len(sub.stmts)} statements"
+        "Micropolis domain knowledge vs. ECI by statement subset\n"
+        f"Spearman ρ with 95% CI, {n_models} models"
     )
     ax.grid(axis="y", alpha=0.3, zorder=0)
     fig.tight_layout()
 
-    out = outdir / f"correlations-{sub.slug}.png"
+    out = outdir / "correlations-spearman-by-subset.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     return out
@@ -534,9 +541,9 @@ def write_report(
     if bars is not None:
         lines += [
             "",
-            "## Correlations on the full statement set",
+            "## Spearman ρ by statement subset",
             "",
-            f"![All-statements correlations]({bars.relative_to(OUT_DIR)})",
+            f"![Spearman ρ by subset]({bars.relative_to(OUT_DIR)})",
         ]
     lines += [
         "",
@@ -626,13 +633,11 @@ def main() -> None:
             path = plot_scatter(entries, sub, result)
             scatters.append((sub, path))
             print(f"Wrote {path}")
-        # The bar chart reports the headline numbers, so it plots the full-set
-        # correlations; skipped entirely when they were not computable.
-        all_result = next(res for sub, res in results if sub.name == "All")
+        # Skipped entirely when no subset yielded a correlation, which leaves
+        # the chart nothing to draw.
         bars = None
-        if all_result is not None:
-            all_sub = next(sub for sub, _ in results if sub.name == "All")
-            bars = plot_correlation_bars(all_sub, all_result)
+        if any(res is not None for _, res in results):
+            bars = plot_correlation_bars(results)
             print(f"Wrote {bars}")
         print(f"Wrote {write_report(entries, results, scatters, bars)}")
 
