@@ -38,6 +38,7 @@ from pathlib import Path
 from fbsim_core.metrics import compute_crps
 
 import micropolis_world.module_globals as g
+from micropolis_world import model_scores
 from micropolis_world.config import (
     add_config_args,
     load_config,
@@ -907,12 +908,15 @@ def normalized_by_model(
     return {m: sum(v) / len(v) for m, v in scores.items()}
 
 
-def eci_of(model_id: str) -> int | None:
+def eci_of(model_id: str) -> float | None:
     """ECI score for a provider/name model id, or None if it has none.
 
-    ECI_MAP is keyed on the bare model name, without the provider prefix.
+    Re-exported from micropolis_world.model_scores, which reads them from
+    model_scores.csv, rather than imported directly by the scripts downstream of
+    this one: they already import a dozen helpers from here, and keeping the
+    name in one place means the CSV's join rule is stated once.
     """
-    return g.ECI_MAP.get(model_id.split("/", 1)[1])
+    return model_scores.eci_of(model_id)
 
 
 def plot_eci_vs_normalized(
@@ -1015,9 +1019,9 @@ def plot_eci_vs_normalized(
     return out
 
 
-def eci_by_name(model_names: list[str]) -> dict[str, int]:
+def eci_by_name(model_names: list[str]) -> dict[str, float]:
     """ECI per model, keyed on the bare name, skipping the models without one."""
-    return {m.split("/", 1)[1]: eci_of(m) for m in model_names if eci_of(m) is not None}
+    return model_scores.eci_by_name(model_names)
 
 
 def normalized_by_model_and_horizon(

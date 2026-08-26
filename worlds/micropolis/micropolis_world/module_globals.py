@@ -210,39 +210,3 @@ SNAPSHOT_INFRASTRUCTURE = [
     ("poweredZoneCount", "Powered zones"),
     ("unpoweredZoneCount", "Unpowered zones"),
 ]
-
-ECI_MAP = {
-    # Scores taken from Jaeho's table
-    "gpt-4.1-nano": 130.65,
-    "gpt-4.1-mini": 135.61,
-    "gpt-5-nano": 140.98,
-    "gpt-5.6-luna": 156.22,
-    "gpt-5.6-sol": 161.08,
-    "claude-haiku-4-5-20251001": 142.86,
-    "claude-opus-5": 161.54,
-    "claude-fable-5": 162.49,
-    "gemini-3.1-flash-lite": 145.01,
-    "gemini-3.7-flash": 156.85,
-    # Scores taken from https://epoch.ai/eci?subset-view=graph&view=graph&tab=leaderboard&subset-tab=Software%20engineering
-    # on 2026-08-17. Note that the "Software engineering" in the URL is for a table further down on the page
-    # and does not affect these numbers
-    "gpt-4.1-2025-04-14": 137,
-    "gpt-5-2025-08-07": 150,
-    # "gpt-5.6-luna": 156,
-    "gpt-5.6-terra": 159,
-    # "gpt-5.6-sol": 162,
-    "claude-sonnet-4-5-20250929": 147,
-    "claude-opus-4-5-20251101": 150,
-    "claude-opus-4-6": 155,
-    "gemini-2.5-pro": 146,  # Jun 2025
-    "gemini-2.5-flash": 143,  # Sep 2025
-    "gemini-3-pro-preview": 153,
-    "gemini-3.1-pro-preview": 155,
-    # "gemini-3.7-flash": 1,  # no score
-    "grok-4.20-0309-reasoning": 152,  # there is only one grok-4.20 score, I believe it is for the reasoning model
-    # "grok-4.20-0309-non-reasoning": 1, # no score
-    # "grok-4.6": 1, # no score
-    # "mistral-small-2603": 1, # I believe this corresponds to Mistral Small 4 which is not on the leaderboard
-    "mistral-medium-2604": 143,  # 2604 corresponds to Medium 3.5 on the table
-    # "mistral-large-2512": 121, # This is Mistral Large 3, not on the table
-}

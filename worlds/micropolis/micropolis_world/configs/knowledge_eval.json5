@@ -13,57 +13,6 @@
 // analyze_knowledge.py also reads "models", to recover the provider/name ids
 // that the cached response filenames have flattened.
 {
-  "models": [
-    "openai/gpt-3.5-turbo-16k", //  NOTE: only up to 4096 completion tokens
-    "openai/gpt-4.1-2025-04-14", // NOTE: only up to 4096 completion tokens
-    "openai/gpt-4o-2024-05-13", // NOTE: only up to 4096 completion tokens
-    //"openai/gpt-5-2025-08-07",
-
-    "openai/gpt-5.6-luna", // NOTE: gpt-5 models (including gpt-5-codex) don't support temperature=0.0. Only temperature=1 is supported. For gpt-5.1, temperature is supported when reasoning_effort='none' (or not specified, as it defaults to 'none'). To drop unsupported params set `litellm.drop_params = True`
-    "openai/gpt-5.6-terra", // NOTE: gpt-5 models (including gpt-5-codex) don't support temperature=0.0. Only temperature=1 is supported. For gpt-5.1, temperature is supported when reasoning_effort='none' (or not specified, as it defaults to 'none'). To drop unsupported params set `litellm.drop_params = True`
-    "openai/gpt-5.6-sol", // NOTE: gpt-5 models (including gpt-5-codex) don't support temperature=0.0. Only temperature=1 is supported. For gpt-5.1, temperature is supported when reasoning_effort='none' (or not specified, as it defaults to 'none'). To drop unsupported params set `litellm.drop_params = True`
-
-    "anthropic/claude-haiku-4-5-20251001",
-    "anthropic/claude-sonnet-4-5-20250929",
-    "anthropic/claude-opus-4-5-20251101",
-//    "anthropic/claude-sonnet-5", // Note: doesn't support temperature
-//    "anthropic/claude-opus-5",
-//    "anthropic/claude-fable-5",
-
-    "google/gemini-2.5-flash",
-    "google/gemini-2.5-pro",
-    "google/gemini-3.1-pro-preview",
-    "google/gemini-3.7-flash",
-
-    "mistral/mistral-small-2603",
-    "mistral/mistral-medium-2604",
-    "mistral/mistral-large-2512",
-
-    "xai/grok-4.20-0309-non-reasoning",
-    "xai/grok-4.20-0309-reasoning",
-    "xai/grok-4.5",
-    "xai/grok-4.6",
-  ],
-
-  // The test asks for one answer line per statement, so the cap
-  // must clear roughly 2k tokens of answers plus any preamble the model adds.
-  // Some of the reasoning models need a lot of tokens to produce an non-blank response, that's why it is so high
-  // Note gpt-3.5-turbo-1106 rejects anything above 4096.
+  "models": "models-base.json5",
   "max_tokens": 60000,
-
-  // ---- Unused by run_knowledge_eval.py; present so the other scripts can
-  // ---- share this file.
-  "seed": 42,
-  "cities": [
-    "bruce",
-    "finnigan",
-    "haight",
-  ],
-  "disasters": [false, true],
-  "turns": 100,
-  "snapshot_turns": [48, 96, 144, 192, 240],
-  "horizons": [48, 240, 480],
-  "report_turn": -1,
-  "history_freq": 4,
-  "report_effectiveness": true,
 }

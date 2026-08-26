@@ -23,7 +23,7 @@ from pathlib import Path
 
 from scipy import stats
 
-import micropolis_world.module_globals as g
+from micropolis_world import model_scores
 from micropolis_world.config import CONFIG_DIR, Config, main_with_config
 from micropolis_world.knowledge_eval.runner import (
     OUT_DIR,
@@ -49,16 +49,31 @@ class Entry:
 
     slug: str
     name: str
-    eci: int
+    eci: float
     answers: list[Answer]
 
 
-def eci_of(model_id: str) -> int | None:
+def eci_of(model_id: str) -> float | None:
     """ECI score for a provider/name model id, or None if it has none.
 
-    ECI_MAP is keyed on the bare model name, without the provider prefix.
+    The scores live in model_scores.csv, joined on the model's LiteLLM slug; a
+    model the file does not list, or lists without a slug, has no ECI here.
     """
-    return g.ECI_MAP.get(model_id.split("/", 1)[1])
+    return model_scores.eci_of(model_id)
+
+
+def _names_with_eci() -> set[str]:
+    """Every model in model_scores.csv carrying an ECI score, by bare name."""
+    return {
+        name
+        for name, scores in model_scores.load_scores().items()
+        if scores.eci is not None
+    }
+
+
+def _n_eci_scores() -> int:
+    """How many models the score file has an ECI for, for the join report."""
+    return len(_names_with_eci())
 
 
 @dataclass(frozen=True)
@@ -71,10 +86,10 @@ class Unscored:
 
 
 def load_entries() -> tuple[list[Entry], list[Unscored], list[str]]:
-    """Cached models joined to ECI_MAP, plus what did not join and why.
+    """Cached models joined to their ECI score, plus what did not join and why.
 
     Returns the joined entries sorted by ECI descending, the models left out,
-    and the ECI_MAP names with no cached response.
+    and the scored model names with no cached response.
 
     The join runs through the config's model ids: get_cached_answers() is keyed
     on filename slugs, which have lost the "/" that separates provider from
@@ -104,7 +119,7 @@ def load_entries() -> tuple[list[Entry], list[Unscored], list[str]]:
 
     entries.sort(key=lambda e: -e.eci)
     joined = {e.name for e in entries}
-    return entries, skipped, sorted(set(g.ECI_MAP) - joined)
+    return entries, skipped, sorted(_names_with_eci() - joined)
 
 
 @dataclass(frozen=True)
@@ -161,7 +176,7 @@ def direction(rho: float) -> str:
     return "pro-g" if rho > 0 else "anti-g"
 
 
-def correlate(xs: list[int], ys: list[float], min_n: int) -> dict | None:
+def correlate(xs: list[float], ys: list[float], min_n: int) -> dict | None:
     """Spearman and Pearson correlation of ECI against score, or None.
 
     None when there are too few models to say anything, or when either variable
@@ -202,7 +217,7 @@ def print_join_report(
     print("=" * 70)
     total = len(entries) + len(skipped)
     print(
-        f"{total} cached response(s), {len(g.ECI_MAP)} ECI score(s), "
+        f"{total} cached response(s), {_n_eci_scores()} ECI score(s), "
         f"{len(entries)} matched"
     )
     for u in sorted(skipped, key=lambda u: u.name):
@@ -228,7 +243,7 @@ def print_scores(entries: list[Entry], skipped: list[Unscored]) -> None:
     print("SCORES (1.0 = every statement correct, 0.0 = all unknown, -2.0 = all wrong)")
     print("=" * 70)
 
-    scored = [(e.name, str(e.eci), e.answers) for e in entries]
+    scored = [(e.name, model_scores.format_eci(e.eci), e.answers) for e in entries]
     scored += [(u.name, "—", u.answers) for u in skipped]
 
     rows = []
@@ -383,8 +398,10 @@ def print_caveats(entries: list[Entry]) -> None:
         "statistically distinguishable from each other; treat their ordering as\n"
         f"suggestive. The honeypot row rests on {honeypots} statements per model and is\n"
         "underpowered.\n"
-        "\nECI_MAP notes that grok-4.20's single published score was assigned to\n"
-        "the reasoning variant, a judgment call carrying one of the points here."
+        "\nThe ECI scores come from model_scores.csv, joined on each model's\n"
+        "LiteLLM slug. A model the file lists without a slug takes part in no\n"
+        "correlation here: the slug is what ties a leaderboard row to the\n"
+        "checkpoint that actually answered these statements."
     )
 
 

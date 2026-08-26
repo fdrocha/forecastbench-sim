@@ -68,6 +68,7 @@ import sys
 import warnings
 from pathlib import Path
 
+from micropolis_world import model_scores
 from micropolis_world.config import Config, ConfigError, main_with_config
 from micropolis_world.plot_labels import place_labels
 from micropolis_world.single_city import (
@@ -687,8 +688,7 @@ def print_skill_table(
     )
 
     def eci_cell(model_id: str) -> str:
-        eci = eci_of(model_id)
-        return "nan" if eci is None else str(eci)
+        return model_scores.format_eci(eci_of(model_id))
 
     model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in models])
     eci_col = max([len("ECI")] + [len(eci_cell(m)) for m in models])

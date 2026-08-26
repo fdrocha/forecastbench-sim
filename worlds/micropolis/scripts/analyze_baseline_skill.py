@@ -67,6 +67,7 @@ from pathlib import Path
 from fbsim_core.metrics import compute_crps
 
 import micropolis_world.module_globals as g
+from micropolis_world import model_scores
 from micropolis_world.config import (
     add_config_args,
     load_config,
@@ -864,6 +865,186 @@ def plot_eci_vs_skill(
     return out
 
 
+def plot_forecastbench_vs_skill(
+    report: MdReport,
+    rows: list[dict],
+    model_names: list[str],
+    kind: str,
+    split: str,
+    outdir: Path,
+) -> Path | None:
+    """Scatter each model's ForecastBench overall score against its skill here.
+
+    The validation question this world exists to answer: does a model that
+    forecasts real events well also forecast a simulated city well? ECI asks
+    whether skill here tracks general capability; this asks the narrower and more
+    pointed thing — whether it tracks *forecasting ability* specifically, which
+    is what would license using a simulated world as a stand-in for the real
+    benchmark.
+
+    ForecastBench is higher-is-better and skill is lower-is-better, so the
+    agreeing direction is a negative correlation, same sign convention as the
+    ECI figure above.
+
+    The published 95% intervals are drawn as horizontal error bars, because they
+    are wide relative to the spread: most of these models sit within about three
+    points of each other on a scale whose intervals run more than a point wide,
+    so a bare scatter would imply an x-ordering the benchmark does not actually
+    resolve. Returns None when too few models carry a ForecastBench score.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from scipy import stats
+
+    scores = {k[0]: v for k, v in skill_by(rows, "model_id").items()}
+    entries = [
+        (model_scores.scores_of(m), scores[m], m.split("/")[-1])
+        for m in model_names
+        if m in scores
+    ]
+    # Keyed on the score alone rather than sorted whole: the rows carry an
+    # optional interval, and a tuple comparison would fall through to comparing
+    # None against a tuple the moment two models tie on both score and skill.
+    points = sorted(
+        (
+            (e.fb_overall, v, name, e.fb_error)
+            for e, v, name in entries
+            if e is not None and e.fb_overall is not None
+        ),
+        key=lambda p: (p[0], p[1], p[2]),
+    )
+    skipped = sorted(
+        name for e, _, name in entries if e is None or e.fb_overall is None
+    )
+    if len(points) < 4:
+        report.text(
+            f"ForecastBench vs skill ({SPLITS[split][0]}): only {len(points)} "
+            "model(s) have a ForecastBench score; skipping the plot."
+        )
+        return None
+
+    fb = [f for f, _, _, _ in points]
+    values = [v for _, v, _, _ in points]
+    rho, p_rho = stats.spearmanr(fb, values)
+    # Pearson on the logs, for the same reason as the ECI figure: the score is a
+    # ratio, and on the raw scale the models several times worse than the
+    # baseline have far more room to move the coefficient than the good ones do.
+    r, p_r = stats.pearsonr(fb, [math.log(v) for v in values])
+    direction = "agrees" if rho < 0 else "disagrees"
+
+    report.heading(f"ForecastBench vs skill vs baseline — {SPLITS[split][0]}")
+    lines = [
+        baseline_note(kind),
+        (
+            f"rho={rho:+.3f}  p={p_rho:.4f} {stars_for(p_rho):<4} ({direction} "
+            f"with ForecastBench, n={len(points)})"
+        ),
+        f"Pearson r={r:+.3f}  p={p_r:.4f} {stars_for(p_r)} (on log skill)",
+        (
+            "ForecastBench is higher-is-better and skill is lower-is-better, so "
+            "rho<0 means the models that forecast real events better also beat "
+            "this world's baseline by more."
+        ),
+        (
+            "error bars are ForecastBench's published 95% intervals, which "
+            "overlap heavily across these models; read the x-ordering with that "
+            "in mind."
+        ),
+    ]
+    if skipped:
+        lines.append(f"no ForecastBench score, excluded: {', '.join(skipped)}")
+    report.text("\n".join(lines))
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(9, 6.5))
+
+    # Drawn as one errorbar call per point rather than one vectorized call, since
+    # a model can have a score but no published interval; those get a plain
+    # marker instead of a zero-width bar, which would read as a precise estimate.
+    for x, y, _name, err in points:
+        ax.errorbar(
+            x,
+            y,
+            xerr=None if err is None else [[err[0]], [err[1]]],
+            fmt="o",
+            ms=8,
+            color="#3266a8",
+            ecolor="#3266a8",
+            elinewidth=1.2,
+            capsize=3,
+            alpha=0.9,
+            zorder=3,
+        )
+
+    fit = stats.linregress(fb, [math.log(v) for v in values])
+    xs = [min(fb), max(fb)]
+    ax.plot(
+        xs,
+        [math.exp(fit.intercept + fit.slope * x) for x in xs],
+        color="#c2432d",
+        lw=1.5,
+        zorder=2,
+        label=f"log-space fit: ρ={rho:+.3f} (p={p_rho:.4f}), r={r:+.3f} (p={p_r:.4f})",
+    )
+    ax.axhline(
+        BASELINE_SKILL,
+        color="crimson",
+        lw=2,
+        ls="--",
+        zorder=2,
+        label=f"baseline ({BASELINES[kind][0]})",
+    )
+    # Below the axes rather than in a corner: the interval bars run most of the
+    # width, so an in-axes legend covers a real point at whichever corner it is
+    # put, which is not true of the ECI figure's bare scatter.
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.13),
+        ncol=2,
+        fontsize=9,
+        framealpha=0.9,
+    )
+
+    ax.set_xlabel("ForecastBench overall score (higher is better; bars are 95% CI)")
+    ax.set_ylabel("Skill vs baseline (CRPS_model / CRPS_baseline, log scale)")
+    ax.set_yscale("log")
+    lo, hi = ax.get_ylim()
+    candidates = [0.125, 0.25, 0.5, 0.75, 1.0, 1.5, 2, 3, 4, 6, 8, 12, 16]
+    ticks = [t for t in candidates if lo <= t <= hi]
+    ax.set_yticks(ticks)
+    ax.set_yticklabels([f"{t:g}x" if t != 1 else "1x (baseline)" for t in ticks])
+    ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+    ax.set_title(
+        f"Skill vs baseline against ForecastBench — {SPLITS[split][0]}\n"
+        f"{len(points)} models; baseline: {BASELINES[kind][0]}\n"
+        "below the dashed line beats the baseline"
+    )
+    ax.grid(alpha=0.3, which="both", zorder=0)
+    # Wider y-margin than the ECI figure's: labels here are pushed further from
+    # their markers to clear the interval bars, so the lowest one needs more
+    # room under it than a marker-sized offset would leave.
+    ax.margins(x=0.12, y=0.18)
+    fig.tight_layout()
+
+    fig.canvas.draw()
+    place_labels(
+        fig,
+        ax,
+        [n for _, _, n, _ in points],
+        fb,
+        values,
+        xerr=[e for _, _, _, e in points],
+    )
+
+    out = outdir / f"forecastbench_vs_skill-{split}{plot_suffix(kind)}.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    report.image(out)
+    return out
+
+
 def relabel_correlation_axes(ax) -> None:
     """Fix up the shared correlation axes for a skill-vs-baseline y variable.
 
@@ -1110,6 +1291,9 @@ def run_split(
         return []
     figures = [
         plot_eci_vs_skill(report, selected, model_names, kind, split, outdir),
+        plot_forecastbench_vs_skill(
+            report, selected, model_names, kind, split, outdir
+        ),
         plot_eci_correlation_by_horizon(
             report, selected, model_names, kind, split, outdir
         ),

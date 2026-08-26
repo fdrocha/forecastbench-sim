@@ -6,7 +6,14 @@ together.
 """
 
 
-def place_labels(fig, ax, names: list[str], xs: list[float], ys: list[float]) -> None:
+def place_labels(
+    fig,
+    ax,
+    names: list[str],
+    xs: list[float],
+    ys: list[float],
+    xerr: list[tuple[float, float] | None] | None = None,
+) -> None:
     """Annotate each point with its name, nudged clear of the others.
 
     Models frequently share an x value, and on the smaller subsets they share a
@@ -14,6 +21,13 @@ def place_labels(fig, ax, names: list[str], xs: list[float], ys: list[float]) ->
     rendered pixel extents rather than the points' data coordinates: the names
     are long and their widths vary, so point proximity is a poor proxy for
     whether the text actually overlaps.
+
+    `xerr` gives each point's horizontal error bar as (below, above) in data
+    units, for the figures that draw confidence intervals. A bar is a wide
+    obstacle that a marker-sized one does not stand in for: without this a label
+    clears every marker and still prints straight through the neighboring
+    interval it was routed past. None, or a None entry, means that point is just
+    its marker.
 
     Call after the axes are otherwise final — limits, scales and tight_layout —
     since the extents are measured against the axes as they stand.
@@ -27,10 +41,24 @@ def place_labels(fig, ax, names: list[str], xs: list[float], ys: list[float]) ->
     # The markers are obstacles too: a label that clears every other label can
     # still be printed across a neighboring point.
     radius = 7
-    placed = [
-        Bbox.from_bounds(px - radius, py - radius, 2 * radius, 2 * radius)
-        for px, py in (ax.transData.transform((x, y)) for x, y in zip(xs, ys))
-    ]
+
+    def obstacle(i: int) -> Bbox:
+        """Point i's footprint in pixels: its marker, widened by any error bar."""
+        px, py = ax.transData.transform((xs[i], ys[i]))
+        left = right = 0.0
+        err = xerr[i] if xerr else None
+        if err is not None:
+            lo = ax.transData.transform((xs[i] - err[0], ys[i]))[0]
+            hi = ax.transData.transform((xs[i] + err[1], ys[i]))[0]
+            left, right = px - lo, hi - px
+        return Bbox.from_bounds(
+            px - radius - left,
+            py - radius,
+            2 * radius + left + right,
+            2 * radius,
+        )
+
+    placed = [obstacle(i) for i in range(len(xs))]
 
     # Tightest scores first, so the crowded rows are laid out before the
     # isolated points claim space near them.
