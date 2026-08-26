@@ -182,21 +182,62 @@ def direction(rho: float) -> str:
     return "pro-g" if rho > 0 else "anti-g"
 
 
-def fisher_ci(
-    coef: float, n: int, spearman: bool = False
-) -> tuple[float, float] | None:
-    """95% confidence interval for a correlation, via the Fisher z-transform.
+# Resamples per interval. High enough that the percentile endpoints are stable
+# to about ±0.01 between seeds, which is finer than anything read off these
+# figures, and cheap: one interval is milliseconds at this sample size.
+N_BOOTSTRAP = 10000
 
-    Spearman's ρ uses the Bonett–Wright standard error, sqrt((1 + ρ²/2)/(n-3)),
-    which widens the Pearson interval to account for the ranking. None when n
-    is too small for the transform, or at coefficients of exactly ±1, where the
-    transform diverges.
+# Fixed, so re-running the analysis reproduces the report's intervals rather
+# than jittering them. The bootstrap is over models, and the model set changes
+# only when a response is added to the cache.
+BOOTSTRAP_SEED = 20260807
+
+
+def bootstrap_ci(
+    xs: list[float], ys: list[float], statistic
+) -> tuple[float, float] | None:
+    """95% bootstrap CI for a correlation, resampling the (x, y) pairs.
+
+    Percentile bootstrap over models: each resample draws len(xs) models with
+    replacement and recomputes the coefficient. This replaces the Fisher
+    z-transform, which assumed bivariate normality that these scores badly
+    violate — they are ties-heavy and pile up against the 1.0 ceiling on the
+    small subsets, and one model abstains on everything and scores a flat 0.0.
+
+    Note what is and is not resampled: models, not statements. So the interval
+    answers "would another sample of models give a different coefficient?" and
+    not "would another sample of statements?" — the honeypot subset's interval
+    is therefore no wider for its resting on 11 statements.
+
+    Percentile rather than BCa: with n=16 the acceleration term is estimated
+    from 16 jackknife points and is itself noisy, and the bias correction
+    misbehaves when many resamples land on identical coefficients, which ties
+    at this sample size make common. None when a coefficient is undefined in
+    too many resamples to leave a usable distribution.
     """
-    if n <= 3 or abs(coef) >= 1:
+    import numpy as np
+
+    rng = np.random.default_rng(BOOTSTRAP_SEED)
+    x_arr, y_arr = np.asarray(xs), np.asarray(ys)
+    idx = rng.integers(0, len(x_arr), size=(N_BOOTSTRAP, len(x_arr)))
+
+    coefs = []
+    for row in idx:
+        xr, yr = x_arr[row], y_arr[row]
+        # A resample can draw one model repeatedly and leave no spread on either
+        # axis, where the coefficient is nan rather than a number. Those are
+        # dropped, not counted as zero.
+        if len(set(xr.tolist())) < 2 or len(set(yr.tolist())) < 2:
+            continue
+        coefs.append(statistic(xr, yr))
+
+    coefs = [c for c in coefs if not math.isnan(c)]
+    # Guard the pathological case rather than reporting an interval from a
+    # handful of surviving resamples.
+    if len(coefs) < N_BOOTSTRAP // 2:
         return None
-    se = math.sqrt(((1 + coef**2 / 2) if spearman else 1) / (n - 3))
-    z = math.atanh(coef)
-    return math.tanh(z - 1.96 * se), math.tanh(z + 1.96 * se)
+    lo, hi = np.percentile(coefs, [2.5, 97.5])
+    return float(lo), float(hi)
 
 
 def correlate(xs: list[float], ys: list[float], min_n: int) -> dict | None:
@@ -207,6 +248,11 @@ def correlate(xs: list[float], ys: list[float], min_n: int) -> dict | None:
     models that happens to share one ECI score leaves no spread in x, which
     yields nan rather than a coefficient, and nan would print as a real number
     with an "anti-g" direction label.
+
+    The p-values are the parametric ones scipy reports; only the intervals are
+    bootstrapped. They are read here as a rough significance flag, and the
+    permutation alternative would disagree with the bootstrap intervals in ways
+    that need explaining rather than clarify anything.
     """
     if len(xs) < min_n or len(set(xs)) < 2 or len(set(ys)) < 2:
         return None
@@ -215,10 +261,10 @@ def correlate(xs: list[float], ys: list[float], min_n: int) -> dict | None:
     return {
         "rho": rho,
         "p_rho": p_rho,
-        "rho_ci": fisher_ci(rho, len(xs), spearman=True),
+        "rho_ci": bootstrap_ci(xs, ys, lambda a, b: stats.spearmanr(a, b).statistic),
         "r": r,
         "p_r": p_r,
-        "r_ci": fisher_ci(r, len(xs)),
+        "r_ci": bootstrap_ci(xs, ys, lambda a, b: stats.pearsonr(a, b).statistic),
         "n": len(xs),
     }
 
@@ -453,8 +499,8 @@ def plot_correlations_by_subset(
         ("r", "r_ci", "Pearson r", "#c2432d", "s"),
     ):
         coefs = [res[key] for _, res in points]
-        # Asymmetric: the Fisher interval is not centered on the coefficient. A
-        # point whose interval is undefined gets no whisker.
+        # Asymmetric: the bootstrap interval is not centered on the coefficient.
+        # A point whose interval is undefined gets no whisker.
         lows = [res[key] - res[ci_key][0] if res[ci_key] else 0.0 for _, res in points]
         highs = [res[ci_key][1] - res[key] if res[ci_key] else 0.0 for _, res in points]
         extents += [c - lo for c, lo in zip(coefs, lows)]
@@ -577,10 +623,11 @@ def write_report(
             "",
             "## Correlations by statement subset",
             "",
-            "ECI × normalized knowledge score; 95% confidence intervals via the "
-            "Fisher z-transform (Bonett–Wright standard error for ρ). The "
-            "intervals reflect the 16-model sample only, not the statement "
-            "sampling the subsets vary.",
+            "ECI × normalized knowledge score; 95% percentile bootstrap "
+            f"intervals over {N_BOOTSTRAP:,} resamples of the "
+            f"{len(entries)} models. The intervals reflect that model sample "
+            "only, not the statement sampling the subsets vary — the honeypot "
+            "interval is no wider for its resting on 11 statements.",
             "",
             f"![Correlations by subset]({summary.relative_to(OUT_DIR)})",
         ]
@@ -603,6 +650,10 @@ def print_caveats(entries: list[Entry]) -> None:
         "statistically distinguishable from each other; treat their ordering as\n"
         f"suggestive. The honeypot row rests on {honeypots} statements per model and is\n"
         "underpowered.\n"
+        f"\nThe plotted intervals are percentile bootstraps over {N_BOOTSTRAP:,}\n"
+        "resamples of the models. They cover the model sample only: resampling\n"
+        "statements too would widen the small subsets, so the honeypot interval\n"
+        "understates how noisy its 11 statements make it.\n"
         "\nThe ECI scores come from model_scores.csv, joined on each model's\n"
         "LiteLLM slug. A model the file lists without a slug takes part in no\n"
         "correlation here: the slug is what ties a leaderboard row to the\n"
