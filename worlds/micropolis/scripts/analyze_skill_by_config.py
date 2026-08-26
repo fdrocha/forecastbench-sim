@@ -23,6 +23,9 @@ against each other:
   - a scatter of ECI against skill with 95% confidence intervals on the
     geometric means as error bars, one color and one fitted line per config,
     once per side of the city-funds split
+  - scores.csv: model_scores.csv with MPScore/MPScoreLo/MPScoreHi columns
+    appended — each model's geometric-mean score pooled over every compared
+    config's scored questions (all six metrics), with its 95% CI
 
 The summary's averages give every model one vote — the geometric mean of the
 per-model geometric means — rather than pooling questions, so a config is not
@@ -51,7 +54,7 @@ As in the parent script, city funds is reported separately from the five
 behavioral metrics, the read-off horizon is excluded, and --baseline picks the
 naive forecast to score against.
 
-Writes a Markdown report and plots to
+Writes a Markdown report, plots and scores.csv to
 data/micropolis/single_city/comparisons/{name}/, where {name} defaults to the
 config labels joined with '+'. Only the paths written are printed to stdout.
 
@@ -1081,6 +1084,22 @@ def main() -> None:
             )
             if fig is not None:
                 written.append(fig)
+
+    # The CSV export: model_scores.csv's columns plus this run's own scores.
+    # Pooled over every compared config — the one number per model the three
+    # fixed columns can carry — so with several configs it is the whole-run
+    # score, not any single column of the tables above. Written even under
+    # --no-plot, being data rather than a figure, and suffixed like the plots
+    # so a sigma run never overwrites a plain run's export.
+    all_rows = [r for rows in per_config.values() for r in rows]
+    if all_rows:
+        mp_stats = {
+            m: cell[:3] for m, cell in stats_by_model(all_rows).items()
+        }
+        outdir.mkdir(parents=True, exist_ok=True)
+        csv_path = outdir / f"scores{plot_suffix(args.baseline)}.csv"
+        model_scores.write_scores_csv(csv_path, mp_stats)
+        written.append(csv_path)
 
     if written:
         print()

@@ -142,3 +142,64 @@ def format_eci(eci: float | None, missing: str = "nan") -> str:
     two reads as if the round ones were measured less precisely than they were.
     """
     return missing if eci is None else f"{eci:.2f}"
+
+
+def write_scores_csv(
+    path: Path,
+    mp_stats: dict[str, tuple[float, float | None, float | None]],
+) -> Path:
+    """Write model_scores.csv with MPScore/MPScoreLo/MPScoreHi columns appended.
+
+    `mp_stats` maps a provider/name model id to (score, CI low, CI high) from
+    one of this world's own analyses. Bounds of None — an interval too few
+    clusters could support — land as blank cells, matching how the source file
+    spells "not available" everywhere else.
+
+    Every row and column of the source file is kept verbatim and in order: the
+    models the run never scored keep blank MPScore cells rather than being
+    dropped, so the artifact stays a strict superset of its source and a later
+    reader can join it back on any of the original columns. A scored model the
+    source file does not list is appended at the end with only its slug filled
+    in. The join is on the bare model name, the same rule scores_of applies in
+    the other direction.
+    """
+    stats_by_name = {m.split("/", 1)[-1]: v for m, v in mp_stats.items()}
+
+    # Read raw rather than through load_scores(): the artifact must preserve
+    # the rows without a slug and the name columns that the parsed view drops.
+    with SCORES_PATH.open(newline="") as f:
+        reader = csv.DictReader(f)
+        columns = list(reader.fieldnames or [])
+        rows = list(reader)
+
+    def score_cells(stats: tuple) -> dict[str, str]:
+        score, lo, hi = stats
+        return {
+            "MPScore": f"{score:.4f}",
+            "MPScoreLo": "" if lo is None else f"{lo:.4f}",
+            "MPScoreHi": "" if hi is None else f"{hi:.4f}",
+        }
+
+    joined = set()
+    for row in rows:
+        slug = (row.get("LiteLLMSlug") or "").strip()
+        name = slug.split("/", 1)[-1] if slug else ""
+        stats = stats_by_name.get(name)
+        if stats is not None:
+            row.update(score_cells(stats))
+            joined.add(name)
+    for model_id in sorted(mp_stats):
+        name = model_id.split("/", 1)[-1]
+        if name not in joined:
+            rows.append({"LiteLLMSlug": model_id} | score_cells(stats_by_name[name]))
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=columns + ["MPScore", "MPScoreLo", "MPScoreHi"],
+            restval="",
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+    return path
