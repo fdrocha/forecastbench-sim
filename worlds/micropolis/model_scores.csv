@@ -18,8 +18,10 @@ ECI,OpenRouterName,LiteLLMSlug,FBName,FBOverall,FBOverallCILo,FBOverallCIHi
 154.43,DeepSeek: DeepSeek V4 Flash 0731,,,,,
 155.9,Anthropic: Claude Sonnet 5,anthropic/claude-sonnet-5,claude-sonnet-5-adaptive-thinking-16000,59.9,57.1,62.7
 156.22,OpenAI: GPT-5.6 Luna,openai/gpt-5.6-luna,,,,
-156.85,Google: Gemini 3.7 Flash,,,,,
+156.85,Google: Gemini 3.7 Flash,google/gemini-3.7-flash,,,,
 158.63,OpenAI: GPT-5.5,openai/gpt-5.5,gpt-5.5-2026-04-23,61.1,59.9,62.2
 161.08,OpenAI: GPT-5.6 Sol,openai/gpt-5.6-sol,,,,
 161.54,Claude Opus 5,anthropic/claude-opus-5,,,,
 162.49,Anthropic: Claude Fable,anthropic/claude-fable-5,,,,
+130.65,OpenAI: GPT 4.1 Nano,openai/gpt-4.1-nano,,,,
+135.61,OpenAI: GPT 4.1. Mini,openai/gpt-4.1-mini,,,,

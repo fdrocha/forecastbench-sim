@@ -1,12 +1,15 @@
 """Tests for scripts/analyze_baseline_skill.py.
 
-The skill score is a ratio, which brings failure modes the |actual|-normalized
-score does not have: a zero denominator, a zero numerator, and an aggregation
-that has to be geometric rather than arithmetic for the scale to stay symmetric.
-These pin those down.
+The score is a ratio, which brings failure modes the |actual|-normalized score
+does not have: a zero denominator, a zero numerator, and an aggregation that
+has to be geometric rather than arithmetic for the scale to stay symmetric.
+These pin those down, along with the clustered confidence intervals — which
+analyze_skill_by_config.py imports from here, so what is tested once holds for
+both scripts.
 """
 
 import importlib.util
+import math
 import sys
 from pathlib import Path
 
@@ -29,24 +32,27 @@ def load_module():
     return module
 
 
-def _rows(*skills: float) -> list[dict]:
-    """Rows carrying just what the aggregation helpers read."""
-    import math
+def _rows(*skills: float, model: str = "p/m", cluster: str | None = None) -> list[dict]:
+    """Rows carrying just what the aggregation helpers read.
 
+    Each row gets its own (scenario, snapshot) cluster unless `cluster` pins
+    them all to one, so the mean tests are not entangled with the clustering.
+    """
     return [
         {
-            "model_id": "m",
+            "model_id": model,
             "metric": "cityPop",
             "horizon": 48,
-            "disasters": False,
+            "scenario_id": cluster or f"s{i}",
+            "snapshot_turn": 1440,
             "skill": s,
             "log_skill": math.log(s),
         }
-        for s in skills
+        for i, s in enumerate(skills)
     ]
 
 
-def test_geometric_mean_is_symmetric_around_parity():
+def test_score_stats_mean_is_symmetric_around_parity():
     """Twice as good and twice as bad must average to the baseline, not above it.
 
     This is the property that makes the ratio averageable at all; an arithmetic
@@ -54,22 +60,123 @@ def test_geometric_mean_is_symmetric_around_parity():
     well and badly as worse than the baseline.
     """
     module = load_module()
-    assert module.geometric_mean(_rows(0.5, 2.0)) == pytest.approx(1.0)
+    assert module.score_stats(_rows(0.5, 2.0))[0] == pytest.approx(1.0)
 
 
-def test_geometric_mean_resists_a_single_huge_ratio():
-    """One question where the baseline nearly nailed it must not swamp a column."""
+def test_score_stats_mean_resists_a_single_huge_ratio():
+    """One question where the baseline nearly nailed it must not swamp the mean."""
     module = load_module()
-    modest = _rows(*([0.9] * 99))
-    with_outlier = _rows(*([0.9] * 99 + [500.0]))
+    modest = module.score_stats(_rows(*([0.9] * 99)))
+    with_outlier = module.score_stats(_rows(*([0.9] * 99 + [500.0])))
     # Arithmetic would jump from 0.9 to ~5.9; geometric stays near the bulk.
-    assert module.geometric_mean(with_outlier) < 1.0
-    assert module.geometric_mean(modest) == pytest.approx(0.9)
+    assert with_outlier[0] < 1.0
+    assert modest[0] == pytest.approx(0.9)
 
 
-def test_geometric_mean_of_nothing_is_none():
+def test_score_stats_needs_a_row():
     module = load_module()
-    assert module.geometric_mean([]) is None
+    with pytest.raises(ValueError):
+        module.score_stats([])
+
+
+def test_score_stats_withholds_a_bar_below_min_clusters():
+    """Too few trajectories means a point with no bar, not a fabricated one."""
+    module = load_module()
+    thin = module.score_stats(_rows(0.5, 1.0, 2.0))
+    assert thin[1] is None and thin[2] is None
+    assert thin[3] == 3
+    mean, lo, hi, n = module.score_stats(_rows(0.5, 0.8, 1.25, 2.0))
+    assert lo is not None and hi is not None
+    assert lo < mean < hi
+    assert n == 4
+
+
+def test_score_stats_interval_clusters_on_trajectories():
+    """Repeating a trajectory's questions must not shrink the interval.
+
+    Questions read off one simulated history are not independent draws, so the
+    spread is taken over per-cluster means. Doubling every question within its
+    own cluster leaves those means untouched; a per-question interval would
+    tighten by roughly sqrt(2) and overstate the precision.
+    """
+    module = load_module()
+    base = _rows(0.5, 0.8, 1.25, 2.0)
+    doubled = base + [dict(r) for r in base]
+    one = module.score_stats(base)
+    two = module.score_stats(doubled)
+    assert two[0] == pytest.approx(one[0])
+    assert two[1] == pytest.approx(one[1])
+    assert two[2] == pytest.approx(one[2])
+    # Only the question count moves; it reports how much data, not how sure.
+    assert (one[3], two[3]) == (4, 8)
+
+
+def test_score_stats_interval_is_multiplicative():
+    """The bounds bracket the geometric mean in ratio space, not additively.
+
+    With cluster means symmetric in log space, lo * hi must equal mean^2 — the
+    multiplicative analogue of an interval centered on its estimate.
+    """
+    module = load_module()
+    mean, lo, hi, _n = module.score_stats(_rows(0.5, 1.0, 1.0, 2.0))
+    assert lo * hi == pytest.approx(mean * mean)
+
+
+def test_stats_by_model_groups_by_model():
+    module = load_module()
+    rows = _rows(0.5, model="p/a") + _rows(2.0, model="p/b")
+    got = module.stats_by_model(rows)
+    assert got["p/a"][0] == pytest.approx(0.5)
+    assert got["p/b"][0] == pytest.approx(2.0)
+
+
+def test_error_arms_are_asymmetric_and_tolerate_missing_bounds():
+    """A multiplicative interval has unequal arms; no bounds means no bar."""
+    module = load_module()
+    lower, upper = module.error_arms([(1.0, 0.8, 1.5, 4), (0.9, None, None, 2)])
+    assert lower == [pytest.approx(0.2), 0.0]
+    assert upper == [pytest.approx(0.5), 0.0]
+
+
+def test_ordered_by_score_puts_best_first_and_unscored_last():
+    module = load_module()
+    cells = {"p/good": (0.5, None, None, 1), "p/bad": (2.0, None, None, 1)}
+    got = module.ordered_by_score(cells, ["p/none", "p/bad", "p/good"])
+    assert got == ["p/good", "p/bad", "p/none"]
+
+
+def test_format_score_cell_prints_the_interval_beside_the_mean():
+    module = load_module()
+    assert module.format_score_cell(None) == "-"
+    assert module.format_score_cell((0.5, None, None, 3)) == "0.500"
+    assert module.format_score_cell((0.5, 0.4, 0.6, 30)) == "0.500 [0.400, 0.600]"
+
+
+def _table_lines(report) -> list[str]:
+    """The lines of the table just appended to `report`.
+
+    base_dir is irrelevant here: none of these tests call report.image(), so
+    render() never resolves a relative link against it.
+    """
+    text = report.render(Path("."))
+    lines = text.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("Model"))
+    end = next(i for i in range(start, len(lines)) if lines[i].startswith("```"))
+    return lines[start:end]
+
+
+def test_model_scores_table_is_sorted_best_first_without_ranks():
+    module = load_module()
+    report = module.MdReport()
+    rows = _rows(2.0, model="p/worse") + _rows(0.5, model="p/better")
+    module.print_model_scores(report, rows, ["p/worse", "p/better"], "plain")
+
+    lines = _table_lines(report)
+    header, body = lines[0], lines[2:]
+    assert "#scored" in header and "score [95% CI]" in header
+    assert [line.split()[0] for line in body] == ["better", "worse"]
+    # Plain means only: the old tables' per-cell "(rank)" annotations are gone.
+    assert not any("(" in line for line in body)
 
 
 def test_baseline_percentiles_plain_is_degenerate():
@@ -106,7 +213,6 @@ def _corpus(snapshot: float, actual: float, metric: str = "cityPop") -> list[dic
             "metric": metric,
             "horizon": h,
             "value": v,
-            "scenario": {"disasters": False},
         }
         for h, v in [(0, snapshot), (48, actual)]
     ]
@@ -157,26 +263,24 @@ def test_score_skill_reports_why_pairs_were_dropped(monkeypatch):
     assert rows[0]["skill"] == pytest.approx(10 / 50)
 
 
-def test_score_skill_carries_the_disasters_flag():
-    """The horizon figures split on it, so it has to travel with the row."""
+def test_score_skill_carries_the_cluster_identity():
+    """The intervals cluster on (scenario, snapshot), so both travel on the row."""
     module = load_module()
     from micropolis_world.single_city import Response, ResponseId
 
     corpus = _corpus(100, 150)
-    for c in corpus:
-        c["scenario"] = {"disasters": True}
     responses = {
         ResponseId("p/m", "q-48"): Response(
             actual=150, percentiles=dict.fromkeys(module.NORMAL_Z, 140.0)
         )
     }
     rows, _ = module.score_skill(corpus, responses, ["p/m"], 42, "plain")
-    assert [r["disasters"] for r in rows] == [True]
+    assert [module.cluster_key(r) for r in rows] == [("s", 240)]
 
 
 def test_split_rows_never_mixes_city_funds_with_the_others():
-    """The split is the whole point: funds is a near-deterministic series and
-    pooling it moved the headline from 2 of 18 models to 6 of 18."""
+    """The split now serves analyze_skill_by_config.py, which imports it from
+    here; funds is a near-deterministic series the comparison reports apart."""
     module = load_module()
     rows = [
         {"metric": module.FUNDS_METRIC, "skill": 0.01},
@@ -195,15 +299,6 @@ def test_split_rows_never_mixes_city_funds_with_the_others():
     ) == len(rows)
 
 
-def test_skill_by_groups_geometrically():
-    module = load_module()
-    rows = _rows(0.5, 2.0)
-    rows[1]["horizon"] = 96
-    assert module.skill_by(rows, "model_id")[("m",)] == pytest.approx(1.0)
-    assert module.skill_by(rows, "horizon")[(48,)] == pytest.approx(0.5)
-    assert module.skill_by(rows, "horizon")[(96,)] == pytest.approx(2.0)
-
-
 def test_baseline_and_split_notes_name_every_choice():
     """Each table and figure has to say which baseline and which side it is."""
     module = load_module()
@@ -211,15 +306,6 @@ def test_baseline_and_split_notes_name_every_choice():
         assert module.BASELINES[kind][0] in module.baseline_note(kind)
     for split in module.SPLITS:
         assert module.SPLITS[split][0] in module.split_note(split)
-
-
-def test_metrics_in_order_all_keeps_funds_in_its_natural_place():
-    """metrics_in_order sorts funds last for the |actual|-normalized script; here
-    it is a full participant on its own side of the split."""
-    module = load_module()
-    rows = [{"metric": module.FUNDS_METRIC}, {"metric": "cityPop"}]
-    got = module.metrics_in_order_all(rows)
-    assert set(got) == {module.FUNDS_METRIC, "cityPop"}
 
 
 def test_baseline_crps_sigma_path_needs_a_cached_run(monkeypatch):
@@ -263,143 +349,3 @@ def test_geometric_mean_of_takes_plain_ratios():
     module = load_module()
     assert module.geometric_mean_of([0.5, 2.0]) == pytest.approx(1.0)
     assert module.geometric_mean_of([]) is None
-
-
-def test_skill_by_keeps_a_cell_whose_mean_is_not_truthy():
-    """ "No questions here" and "scored 0 here" must not collapse together.
-
-    A geometric mean of positive ratios cannot be 0 today, so this guards the
-    distinction rather than a live bug: a falsiness filter would start dropping
-    real cells the moment a 0 became reachable.
-    """
-    module = load_module()
-    import math
-
-    rows = [
-        {
-            "model_id": "m",
-            "metric": "cityPop",
-            "horizon": 48,
-            "disasters": False,
-            "skill": 1.0,
-            "log_skill": 0.0,
-        }
-    ]
-    assert module.skill_by(rows, "model_id") == {("m",): 1.0}
-    # Patch in a group that averages to 0 and confirm it is reported, not dropped.
-    monkey = [dict(rows[0], log_skill=-math.inf, skill=0.0)]
-    assert module.skill_by(monkey, "model_id") == {("m",): 0.0}
-
-
-def test_relabel_correlation_axes_rewrites_the_inherited_footnote():
-    """The shared helper's footnote describes the other script's axes.
-
-    It reads "the better-scoring models forecast better", which is wrong here:
-    x is a predictor, not a score, and y is a ratio against the baseline.
-    """
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    module = load_module()
-    fig, ax = plt.subplots()
-    ax.annotate("ρ<0: the better-scoring models forecast better (pro-g)", xy=(0, 0))
-    module.relabel_correlation_axes(ax)
-    texts = [t.get_text() for t in ax.texts]
-    assert not any("better-scoring" in t for t in texts)
-    assert any("predictor" in t for t in texts)
-    assert "CRPS_baseline" in ax.get_ylabel()
-    plt.close(fig)
-
-
-def test_metric_label_drops_the_average_prefix():
-    """Table headers say "traffic", not "average traffic": every column is a mean.
-
-    Overridden locally rather than in g.METRIC_LABELS, which also supplies the
-    question text the models were prompted with — rewording it there would desync
-    the cached responses from the questions they answered.
-    """
-    module = load_module()
-    assert module.metric_label("trafficAverage") == "traffic"
-    assert module.metric_label("pollutionAverage") == "pollution"
-    assert module.metric_label("crimeAverage") == "crime"
-    assert module.metric_label("landValueAverage") == "land value"
-
-
-def test_metric_label_leaves_the_others_alone():
-    module = load_module()
-    assert module.metric_label("cityPop") == "population"
-    assert module.metric_label(module.FUNDS_METRIC) == "city funds"
-    # An unknown metric falls back to its own key rather than raising.
-    assert module.metric_label("somethingNew") == "somethingNew"
-
-
-def test_the_prompted_question_text_is_left_untouched():
-    """Guards the reason metric_label is a local override.
-
-    g.METRIC_LABELS feeds templates.py, so the wording change must not reach it.
-    """
-    import micropolis_world.module_globals as g
-
-    assert g.METRIC_LABELS["trafficAverage"] == "average traffic"
-
-
-def _header_line(report) -> str:
-    """The column header of the table just appended to `report`.
-
-    base_dir is irrelevant here: none of these tests call report.image(), so
-    render() never resolves a relative link against it.
-    """
-    text = report.render(Path("."))
-    return next(line for line in text.splitlines() if line.startswith("Model"))
-
-
-def _one_metric_rows(metric: str) -> list[dict]:
-    return [
-        {
-            "model_id": "p/m",
-            "metric": metric,
-            "horizon": h,
-            "disasters": False,
-            "skill": 0.5,
-            "log_skill": -0.6931471805599453,
-        }
-        for h in [48, 96]
-    ]
-
-
-def test_metric_table_drops_the_pooled_column_for_a_single_metric():
-    """On the funds side "all" would repeat the one metric column value for value."""
-    module = load_module()
-    report = module.MdReport()
-    module.print_skill_by_metric(
-        report, _one_metric_rows(module.FUNDS_METRIC), ["p/m"], "sigma", "funds"
-    )
-    header = _header_line(report)
-    assert "city funds" in header
-    assert "all" not in header
-
-
-def test_metric_table_keeps_the_pooled_column_for_several_metrics():
-    """With more than one metric to pool, "all" is a real summary and stays."""
-    module = load_module()
-    report = module.MdReport()
-    rows = _one_metric_rows("cityPop") + _one_metric_rows("crimeAverage")
-    module.print_skill_by_metric(report, rows, ["p/m"], "sigma", "behavioral")
-    header = _header_line(report)
-    assert "all" in header
-    assert "population" in header and "crime" in header
-
-
-def test_horizon_table_keeps_its_pooled_column_on_the_funds_side():
-    """Unlike the metric table's, this "all" pools several horizons, so it is not
-    a duplicate of any one column."""
-    module = load_module()
-    report = module.MdReport()
-    module.print_skill_by_horizon(
-        report, _one_metric_rows(module.FUNDS_METRIC), ["p/m"], "sigma", "funds"
-    )
-    header = _header_line(report)
-    assert "all" in header
-    assert "H48" in header and "H96" in header

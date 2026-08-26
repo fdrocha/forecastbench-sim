@@ -7,7 +7,7 @@ zero point: 0.09 is only good or bad relative to how hard the question was. This
 script divides by the CRPS of a naive baseline forecast instead, so the scale
 carries its own meaning — below 1 beats the baseline, above 1 loses to it.
 
-    skill = CRPS_model / CRPS_baseline     per question
+    score = CRPS_model / CRPS_baseline     per question
             geometric mean over questions
 
 Two baselines are available through --baseline, both of which predict that
@@ -16,8 +16,8 @@ nothing changes from the snapshot value:
   plain (default)  all five quantiles at the snapshot value. CRPS of a
                    degenerate forecast reduces to absolute error, so this
                    scores 0 whenever the metric did not move at all — 12% of
-                   the corpus — and those questions have no defined skill
-                   score and are dropped.
+                   the corpus — and those questions have no defined score and
+                   are dropped.
   sigma            p50 at the snapshot value and the other quantiles at
                    p50 + z*sigma, sigma being the metric's own historical
                    volatility over a window the length of the horizon. The
@@ -30,23 +30,31 @@ the baseline is.
 
 The geometric mean is what makes a ratio averageable: it is symmetric between
 twice-as-good and twice-as-bad, and one question where the baseline nearly
-nailed the answer cannot swamp a column the way it would under an arithmetic
-mean.
+nailed the answer cannot swamp a mean the way it would under an arithmetic one.
 
-This is not a rescaling of the other script's numbers. The denominator varies per
-question, so the reweighting reorders the models — Spearman rho between the two
-rankings is about +0.81, not +1 — and city funds is included here, having been
-excluded there only because |actual| is sometimes 0. Read the two as different
-analyses of the same forecasts.
+This is not a rescaling of the other script's numbers. The denominator varies
+per question, so the reweighting reorders the models, and city funds is included
+here, having been excluded there only because |actual| is sometimes 0. Read the
+two as different analyses of the same forecasts.
 
 The read-off horizon is excluded throughout: it is a comprehension check, the
 baseline resolves it exactly by construction, and a ratio against a zero
 denominator says nothing.
 
-Writes a Markdown report to
-data/micropolis/single_city/{label}/analysis-skill.md (--baseline
-plain, the default) or analysis-skill-sigma.md (--baseline sigma), with plots
-in data/micropolis/single_city/{label}/plots/with_baseline/. The two
+The report is four sections past the preamble: a per-model table of overall
+scores and the bar chart that draws it, score against horizon as one small
+panel per model, and score against ECI and against ForecastBench. All six
+metrics are pooled everywhere, city funds included; the funds split lives on
+only in analyze_skill_by_config.py, which imports its machinery from here.
+Every interval is a 95% t interval on mean log score, clustered on (scenario,
+snapshot turn) — questions read off one simulated trajectory are not
+independent draws — and that computation is likewise shared with
+analyze_skill_by_config.py by import, so a bar there and a bar here cannot
+disagree.
+
+Writes the report to data/micropolis/single_city/{label}/analysis-skill.md
+(--baseline plain, the default) or analysis-skill-sigma.md (--baseline sigma),
+with plots in data/micropolis/single_city/{label}/plots/with_baseline/. The two
 baselines' plots are also distinguished by a -sigma suffix, so running both
 never overwrites the other's figures. Only the paths written and the report's
 own path are printed to stdout.
@@ -59,14 +67,11 @@ Usage:
 
 import argparse
 import math
-import re
 import statistics
 import sys
 from pathlib import Path
 
 from fbsim_core.metrics import compute_crps
-
-import micropolis_world.module_globals as g
 from micropolis_world import model_scores
 from micropolis_world.config import (
     add_config_args,
@@ -86,6 +91,7 @@ from micropolis_world.single_city import (
     scenario_history,
     select_for_config,
 )
+from scipy import stats
 
 # Imported rather than reimplemented so the baseline this scores against is
 # provably the same one analyze_single_city.py draws on its figures.
@@ -93,22 +99,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from analyze_single_city import (
     NORMAL_Z,
     READ_OFF_HORIZON,
-    band_handles,
-    correlate_by_horizon,
-    draw_horizon_correlation_axes,
-    eci_by_name,
     eci_of,
-    format_horizon_correlations,
-    format_predictor_comparison,
-    format_tie_warnings,
     historical_sigma,
     is_forecast,
-    knowledge_predictor,
-    rank_width_for,
-    ranked_cell,
-    ranks_within_column,
-    significance_handles,
-    stars_for,
 )
 
 
@@ -129,23 +122,22 @@ def plot_suffix(kind: str) -> str:
     return "-sigma" if kind == "sigma" else ""
 
 
-# A skill score of exactly 1 is the baseline's own score, so it is the reference
+# A score of exactly 1 is the baseline's own score, so it is the reference
 # every axis and table is read against.
 BASELINE_SKILL = 1.0
 
-# City funds is reported entirely separately from the other five metrics, never
-# pooled with them. It is not a forecast of the same kind: an unmanaged city's
-# funds follow a near-deterministic arithmetic progression — a fixed tax income
-# against fixed expenses — so a model that spots the pattern predicts it to a
-# fraction of a percent, reaching skill ratios of 0.002, while the baseline's
-# interval is far too wide for a series that barely wanders. Pooling it moved the
-# headline from 2 of 18 models beating the baseline to 6 of 18 and shifted
-# individual models by five places, all on the strength of one metric measuring
-# something the other five do not.
+# City funds is a different kind of series from the other five metrics: an
+# unmanaged city's funds follow a near-deterministic arithmetic progression — a
+# fixed tax income against fixed expenses — so a model that spots the pattern
+# predicts it to a fraction of a percent, reaching scores of 0.002 against a
+# baseline interval far too wide for a series that barely wanders. This
+# script's own report pools it with the rest regardless; the split machinery
+# below stays because analyze_skill_by_config.py still reports the two sides
+# separately and imports it from here.
 FUNDS_METRIC = "totalFunds"
 
-# The two analyses, each getting its own tables and figures: the behavioral
-# metrics that describe how the city evolves, and city funds on its own.
+# The two sides of the city-funds split, as analyze_skill_by_config.py reports
+# them. Not used by this script's own report, which pools all six metrics.
 SPLITS = {
     "behavioral": (
         "behavioral metrics",
@@ -203,9 +195,9 @@ def snapshot_values(corpus: list[dict]) -> dict[tuple[str, int, str], float]:
 def baseline_crps(corpus: list[dict], seed: int, kind: str) -> dict[str, float]:
     """CRPS of the chosen baseline per question id, over the forecast horizons.
 
-    A question missing from the result has no usable baseline, and so no skill
-    score: either its history was too short to estimate a spread, or its run log
-    is not cached, or the baseline scored exactly 0 and the ratio would be
+    A question missing from the result has no usable baseline, and so no score:
+    either its history was too short to estimate a spread, or its run log is
+    not cached, or the baseline scored exactly 0 and the ratio would be
     undefined. Callers report the count rather than dropping them silently —
     which of the two baselines is in use changes that count by a lot.
     """
@@ -243,8 +235,8 @@ def baseline_crps(corpus: list[dict], seed: int, kind: str) -> dict[str, float]:
             continue
         crps = compute_crps(percentiles, c["value"])
         # A baseline that is exactly right leaves no room for a ratio. Dropping
-        # beats an epsilon, which would invent a skill score of ~1e9 and
-        # dominate any mean it entered.
+        # beats an epsilon, which would invent a score of ~1e9 and dominate any
+        # mean it entered.
         if crps <= 0:
             continue
         out[c["question_id"]] = crps
@@ -260,17 +252,17 @@ def score_skill(
 ) -> tuple[list[dict], dict[str, int]]:
     """One row per scored (model, question), plus a tally of what was dropped.
 
-    A row carries the skill ratio and its log, since every aggregate here is a
-    geometric mean and taking the log once per row keeps that cheap and keeps the
-    two definitions from drifting apart. It also carries the metric, horizon and
-    disasters flag, which are what the tables and figures group by, and the
-    scenario and snapshot turn it came from, which identify the cluster of
-    questions sharing one simulated trajectory.
+    A row carries the score ratio and its log, since every aggregate here is a
+    geometric mean and taking the log once per row keeps that cheap and keeps
+    the two definitions from drifting apart. It also carries the metric and
+    horizon, which are what the tables and figures group by, and the scenario
+    and snapshot turn it came from, which identify the cluster of questions
+    sharing one simulated trajectory.
 
-    The tally counts question-model pairs by why they have no skill score, and is
-    printed alongside the tables: with the plain baseline a large fraction of the
-    corpus has no defined ratio, and a table that quietly averaged what was left
-    would hide it.
+    The tally counts question-model pairs by why they have no score, and is
+    printed alongside the tables: with the plain baseline a large fraction of
+    the corpus has no defined ratio, and a table that quietly averaged what was
+    left would hide it.
     """
     baselines = baseline_crps(corpus, seed, kind)
     forecasts = [c for c in corpus if is_forecast(c["horizon"])]
@@ -288,7 +280,7 @@ def score_skill(
                 dropped["no_baseline"] += 1
                 continue
             crps = compute_crps(r.percentiles, c["value"])
-            # A model that is exactly right has skill 0, whose log is -inf and
+            # A model that is exactly right has score 0, whose log is -inf and
             # would take any geometric mean it entered to 0. Rare enough to drop
             # and report rather than to floor at an arbitrary epsilon.
             if crps <= 0:
@@ -299,10 +291,6 @@ def score_skill(
                     "model_id": model_id,
                     "metric": c["metric"],
                     "horizon": c["horizon"],
-                    # Carried on the row so the disasters split is a property of
-                    # the score rather than something the plotting code has to
-                    # rediscover from the corpus by question id.
-                    "disasters": c["scenario"]["disasters"],
                     # Which trajectory this question was read off. Questions
                     # sharing a (scenario, snapshot) share a simulated history,
                     # so they are not independent draws; carried here so an
@@ -320,67 +308,113 @@ def geometric_mean_of(values: list[float]) -> float | None:
     """Geometric mean of already-computed ratios, or None if there are none.
 
     For averaging cells that are themselves means — the figures' mean-over-models
-    line — where geometric_mean's row dicts would have to be fabricated.
+    line — where score_stats' row dicts would have to be fabricated.
     """
     if not values:
         return None
     return math.exp(statistics.fmean(math.log(v) for v in values))
 
 
-def geometric_mean(rows: list[dict]) -> float | None:
-    """Geometric mean of `rows`' skill ratios, or None if there are none.
+# ---------------------------------------------------------------------------
+# Confidence intervals.
+#
+# analyze_skill_by_config.py imports everything in this block rather than
+# redefining it, so a bar drawn there is by construction the same computation
+# as a bar drawn here.
 
-    The mean of the logs, exponentiated. Averaging ratios arithmetically would
-    let one question where the baseline nearly nailed the answer — a ratio in the
-    hundreds — outweigh a hundred questions where the model was slightly better,
-    and would break the symmetry that makes 0.5 and 2.0 equally far from parity.
+# Two-sided 95%. The t quantile is taken at cluster_count-1 degrees of freedom
+# rather than a flat z, since the clustering leaves tens of effective
+# observations rather than hundreds and z would be optimistic at that size.
+CI_LEVEL = 0.95
+
+# Below this many clusters the spread over cluster means is too noisy to be
+# worth drawing, and a bar built from a handful of trajectories would imply a
+# precision the data cannot support. Such cells get a point and no bar.
+MIN_CLUSTERS = 4
+
+
+def cluster_key(row: dict) -> tuple:
+    """What a row's questions are correlated within.
+
+    A (scenario, snapshot turn) pair names one simulated trajectory read at one
+    point in time. Every question sharing it — all metrics, all horizons — is
+    read off that same history, so they rise and fall together and are not
+    independent draws. The scenario id already encodes city and disasters, so
+    the pair is the whole grouping.
     """
-    if not rows:
-        return None
-    return math.exp(statistics.fmean(r["log_skill"] for r in rows))
+    return (row["scenario_id"], row["snapshot_turn"])
 
 
-def skill_by(rows: list[dict], *keys: str) -> dict[tuple, float]:
-    """Geometric-mean skill grouped by the named row fields.
+def score_stats(rows: list[dict]) -> tuple[float, float | None, float | None, int]:
+    """(geometric mean, CI low, CI high, n questions) of `rows`' scores.
 
-    One helper for every table and plot here, so "the skill of this cell" is
-    computed one way throughout.
+    The point estimate is the geometric mean over every question.
+
+    The interval is clustered on cluster_key(): each trajectory's questions are
+    averaged into one value, and the spread is taken over those cluster means.
+    Questions within a trajectory are not independent — overlapping horizons on
+    a shared history — so a per-question interval understates the uncertainty
+    substantially. Built in log space and exponentiated, so it is multiplicative
+    and brackets the geometric mean it belongs to.
+
+    Note the point estimate weights questions equally while the interval weights
+    clusters equally. With the balanced corpora this was built for the two
+    agree; where clusters differ in size the mean stays the pooled one, and only
+    the width comes from the clusters.
+
+    Returns bounds of None — a point with no bar — when there are too few
+    clusters to estimate a spread worth drawing.
+
+    Read the bars as "would this score hold up on a fresh set of scenarios",
+    not as spread over questions: the clusters are what a rerun would resample.
     """
-    grouped: dict[tuple, list[dict]] = {}
+    logs = [r["log_skill"] for r in rows]
+    if not logs:
+        raise ValueError("score_stats needs at least one row")
+    mean = statistics.fmean(logs)
+
+    grouped: dict[tuple, list[float]] = {}
     for r in rows:
-        grouped.setdefault(tuple(r[k] for k in keys), []).append(r)
-    # Tested against None rather than for truthiness: a geometric mean of
-    # positive ratios cannot be 0 today, but "no questions in this cell" and "this
-    # cell scored 0" are different facts and a falsiness test would merge them.
-    means = {k: geometric_mean(v) for k, v in grouped.items()}
-    return {k: v for k, v in means.items() if v is not None}
+        grouped.setdefault(cluster_key(r), []).append(r["log_skill"])
+    cluster_means = [statistics.fmean(v) for v in grouped.values()]
+
+    if len(cluster_means) < MIN_CLUSTERS:
+        return math.exp(mean), None, None, len(logs)
+
+    sem = statistics.stdev(cluster_means) / math.sqrt(len(cluster_means))
+    crit = stats.t.ppf(1 - (1 - CI_LEVEL) / 2, len(cluster_means) - 1)
+    return (
+        math.exp(mean),
+        math.exp(mean - crit * sem),
+        math.exp(mean + crit * sem),
+        len(logs),
+    )
 
 
-# Column headings for this script's tables and legends. g.METRIC_LABELS spells
-# four of the metrics "average traffic", "average pollution" and so on, which is
-# right where it is used mid-sentence — in a world report, and in the question
-# text the models were actually prompted with — but wastes width in a table
-# header where every column is already a mean. Overridden here rather than
-# changed at the source: g.METRIC_LABELS also feeds templates.py, so editing it
-# would reword the prompts these cached responses were gathered under.
-_SHORT_LABELS = {
-    "trafficAverage": "traffic",
-    "pollutionAverage": "pollution",
-    "crimeAverage": "crime",
-    "landValueAverage": "land value",
-}
+def stats_by_model(rows: list[dict]) -> dict[str, tuple]:
+    """score_stats per model over `rows`, keyed by model id."""
+    grouped: dict[str, list[dict]] = {}
+    for r in rows:
+        grouped.setdefault(r["model_id"], []).append(r)
+    return {m: score_stats(v) for m, v in grouped.items()}
 
 
-def metric_label(metric: str) -> str:
-    """Short display name for `metric`, for a table column or a plot legend."""
-    return _SHORT_LABELS.get(metric, str(g.METRIC_LABELS.get(metric, metric)))
+def error_arms(cells: list[tuple]) -> tuple[list[float], list[float]]:
+    """(below, above) errorbar arm lengths for a list of score_stats cells.
+
+    Computed separately per arm, since the interval is multiplicative and so
+    asymmetric around the mean. A cell with too few clusters to bound gets
+    zero-length arms — a point with no bar — rather than a fabricated one.
+    """
+    lower = [m - (lo if lo is not None else m) for m, lo, _hi, *_ in cells]
+    upper = [(hi if hi is not None else m) - m for m, _lo, hi, *_ in cells]
+    return lower, upper
 
 
 def split_rows(rows: list[dict], split: str) -> list[dict]:
     """`rows` narrowed to one side of the city-funds split.
 
-    Every table and figure here takes one side or the other; nothing averages
-    across the split. See FUNDS_METRIC for why.
+    For analyze_skill_by_config.py; this script's own report pools the sides.
     """
     if split == "funds":
         return [r for r in rows if r["metric"] == FUNDS_METRIC]
@@ -399,8 +433,18 @@ def baseline_note(kind: str) -> str:
     return f"baseline: {name} ({how})"
 
 
+def ci_note() -> str:
+    """One line saying what every interval in the report is."""
+    return (
+        f"intervals are {int(CI_LEVEL * 100)}% t intervals on mean log score, "
+        "clustered on (scenario, snapshot turn): questions read off one "
+        "simulated trajectory are not independent draws, so the spread is "
+        "taken over per-trajectory means"
+    )
+
+
 def print_dropped(report: MdReport, dropped: dict[str, int], total: int) -> None:
-    """Report what had no skill score and why, as a share of the pairs attempted.
+    """Report what had no score and why, as a share of the pairs attempted.
 
     Always reported, including when nothing was dropped, so the absence of a
     warning is informative rather than ambiguous. The plain baseline drops far
@@ -411,13 +455,13 @@ def print_dropped(report: MdReport, dropped: dict[str, int], total: int) -> None
     labels = {
         "no_baseline": "no usable baseline (baseline scored 0, or no spread estimate)",
         "unparsed": "model forecast did not parse",
-        "zero_model_crps": "model was exactly right (skill 0, no log)",
+        "zero_model_crps": "model was exactly right (score 0, no log)",
     }
     n = sum(dropped.values())
     attempted = total + n
     if not attempted:
         return
-    lines = [f"{n} of {attempted} (model, question) pairs have no skill score:"]
+    lines = [f"{n} of {attempted} (model, question) pairs have no score:"]
     for key, count in dropped.items():
         if count:
             lines.append(f"  {count:>6}  {labels[key]}")
@@ -426,407 +470,180 @@ def print_dropped(report: MdReport, dropped: dict[str, int], total: int) -> None
     report.text("\n".join(lines))
 
 
-def print_skill_by_metric(
-    report: MdReport, rows: list[dict], model_names: list[str], kind: str, split: str
-) -> None:
-    """Print models x metrics of geometric-mean skill, each cell with its rank.
+# ---------------------------------------------------------------------------
+# The report's sections.
 
-    Unlike raw CRPS, these cells are comparable across columns as well as down
-    them: the units cancel in the ratio, so a 0.8 on population and a 0.8 on
-    pollution both mean "20% better than the baseline". That is what this table
-    has over the raw-CRPS one in the |actual|-normalized script, which can only
-    be read down a column.
+
+def format_score_cell(cell: tuple | None) -> str:
+    """One table cell: the mean with its 95% interval, or a dash when unscored.
+
+    The interval is printed rather than left to the figures: the table is the
+    number a reader will quote, and a mean quoted without its width invites
+    reading a 0.02 gap between models as a ranking when it is inside the noise.
     """
-    metrics = metrics_in_order_all(rows)
-    labels = {m: metric_label(m) for m in metrics}
-    cells = skill_by(rows, "model_id", "metric")
-    overall = skill_by(rows, "model_id")
-
-    per_metric = {
-        metric: {m: cells.get((m, metric)) for m in model_names} for metric in metrics
-    }
-    # The pooled column is dropped when there is only one metric to pool, where it
-    # would repeat that metric's column value for value. That is the city funds
-    # side of the split, which is reported alone.
-    pooled = (
-        {"all": {m: overall.get((m,)) for m in model_names}} if len(metrics) > 1 else {}
-    )
-    columns = pooled | per_metric
-    ranks = {key: ranks_within_column(values) for key, values in columns.items()}
-    rank_width = max(rank_width_for(r) for r in ranks.values())
-
-    counts = {
-        model_id: sum(1 for r in rows if r["model_id"] == model_id)
-        for model_id in model_names
-    }
-
-    def cell(key, model_id: str) -> str:
-        return ranked_cell(
-            columns[key][model_id], ranks[key].get(model_id), ".3f", rank_width
-        )
-
-    model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in model_names])
-    header_labels = {"all": "all"} | labels
-    width = max(
-        [9]
-        + [len(cell(key, mid)) for key in columns for mid in model_names]
-        + [len(header_labels[key]) for key in columns]
-    )
-    questions_width = max(len("scored"), max(len(str(c)) for c in counts.values()))
-    ordered = sorted(
-        model_names, key=lambda m: (overall.get((m,)) is None, overall.get((m,)) or 0.0)
-    )
-
-    report.heading("Skill vs baseline by model and metric (below 1 beats the baseline)")
-    report.text(
-        f"{split_note(split)}\n\n{baseline_note(kind)}\n\n"
-        "each cell is the geometric mean of CRPS_model/CRPS_baseline; "
-        f"H{READ_OFF_HORIZON} excluded"
-    )
-    header = f"{'Model':<{model_col}}  {'scored':>{questions_width}}  " + "  ".join(
-        f"{header_labels[key]:>{width}}" for key in columns
-    )
-    lines = [header, "-" * len(header)]
-    for model_id in ordered:
-        row = [
-            f"{model_id.split('/')[-1]:<{model_col}}",
-            f"{counts[model_id]:>{questions_width}}",
-        ]
-        row += [f"{cell(key, model_id):>{width}}" for key in columns]
-        lines.append("  ".join(row))
-    report.table("\n".join(lines))
+    if cell is None:
+        return "-"
+    mean, lo, hi, _n = cell
+    if lo is None:
+        return f"{mean:.3f}"
+    return f"{mean:.3f} [{lo:.3f}, {hi:.3f}]"
 
 
-def metrics_in_order_all(rows: list[dict]) -> list[str]:
-    """The metrics present in `rows`, in the corpus's canonical order.
-
-    metrics_in_order sorts the metrics excluded from |actual| normalization to
-    the far right, which is the right call there and the wrong one here: city
-    funds is a full participant under a ratio, so it takes its natural place.
-    """
-    present = {r["metric"] for r in rows}
-    return [m for m in g.METRICS if m in present]
-
-
-def print_skill_by_horizon(
-    report: MdReport, rows: list[dict], model_names: list[str], kind: str, split: str
-) -> None:
-    """Print models x horizons of geometric-mean skill, each cell with its rank.
-
-    The interesting question this answers that the metric table cannot: whether a
-    model's advantage over the baseline holds up with distance. A model can beat
-    persistence at short range simply by nudging the snapshot value in the right
-    direction, and still have nothing to say at 240 turns.
-    """
-    horizons = sorted({r["horizon"] for r in rows})
-    cells = skill_by(rows, "model_id", "horizon")
-    overall = skill_by(rows, "model_id")
-
-    columns = {"all": {m: overall.get((m,)) for m in model_names}} | {
-        h: {m: cells.get((m, h)) for m in model_names} for h in horizons
-    }
-    ranks = {key: ranks_within_column(values) for key, values in columns.items()}
-    rank_width = max(rank_width_for(r) for r in ranks.values())
-
-    def cell(key, model_id: str) -> str:
-        return ranked_cell(
-            columns[key][model_id], ranks[key].get(model_id), ".3f", rank_width
-        )
-
-    model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in model_names])
-    labels = {"all": "all"} | {h: f"H{h}" for h in horizons}
-    width = max(
-        [9]
-        + [len(cell(key, mid)) for key in columns for mid in model_names]
-        + [len(labels[key]) for key in columns]
-    )
-    ordered = sorted(
-        model_names, key=lambda m: (overall.get((m,)) is None, overall.get((m,)) or 0.0)
-    )
-
-    report.heading(
-        "Skill vs baseline by model and horizon (below 1 beats the baseline)"
-    )
-    report.text(
-        f"{split_note(split)}\n\n{baseline_note(kind)}\n\n"
-        "horizons are turns past the snapshot; "
-        f"H{READ_OFF_HORIZON} excluded (a read-off, and the baseline resolves it "
-        "exactly)"
-    )
-    header = f"{'Model':<{model_col}}  " + "  ".join(
-        f"{labels[key]:>{width}}" for key in columns
-    )
-    lines = [header, "-" * len(header)]
-    for model_id in ordered:
-        row = [f"{model_id.split('/')[-1]:<{model_col}}"]
-        row += [f"{cell(key, model_id):>{width}}" for key in columns]
-        lines.append("  ".join(row))
-    report.table("\n".join(lines))
-
-
-def plot_skill_by_horizon(
-    report: MdReport,
-    rows: list[dict],
-    model_names: list[str],
-    kind: str,
-    split: str,
-    outdir: Path,
-    subset: str = "",
-    ylim: tuple[float, float] | None = None,
-) -> Path:
-    """Scatter skill against horizon, one series per model, on a log y-axis.
-
-    The baseline is a horizontal line at 1 rather than a curve: it is its own
-    reference, so what the figure shows directly is who is under it and whether
-    they stay under it as the horizon grows. That is the question the
-    |actual|-normalized version of this figure could only answer by eye, by
-    comparing two sloping lines.
-
-    The y-axis is logarithmic so that twice-as-good and twice-as-bad sit equally
-    far from the line, matching the geometric mean the points are computed with.
-    On a linear axis the region below 1 is compressed into a tenth of the height
-    while the region above it runs to 6, which would make a model that halves the
-    baseline's error look like a rounding difference.
-
-    `ylim` fixes the axis across a set of figures so they can be read against
-    each other; `subset` names the slice for the title and filename.
-    """
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    horizons = sorted({r["horizon"] for r in rows})
-    cells = skill_by(rows, "model_id", "horizon")
-    by_model = {
-        model_id: [
-            (h, cells[(model_id, h)]) for h in horizons if (model_id, h) in cells
-        ]
-        for model_id in model_names
-    }
-    # Averaged over the per-model cells, not over the raw questions, so every
-    # model counts equally however many of its forecasts had a usable baseline.
-    # This is deliberately not the same number as a table cell: the tables average
-    # a model's own questions, and the two differ by up to about 1% at H240, where
-    # the models' question counts diverge most.
-    mean_by_horizon = {
-        h: geometric_mean_of([cells[(m, h)] for m in model_names if (m, h) in cells])
-        for h in horizons
-    }
-
-    outdir.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(10, 6.5))
-
-    n_colors = 10 if len(model_names) <= 10 else 20
-    palette = plt.get_cmap(f"tab{n_colors}")
-
-    overall = skill_by(rows, "model_id")
-    ordered = sorted(
+def ordered_by_score(cells: dict[str, tuple], model_names: list[str]) -> list[str]:
+    """`model_names` sorted best (lowest) score first, unscored models last."""
+    return sorted(
         model_names,
-        key=lambda m: (overall.get((m,)) is None, overall.get((m,)) or 0.0),
+        key=lambda m: (m not in cells, cells[m][0] if m in cells else 0.0),
     )
 
-    # Same fixed per-model dodge as the |actual|-normalized figure, so a model
-    # sits in the same place in every regenerated figure and the leaders don't
-    # overlap into a single blob at the short horizons.
-    gap = min((b - a for a, b in zip(horizons, horizons[1:])), default=1)
-    spread = gap * 0.35
-    offsets = {
-        model_id: (i / max(len(model_names) - 1, 1) - 0.5) * spread
-        for i, model_id in enumerate(model_names)
-    }
 
-    for i, model_id in enumerate(model_names):
-        points = by_model[model_id]
-        if not points:
-            continue
-        ax.scatter(
-            [h + offsets[model_id] for h, _ in points],
-            [v for _, v in points],
-            color=palette(i % n_colors),
-            s=38,
-            alpha=0.85,
-            zorder=3,
-            label=model_id.split("/")[-1],
+def print_model_scores(
+    report: MdReport, rows: list[dict], model_names: list[str], kind: str
+) -> dict[str, tuple]:
+    """The per-model table: model, questions scored, pooled score with its CI.
+
+    One row per model, best score first. Each cell pools every scored question
+    — all six metrics, all forecast horizons — so this is the single number the
+    rest of the report breaks down by horizon and correlates with the external
+    benchmarks.
+
+    Returns the per-model stats, so the bar chart draws exactly these cells.
+    """
+    cells = stats_by_model(rows)
+    ordered = ordered_by_score(cells, model_names)
+    counts = {m: cells[m][3] if m in cells else 0 for m in model_names}
+
+    report.heading("Model scores")
+    report.text(
+        f"{baseline_note(kind)}\n\n"
+        "each score is the geometric mean of CRPS_model / CRPS_baseline over "
+        "every scored question, all six metrics pooled; below 1 beats the "
+        f"baseline. {ci_note()}. Sorted best score first."
+    )
+
+    score_header = "score [95% CI]"
+    model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in ordered])
+    scored_col = max(len("#scored"), max(len(str(c)) for c in counts.values()))
+    score_col = max(
+        [len(score_header)] + [len(format_score_cell(cells.get(m))) for m in ordered]
+    )
+
+    header = (
+        f"{'Model':<{model_col}}  {'#scored':>{scored_col}}  "
+        f"{score_header:>{score_col}}"
+    )
+    lines = [header, "-" * len(header)]
+    for m in ordered:
+        lines.append(
+            f"{m.split('/')[-1]:<{model_col}}  {counts[m]:>{scored_col}}  "
+            f"{format_score_cell(cells.get(m)):>{score_col}}"
         )
+    report.table("\n".join(lines))
+    return cells
 
-    mean_points = [(h, v) for h, v in mean_by_horizon.items() if v is not None]
-    if mean_points:
-        ax.plot(
-            [h for h, _ in mean_points],
-            [v for _, v in mean_points],
-            color="black",
-            lw=3,
-            marker="o",
-            ms=8,
-            zorder=4,
-            label="geometric mean over models",
-        )
 
-    # The baseline itself. Drawn across the full width rather than as a series,
-    # since it is 1 at every horizon by construction.
-    ax.axhline(
-        BASELINE_SKILL,
-        color="crimson",
-        lw=2.5,
-        ls="--",
-        zorder=5,
-        label=f"baseline ({BASELINES[kind][0]})",
-    )
+# Tick ladders for the log score axes, labeled as ratios — 0.5 is "half the
+# baseline's error" — rather than left to the log locator, which on ranges this
+# narrow labels only the decade boundary and would leave a single tick at 1.
+# The fine ladder is for the bar chart and the horizon panels, whose ranges
+# span well under a decade (the panels thin it further via max_ticks); the
+# coarse one keeps the scatters uncluttered.
+SCATTER_TICKS = [0.125, 0.25, 0.5, 0.75, 1.0, 1.5, 2, 3, 4, 6, 8, 12, 16]
+FINE_TICKS = [
+    0.1, 0.125, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+    1.0, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 6, 8, 12, 16,
+]  # fmt: skip
 
-    ax.set_yscale("log")
-    ax.set_xlabel(
-        "Horizon (turns past the snapshot; model points spread within each tick)"
-    )
-    ax.set_ylabel("Skill vs baseline (CRPS_model / CRPS_baseline, log scale)")
-    ax.set_title(
-        f"Forecast skill vs baseline by horizon{f' — {subset}' if subset else ''}\n"
-        f"{len(model_names)} models, {SPLITS[split][0]}\n"
-        f"baseline: {BASELINES[kind][0]}; below the dashed line beats it"
-    )
-    ax.set_xticks(horizons)
-    ax.grid(alpha=0.3, which="both", zorder=0)
-    ax.margins(x=0.04)
-    if ylim:
-        ax.set_ylim(*ylim)
 
-    # Ticks read as ratios rather than as powers of ten, which is what the axis
-    # means: 0.5 is "half the baseline's error". Placed at fixed ratios spanning
-    # the data rather than left to the log locator, which on a range this narrow
-    # labels only the decade boundary and so would leave the axis with a single
-    # tick at 1.
+def set_ratio_ticks(
+    ax, candidates: list[float], max_ticks: int | None = None
+) -> None:
+    """Put ratio-labeled ticks on a log score axis, spanning its current limits.
+
+    `max_ticks` thins a dense ladder down for a small axis by dropping every
+    other tick until it fits. A range narrow enough to catch fewer than two
+    candidates keeps matplotlib's own ticks instead of being pinned to a
+    single label.
+    """
+    from matplotlib import ticker
+
     lo, hi = ax.get_ylim()
-    candidates = [0.125, 0.25, 0.5, 0.75, 1.0, 1.5, 2, 3, 4, 6, 8, 12, 16]
     ticks = [t for t in candidates if lo <= t <= hi]
+    if len(ticks) < 2:
+        return
+    while max_ticks is not None and len(ticks) > max_ticks:
+        ticks = ticks[::2]
     ax.set_yticks(ticks)
     ax.set_yticklabels([f"{t:g}x" if t != 1 else "1x (baseline)" for t in ticks])
-    ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
-
-    handles, labels = ax.get_legend_handles_labels()
-    by_label = dict(zip(labels, handles))
-    legend_order = [
-        "geometric mean over models",
-        f"baseline ({BASELINES[kind][0]})",
-    ] + [m.split("/")[-1] for m in ordered]
-    legend_labels = [lbl for lbl in dict.fromkeys(legend_order) if lbl in by_label]
-    ax.legend(
-        [by_label[lbl] for lbl in legend_labels],
-        legend_labels,
-        loc="center left",
-        bbox_to_anchor=(1.01, 0.5),
-        fontsize=8,
-        framealpha=0.9,
-    )
-    fig.tight_layout()
-
-    subset_suffix = f"-{slugify(subset)}" if subset else ""
-    out = outdir / f"skill_by_horizon-{split}{subset_suffix}{plot_suffix(kind)}.png"
-    fig.savefig(out, dpi=150)
-    plt.close(fig)
-    report.image(out, caption=subset)
-    return out
+    ax.yaxis.set_minor_formatter(ticker.NullFormatter())
 
 
-def slugify(text: str) -> str:
-    """`text` as a filename component."""
-    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+SCORE_AXIS_LABEL = "Score (CRPS_model / CRPS_baseline, log scale)"
 
 
-def skill_by_model_and_horizon(
-    rows: list[dict], model_names: list[str]
-) -> dict[int, dict[str, float]]:
-    """{horizon: {model_id: skill}}, the shape the correlation helpers want."""
-    cells = skill_by(rows, "model_id", "horizon")
-    horizons = sorted({r["horizon"] for r in rows})
-    return {
-        h: {m: cells[(m, h)] for m in model_names if (m, h) in cells} for h in horizons
-    }
-
-
-def plot_eci_vs_skill(
+def plot_model_scores(
     report: MdReport,
-    rows: list[dict],
-    model_names: list[str],
+    cells: dict[str, tuple],
+    ordered: list[str],
     kind: str,
-    split: str,
     outdir: Path,
 ) -> Path | None:
-    """Scatter each model's ECI against its overall skill vs the baseline.
+    """Bar chart of the model-scores table, in the same order, with 95% bars.
 
-    Same question as the |actual|-normalized script's ECI figure — does
-    forecasting this world track general capability — but on a scale with a
-    meaningful zero, so the figure also shows *where* the capability frontier
-    crosses from losing to the baseline to beating it. Returns None when too few
-    models carry an ECI score for a correlation to mean anything.
+    The y axis is logarithmic — score is a ratio, and half as good should sit
+    as far from 1 as twice as good — so the bars grow from the baseline at 1
+    rather than from 0, which is also the honest rendering: 0 is not a
+    reachable score, and a bar based there would bury the differences at the
+    top. A model that beats the baseline hangs below the line.
 
-    Sign: skill is lower-is-better, so a negative correlation is the pro-g one.
+    Returns None when no model has a score to draw.
     """
+    drawable = [m for m in ordered if m in cells]
+    if not drawable:
+        report.text("no model has scored rows; skipping the bar chart.")
+        return None
+
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from scipy import stats
-
-    scores = {k[0]: v for k, v in skill_by(rows, "model_id").items()}
-    points = sorted(
-        (eci_of(m), scores[m], m.split("/")[-1])
-        for m in model_names
-        if m in scores and eci_of(m) is not None
-    )
-    skipped = sorted(
-        m.split("/")[-1] for m in model_names if m in scores and eci_of(m) is None
-    )
-    if len(points) < 4:
-        report.text(
-            f"ECI vs skill ({SPLITS[split][0]}): only {len(points)} model(s) "
-            "have an ECI score; skipping the plot."
-        )
-        return None
-
-    ecis = [e for e, _, _ in points]
-    values = [v for _, v, _ in points]
-    rho, p_rho = stats.spearmanr(ecis, values)
-    # Pearson on the logs, since the score is a ratio: r on the raw ratios would
-    # be driven by the handful of models several times worse than the baseline,
-    # which have far more room above 1 than any model has below it.
-    r, p_r = stats.pearsonr(ecis, [math.log(v) for v in values])
-    direction = "pro-g" if rho < 0 else "anti-g"
-
-    beaten = sum(1 for v in values if v < BASELINE_SKILL)
-    report.heading(f"ECI vs skill vs baseline — {SPLITS[split][0]}")
-    lines = [
-        baseline_note(kind),
-        f"rho={rho:+.3f}  p={p_rho:.4f} {stars_for(p_rho):<4} ({direction}, "
-        f"n={len(points)})",
-        f"Pearson r={r:+.3f}  p={p_r:.4f} {stars_for(p_r)} (on log skill)",
-        "skill is lower-is-better, so rho<0 means the more capable models "
-        "beat the baseline by more (pro-g).",
-        f"{beaten} of {len(values)} models with an ECI score beat the baseline",
-    ]
-    if skipped:
-        lines.append(f"no ECI score, excluded: {', '.join(skipped)}")
-    report.text("\n".join(lines))
 
     outdir.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(9, 6.5))
-    ax.scatter(ecis, values, s=70, color="#3266a8", zorder=3)
+    means = [cells[m][0] for m in drawable]
+    lower, upper = error_arms([cells[m] for m in drawable])
 
-    # Fitted in log space, matching both the axis and the geometric mean the
-    # points are computed with. A straight fit in ratio space would render as a
-    # curve here, and would let one model 3x worse than the baseline pull the line
-    # further than one 3x better pulls it back.
-    fit = stats.linregress(ecis, [math.log(v) for v in values])
-    xs = [min(ecis), max(ecis)]
-    ax.plot(
+    fig, ax = plt.subplots(figsize=(max(8.0, 0.75 * len(drawable) + 2), 6))
+    palette = plt.get_cmap("tab20" if len(drawable) > 10 else "tab10")
+    xs = range(len(drawable))
+    # Spanning baseline -> mean, so a bar's length is how far the model is from
+    # breaking even. Given as (bottom, height) rather than bottom=BASELINE_SKILL:
+    # bar() draws bottom to bottom+height, which on a log axis would put a mean
+    # of 0.845 at 1.845 — pointing the wrong way, and past the baseline it beat.
+    ax.bar(
         xs,
-        [math.exp(fit.intercept + fit.slope * x) for x in xs],
-        color="#c2432d",
-        lw=1.5,
-        zorder=2,
-        label=f"log-space fit: ρ={rho:+.3f} (p={p_rho:.4f}), r={r:+.3f} (p={p_r:.4f})",
+        [m - BASELINE_SKILL for m in means],
+        bottom=BASELINE_SKILL,
+        color=[palette(i % palette.N) for i in xs],
+        alpha=0.85,
+        zorder=3,
     )
-    # The parity line is the whole point of this scale: it splits the models that
-    # add something over the naive forecast from those that do not.
+    # The mean is marked as well as barred: the bar's end and the interval's
+    # center are the same number, but with the whiskers running well past the
+    # bar it is otherwise easy to read the bar top as the estimate's edge
+    # rather than as the estimate.
+    ax.errorbar(
+        list(xs),
+        means,
+        yerr=[lower, upper],
+        fmt="_",
+        ms=14,
+        mec="black",
+        mew=1.6,
+        ecolor="black",
+        elinewidth=1.2,
+        capsize=4,
+        zorder=4,
+    )
     ax.axhline(
         BASELINE_SKILL,
         color="crimson",
@@ -835,141 +652,309 @@ def plot_eci_vs_skill(
         zorder=2,
         label=f"baseline ({BASELINES[kind][0]})",
     )
-    ax.legend(loc="upper right", fontsize=9, framealpha=0.9)
 
-    ax.set_xlabel("ECI (Epoch capability index)")
-    ax.set_ylabel("Skill vs baseline (CRPS_model / CRPS_baseline, log scale)")
+    ax.set_xticks(list(xs))
+    ax.set_xticklabels([m.split("/")[-1] for m in drawable], rotation=30, ha="right")
+    ax.set_ylabel(SCORE_AXIS_LABEL)
     ax.set_yscale("log")
-    lo, hi = ax.get_ylim()
-    candidates = [0.125, 0.25, 0.5, 0.75, 1.0, 1.5, 2, 3, 4, 6, 8, 12, 16]
-    ticks = [t for t in candidates if lo <= t <= hi]
-    ax.set_yticks(ticks)
-    ax.set_yticklabels([f"{t:g}x" if t != 1 else "1x (baseline)" for t in ticks])
-    ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+    set_ratio_ticks(ax, FINE_TICKS)
     ax.set_title(
-        f"Skill vs baseline against ECI — {SPLITS[split][0]}\n"
-        f"{len(points)} models; baseline: {BASELINES[kind][0]}\n"
+        "Model scores — all metrics pooled\n"
+        "95% CIs clustered on (scenario, snapshot); "
+        f"baseline: {BASELINES[kind][0]}\n"
         "below the dashed line beats the baseline"
     )
-    ax.grid(alpha=0.3, which="both", zorder=0)
-    ax.margins(x=0.12, y=0.1)
+    ax.grid(alpha=0.3, axis="y", which="both", zorder=0)
+    ax.legend(loc="best", fontsize=9, framealpha=0.9)
     fig.tight_layout()
 
-    fig.canvas.draw()
-    place_labels(fig, ax, [n for _, _, n in points], ecis, values)
-
-    out = outdir / f"eci_vs_skill-{split}{plot_suffix(kind)}.png"
+    out = outdir / f"model_scores{plot_suffix(kind)}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     report.image(out)
     return out
 
 
-def plot_forecastbench_vs_skill(
-    report: MdReport,
-    rows: list[dict],
-    model_names: list[str],
-    kind: str,
-    split: str,
-    outdir: Path,
+def plot_score_by_horizon(
+    report: MdReport, rows: list[dict], model_names: list[str], kind: str, outdir: Path
 ) -> Path | None:
-    """Scatter each model's ForecastBench overall score against its skill here.
+    """One small panel per model: score against horizon, with 95% bars.
 
-    The validation question this world exists to answer: does a model that
-    forecasts real events well also forecast a simulated city well? ECI asks
-    whether skill here tracks general capability; this asks the narrower and more
-    pointed thing — whether it tracks *forecasting ability* specifically, which
-    is what would license using a simulated world as a stand-in for the real
-    benchmark.
+    Panels rather than one shared axes: with a dozen models the error bars at a
+    shared horizon collapse into a single unreadable stack, and dodging them
+    sideways misstates the x value the bar belongs to. Each panel repeats two
+    references so it can be read alone — the baseline at 1, and the geometric
+    mean over models — so a panel says at a glance whether its model beats the
+    field as well as the baseline, and whether either advantage survives the
+    longer horizons.
 
-    ForecastBench is higher-is-better and skill is lower-is-better, so the
-    agreeing direction is a negative correlation, same sign convention as the
-    ECI figure above.
+    Panels are sorted like the table, best overall score first, and share the
+    x axis. Each panel's y range is fitted to its own model: a shared range
+    flattened every line to the spread between the best and worst model, hiding
+    the within-model dependency on horizon the panel exists to show. Read
+    levels off a panel's own ticks, not across panels.
 
-    The published 95% intervals are drawn as horizontal error bars, because they
-    are wide relative to the spread: most of these models sit within about three
-    points of each other on a scale whose intervals run more than a point wide,
-    so a bare scatter would imply an x-ordering the benchmark does not actually
-    resolve. Returns None when too few models carry a ForecastBench score.
+    Returns None when no model has a scored (model, horizon) cell.
     """
+    report.heading("Score vs horizon")
+
+    horizons = sorted({r["horizon"] for r in rows})
+    grouped: dict[tuple, list[dict]] = {}
+    for r in rows:
+        grouped.setdefault((r["model_id"], r["horizon"]), []).append(r)
+    cells = {k: score_stats(v) for k, v in grouped.items()}
+    overall = stats_by_model(rows)
+    ordered = [m for m in ordered_by_score(overall, model_names) if m in overall]
+    if not ordered:
+        report.text("no model has scored rows; skipping the plot.")
+        return None
+
+    # Averaged over the per-model cells, not over the raw questions, so every
+    # model counts equally however many of its forecasts had a usable baseline.
+    mean_points = [
+        (h, v)
+        for h in horizons
+        for v in [
+            geometric_mean_of(
+                [cells[(m, h)][0] for m in ordered if (m, h) in cells]
+            )
+        ]
+        if v is not None
+    ]
+
+    report.text(
+        f"{baseline_note(kind)}\n\n"
+        "one panel per model, best overall score first; x is the horizon in "
+        "turns past the snapshot, and the thin gray line is the geometric mean "
+        "over all models, repeated in every panel as a reference. Each panel's "
+        "y range is fitted to its own model so the horizon trend is visible — "
+        "compare levels via the ticks, not across panels, and note the mean "
+        f"line and the baseline can leave a frame. {ci_note()}."
+    )
+
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from scipy import stats
+    from matplotlib.lines import Line2D
 
-    scores = {k[0]: v for k, v in skill_by(rows, "model_id").items()}
-    entries = [
-        (model_scores.scores_of(m), scores[m], m.split("/")[-1])
-        for m in model_names
-        if m in scores
-    ]
-    # Keyed on the score alone rather than sorted whole: the rows carry an
-    # optional interval, and a tuple comparison would fall through to comparing
-    # None against a tuple the moment two models tie on both score and skill.
-    points = sorted(
-        (
-            (e.fb_overall, v, name, e.fb_error)
-            for e, v, name in entries
-            if e is not None and e.fb_overall is not None
+    ncols = 2
+    nrows = math.ceil(len(ordered) / ncols)
+    # Each panel is deliberately short — about a fifth of the report's other
+    # figures — so the grid reads as a ranked column of sparklines rather than
+    # as a stack of full charts.
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(10, 1.3 * nrows + 1.2),
+        sharex=True,
+        layout="constrained",
+    )
+    panels = list(axes.flat)
+
+    for ax, model_id in zip(panels, ordered):
+        present = [h for h in horizons if (model_id, h) in cells]
+        model_cells = [cells[(model_id, h)] for h in present]
+        lower, upper = error_arms(model_cells)
+
+        ax.set_yscale("log")
+        # The y range is the panel's own, fitted to this model's points and
+        # interval arms and padded multiplicatively since the axis is
+        # logarithmic. Deliberately not extended to cover the reference lines:
+        # forcing the baseline into a panel that sits far from it re-flattens
+        # exactly the trend the per-panel range exists to show, so those lines
+        # run off some frames instead — the section text says so.
+        spans = [c[0] for c in model_cells] + [
+            b for _m, lo, hi, _n in model_cells for b in (lo, hi) if b is not None
+        ]
+        ax.set_ylim(min(spans) / 1.15, max(spans) * 1.15)
+
+        ax.axhline(BASELINE_SKILL, color="crimson", lw=1.2, ls="--", zorder=2)
+        if mean_points:
+            ax.plot(
+                [h for h, _ in mean_points],
+                [v for _, v in mean_points],
+                color="0.45",
+                lw=1.0,
+                alpha=0.9,
+                zorder=3,
+            )
+        ax.errorbar(
+            present,
+            [c[0] for c in model_cells],
+            yerr=[lower, upper],
+            fmt="o-",
+            color="#3266a8",
+            ms=3.5,
+            lw=1.4,
+            elinewidth=1.0,
+            capsize=2.5,
+            zorder=4,
+        )
+        ax.set_title(model_id.split("/")[-1], fontsize=8, pad=2)
+        ax.grid(alpha=0.25, which="both", zorder=0)
+        set_ratio_ticks(ax, FINE_TICKS, max_ticks=4)
+        ax.tick_params(labelsize=7)
+    for ax in panels[len(ordered) :]:
+        ax.set_visible(False)
+    # sharex puts x tick labels only on each column's bottom panel; with an odd
+    # model count that panel is the hidden spare, which would take the right
+    # column's labels with it.
+    for col in range(ncols):
+        column = [p for p in panels[col::ncols] if p.get_visible()]
+        if column:
+            column[-1].tick_params(labelbottom=True)
+
+    panels[0].set_xticks(horizons)
+
+    fig.suptitle(
+        "Score vs horizon — one panel per model, best overall first\n"
+        f"baseline: {BASELINES[kind][0]}; below the dashed line beats it",
+        fontsize=11,
+    )
+    fig.supylabel(SCORE_AXIS_LABEL, fontsize=9)
+    fig.legend(
+        handles=[
+            Line2D(
+                [],
+                [],
+                color="#3266a8",
+                marker="o",
+                ms=3.5,
+                lw=1.4,
+                label="model score, 95% CI",
+            ),
+            Line2D([], [], color="0.45", lw=1.0, label="geometric mean over models"),
+            Line2D(
+                [],
+                [],
+                color="crimson",
+                lw=1.2,
+                ls="--",
+                label=f"baseline ({BASELINES[kind][0]})",
+            ),
+        ],
+        # The bottom edge is the legend's alone: a supxlabel would share its
+        # strip and be printed through, so the x axis is named in the report
+        # text instead.
+        loc="outside lower center",
+        ncol=3,
+        fontsize=8,
+    )
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    out = outdir / f"score_by_horizon{plot_suffix(kind)}.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    report.image(out)
+    return out
+
+
+def plot_score_vs_predictor(
+    report: MdReport,
+    rows: list[dict],
+    model_names: list[str],
+    kind: str,
+    outdir: Path,
+    predictor: str,
+) -> Path | None:
+    """Scatter an external benchmark against the models' scores, with 95% bars.
+
+    One function for both x variables, differing only in what the x axis is:
+
+      eci            Epoch's capability index. Does forecasting this world
+                     track general capability?
+      forecastbench  the model's overall ForecastBench score, with its
+                     published 95% interval as horizontal bars. The narrower
+                     and more pointed question — does it track real-event
+                     forecasting ability specifically, which is what would
+                     license using a simulated world as a stand-in for the
+                     real benchmark.
+
+    Both x variables are higher-is-better and the score is lower-is-better, so
+    the agreeing direction is a negative correlation. The fit is in log space,
+    matching the axis and the geometric mean the points are computed with — a
+    straight fit in ratio space would render as a curve here, and would let one
+    model far above the baseline pull the line more than one equally far below
+    it pulls back. Pearson is computed on log score for the same reason;
+    Spearman only uses ranks and needs no transform. Both go in the legend, on
+    the fit line's label.
+
+    Returns None when fewer than four models carry the predictor, where a fit
+    would be noise with a decimal point on it.
+    """
+    heading, x_label, x_of, x_err_of = {
+        "eci": (
+            "Score vs ECI",
+            "ECI (Epoch capability index)",
+            eci_of,
+            lambda m: None,
         ),
-        key=lambda p: (p[0], p[1], p[2]),
+        "forecastbench": (
+            "Score vs Forecastbench",
+            "ForecastBench overall score "
+            "(higher is better; horizontal bars are its published 95% CI)",
+            model_scores.fb_overall_of,
+            lambda m: (s := model_scores.scores_of(m)) and s.fb_error,
+        ),
+    }[predictor]
+
+    report.heading(heading)
+
+    cells = stats_by_model(rows)
+    entries = sorted(
+        (
+            (x_of(m), cells[m], x_err_of(m), m.split("/")[-1])
+            for m in model_names
+            if m in cells and x_of(m) is not None
+        ),
+        key=lambda e: (e[0], e[1][0]),
     )
     skipped = sorted(
-        name for e, _, name in entries if e is None or e.fb_overall is None
+        m.split("/")[-1] for m in model_names if m in cells and x_of(m) is None
     )
-    if len(points) < 4:
+    if len(entries) < 4:
         report.text(
-            f"ForecastBench vs skill ({SPLITS[split][0]}): only {len(points)} "
-            "model(s) have a ForecastBench score; skipping the plot."
+            f"only {len(entries)} model(s) have a score on this benchmark; "
+            "skipping the plot."
         )
         return None
 
-    fb = [f for f, _, _, _ in points]
-    values = [v for _, v, _, _ in points]
-    rho, p_rho = stats.spearmanr(fb, values)
-    # Pearson on the logs, for the same reason as the ECI figure: the score is a
-    # ratio, and on the raw scale the models several times worse than the
-    # baseline have far more room to move the coefficient than the good ones do.
-    r, p_r = stats.pearsonr(fb, [math.log(v) for v in values])
-    direction = "agrees" if rho < 0 else "disagrees"
+    xs_data = [x for x, _, _, _ in entries]
+    means = [c[0] for _, c, _, _ in entries]
+    rho, p_rho = stats.spearmanr(xs_data, means)
+    r, p_r = stats.pearsonr(xs_data, [math.log(v) for v in means])
 
-    report.heading(f"ForecastBench vs skill vs baseline — {SPLITS[split][0]}")
     lines = [
         baseline_note(kind),
-        (
-            f"rho={rho:+.3f}  p={p_rho:.4f} {stars_for(p_rho):<4} ({direction} "
-            f"with ForecastBench, n={len(points)})"
-        ),
-        f"Pearson r={r:+.3f}  p={p_r:.4f} {stars_for(p_r)} (on log skill)",
-        (
-            "ForecastBench is higher-is-better and skill is lower-is-better, so "
-            "rho<0 means the models that forecast real events better also beat "
-            "this world's baseline by more."
-        ),
-        (
-            "error bars are ForecastBench's published 95% intervals, which "
-            "overlap heavily across these models; read the x-ordering with that "
-            "in mind."
-        ),
+        "score is lower-is-better and the x axis is higher-is-better, so a "
+        "negative correlation means the models the benchmark rates higher beat "
+        "the baseline by more.",
     ]
     if skipped:
-        lines.append(f"no ForecastBench score, excluded: {', '.join(skipped)}")
+        lines.append(f"no {heading.split(' vs ')[1]} score, excluded: {', '.join(skipped)}")
     report.text("\n".join(lines))
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
 
     outdir.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(9, 6.5))
 
-    # Drawn as one errorbar call per point rather than one vectorized call, since
-    # a model can have a score but no published interval; those get a plain
-    # marker instead of a zero-width bar, which would read as a precise estimate.
-    for x, y, _name, err in points:
+    lower, upper = error_arms([c for _, c, _, _ in entries])
+    # Drawn point by point rather than vectorized, since a model can carry an x
+    # value but no published x interval; those get a plain marker instead of a
+    # zero-width bar, which would read as a precise estimate.
+    for i, (x, cell, x_err, _name) in enumerate(entries):
         ax.errorbar(
             x,
-            y,
-            xerr=None if err is None else [[err[0]], [err[1]]],
+            cell[0],
+            yerr=[[lower[i]], [upper[i]]],
+            xerr=None if x_err is None else [[x_err[0]], [x_err[1]]],
             fmt="o",
-            ms=8,
+            ms=7,
             color="#3266a8",
             ecolor="#3266a8",
             elinewidth=1.2,
@@ -978,16 +963,21 @@ def plot_forecastbench_vs_skill(
             zorder=3,
         )
 
-    fit = stats.linregress(fb, [math.log(v) for v in values])
-    xs = [min(fb), max(fb)]
+    fit = stats.linregress(xs_data, [math.log(v) for v in means])
+    fit_xs = [min(xs_data), max(xs_data)]
     ax.plot(
-        xs,
-        [math.exp(fit.intercept + fit.slope * x) for x in xs],
+        fit_xs,
+        [math.exp(fit.intercept + fit.slope * x) for x in fit_xs],
         color="#c2432d",
         lw=1.5,
         zorder=2,
-        label=f"log-space fit: ρ={rho:+.3f} (p={p_rho:.4f}), r={r:+.3f} (p={p_r:.4f})",
+        label=(
+            f"log-space fit: Spearman ρ={rho:+.3f} (p={p_rho:.4f}), "
+            f"Pearson r={r:+.3f} (p={p_r:.4f})"
+        ),
     )
+    # The parity line is the whole point of this scale: it splits the models
+    # that add something over the naive forecast from those that do not.
     ax.axhline(
         BASELINE_SKILL,
         color="crimson",
@@ -996,314 +986,52 @@ def plot_forecastbench_vs_skill(
         zorder=2,
         label=f"baseline ({BASELINES[kind][0]})",
     )
-    # Below the axes rather than in a corner: the interval bars run most of the
-    # width, so an in-axes legend covers a real point at whichever corner it is
-    # put, which is not true of the ECI figure's bare scatter.
+    # Below the axes rather than in a corner: with error bars on every point an
+    # in-axes legend covers a real interval at whichever corner it is put.
     ax.legend(
         loc="upper center",
         bbox_to_anchor=(0.5, -0.13),
-        ncol=2,
+        ncol=1,
         fontsize=9,
         framealpha=0.9,
     )
 
-    ax.set_xlabel("ForecastBench overall score (higher is better; bars are 95% CI)")
-    ax.set_ylabel("Skill vs baseline (CRPS_model / CRPS_baseline, log scale)")
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(SCORE_AXIS_LABEL)
     ax.set_yscale("log")
-    lo, hi = ax.get_ylim()
-    candidates = [0.125, 0.25, 0.5, 0.75, 1.0, 1.5, 2, 3, 4, 6, 8, 12, 16]
-    ticks = [t for t in candidates if lo <= t <= hi]
-    ax.set_yticks(ticks)
-    ax.set_yticklabels([f"{t:g}x" if t != 1 else "1x (baseline)" for t in ticks])
-    ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+    set_ratio_ticks(ax, SCATTER_TICKS)
     ax.set_title(
-        f"Skill vs baseline against ForecastBench — {SPLITS[split][0]}\n"
-        f"{len(points)} models; baseline: {BASELINES[kind][0]}\n"
-        "below the dashed line beats the baseline"
+        f"{heading} — all metrics pooled\n"
+        f"{len(entries)} models; vertical bars are 95% CIs clustered on "
+        "(scenario, snapshot)\n"
+        f"baseline: {BASELINES[kind][0]}; below the dashed line beats it"
     )
     ax.grid(alpha=0.3, which="both", zorder=0)
-    # Wider y-margin than the ECI figure's: labels here are pushed further from
-    # their markers to clear the interval bars, so the lowest one needs more
-    # room under it than a marker-sized offset would leave.
+    # Wider y-margin than a bare scatter would need: labels are pushed away
+    # from their markers to clear the interval bars, so the outermost ones
+    # need more room than a marker-sized offset would leave.
     ax.margins(x=0.12, y=0.18)
     fig.tight_layout()
 
     fig.canvas.draw()
+    # The vertical bars are deliberately not passed as obstacles: with a bar on
+    # every point the labels get pushed so far from their markers that the
+    # association is lost, and a name crossing a thin whisker reads better
+    # than one floating four rows away from its point.
     place_labels(
         fig,
         ax,
-        [n for _, _, n, _ in points],
-        fb,
-        values,
-        xerr=[e for _, _, _, e in points],
+        [name for _, _, _, name in entries],
+        xs_data,
+        means,
+        xerr=[e for _, _, e, _ in entries],
     )
 
-    out = outdir / f"forecastbench_vs_skill-{split}{plot_suffix(kind)}.png"
+    out = outdir / f"score_vs_{predictor}{plot_suffix(kind)}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     report.image(out)
     return out
-
-
-def relabel_correlation_axes(ax) -> None:
-    """Fix up the shared correlation axes for a skill-vs-baseline y variable.
-
-    draw_horizon_correlation_axes is written for the |actual|-normalized script
-    and hardcodes both its y-label and a footnote reading "the better-scoring
-    models forecast better", which describes neither axis here — x is a predictor
-    (ECI or knowledge score), not a score, and y is a ratio against the baseline.
-    Rewriting them in place keeps that helper shared, and unchanged, rather than
-    forking it or editing the script it belongs to.
-    """
-    ax.set_ylabel("Spearman ρ vs. skill (CRPS_model / CRPS_baseline)")
-    for child in ax.texts:
-        if "better-scoring" in child.get_text():
-            child.set_text(
-                "ρ<0: the models scoring higher on the predictor beat the "
-                "baseline by more"
-            )
-
-
-def plot_eci_correlation_by_horizon(
-    report: MdReport,
-    rows: list[dict],
-    model_names: list[str],
-    kind: str,
-    split: str,
-    outdir: Path,
-) -> Path | None:
-    """Spearman rho of ECI against skill, per horizon, with bootstrap intervals.
-
-    Says whether capability predicts skill more strongly the further out the
-    forecast goes. Returns None when no horizon has enough models to correlate.
-    """
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    predictor = eci_by_name(model_names)
-    by_horizon = skill_by_model_and_horizon(rows, model_names)
-    results = correlate_by_horizon(predictor, by_horizon, with_ci=True)
-    if not results:
-        report.text(
-            f"ECI correlation by horizon ({SPLITS[split][0]}): no horizon has "
-            "enough models with an ECI score; skipping the plot."
-        )
-        return None
-
-    report.heading(f"ECI vs skill by horizon (Spearman) — {SPLITS[split][0]}")
-    report.text(f"{baseline_note(kind)}\n\n{format_horizon_correlations(results)}")
-
-    outdir.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(9, 6))
-    draw_horizon_correlation_axes(
-        ax,
-        [("ECI", "#3266a8", results)],
-        f"Does capability predict beating the baseline? — {SPLITS[split][0]}\n"
-        f"Spearman ρ of ECI vs skill, by horizon; baseline: {BASELINES[kind][0]}",
-    )
-    relabel_correlation_axes(ax)
-    # The proxies carry their own labels, so matplotlib reads them off directly.
-    ax.legend(
-        handles=band_handles("#3266a8", plt) + significance_handles("#3266a8", plt),
-        loc="lower right",
-        fontsize=9,
-        framealpha=0.9,
-    )
-    fig.tight_layout()
-    out = outdir / f"eci_correlation_by_horizon-{split}{plot_suffix(kind)}.png"
-    fig.savefig(out, dpi=150)
-    plt.close(fig)
-    report.image(out)
-    return out
-
-
-def plot_predictors_correlation_by_horizon(
-    report: MdReport,
-    rows: list[dict],
-    model_names: list[str],
-    kind: str,
-    split: str,
-    outdir: Path,
-) -> Path | None:
-    """Compare ECI and knowledge-eval score as predictors of skill vs baseline.
-
-    Whether knowing this world's facts predicts beating the naive forecast any
-    better than a general capability index does. Both lines are restricted to the
-    models carrying both scores, so their coefficients are comparable.
-
-    Returns None when the model set is too small, or when the knowledge eval has
-    no cached answers for these models.
-    """
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    knowledge = knowledge_predictor(model_names)
-    if knowledge is None:
-        report.text(
-            f"Predictor comparison ({SPLITS[split][0]}): no cached knowledge-eval"
-            " answers for these models; skipping the plot."
-        )
-        return None
-
-    eci = eci_by_name(model_names)
-    shared = set(eci) & set(knowledge)
-    restricted = [
-        (label, color, {k: v for k, v in predictor.items() if k in shared})
-        for label, color, predictor in [
-            ("ECI", "#3266a8", eci),
-            ("Knowledge score", "#c2432d", knowledge),
-        ]
-    ]
-
-    by_horizon = skill_by_model_and_horizon(rows, model_names)
-    series = []
-    for label, color, predictor in restricted:
-        results = correlate_by_horizon(predictor, by_horizon, with_ci=True)
-        if results:
-            series.append((label, color, results))
-    if not series:
-        report.text(
-            f"Predictor comparison ({SPLITS[split][0]}): only {len(shared)} "
-            "model(s) have both scores; skipping the plot."
-        )
-        return None
-
-    report.heading(
-        f"Predictors of skill by horizon — {SPLITS[split][0]} "
-        f"({len(shared)} shared models)"
-    )
-    lines = [baseline_note(kind)]
-    for label, _color, results in series:
-        lines.append(label)
-        lines.append(format_horizon_correlations(results, indent="  "))
-    comparison = format_predictor_comparison(restricted, by_horizon)
-    if comparison:
-        lines.append(comparison)
-    tie_warnings = format_tie_warnings(restricted)
-    if tie_warnings:
-        lines.append(tie_warnings)
-    report.text("\n\n".join(lines))
-
-    outdir.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(10, 6.5))
-    draw_horizon_correlation_axes(
-        ax,
-        series,
-        "What predicts beating the baseline: capability or world knowledge?\n"
-        f"{SPLITS[split][0]}; {len(shared)} models with both scores\n"
-        f"baseline: {BASELINES[kind][0]}",
-    )
-    relabel_correlation_axes(ax)
-    handles, labels = ax.get_legend_handles_labels()
-    extra = significance_handles("#666666", plt) + band_handles("#666666", plt)
-    ax.legend(
-        handles=handles + extra,
-        labels=labels + [h.get_label() for h in extra],
-        loc="upper right",
-        fontsize=9,
-        framealpha=0.9,
-    )
-    fig.tight_layout()
-
-    out = outdir / f"predictors_correlation_by_horizon-{split}{plot_suffix(kind)}.png"
-    fig.savefig(out, dpi=150)
-    plt.close(fig)
-    report.image(out)
-    return out
-
-
-def plot_horizon_figures(
-    report: MdReport,
-    rows: list[dict],
-    model_names: list[str],
-    kind: str,
-    split: str,
-    outdir: Path,
-) -> list[Path]:
-    """The skill-by-horizon scatter over all runs, then split by disasters.
-
-    Same rationale as the |actual|-normalized script: disasters are the corpus's
-    one deliberate difficulty axis, and the split says whether a model's decay
-    with horizon is about forecasting a city at all or about coping with shocks.
-
-    Under a ratio the split gains a sharper reading than it had there. Both the
-    models and the baseline face the same disasters, so a model whose skill holds
-    up with disasters on is adding something the naive forecast cannot — rather
-    than merely facing an easier question.
-    """
-    subsets = [("", None), ("disasters", True), ("no disasters", False)]
-
-    # One y-axis across the set so the three figures can be read against each
-    # other, taken from the per-(model, horizon) cells the figures plot.
-    limits = []
-    grouped = {}
-    for subset, want in subsets:
-        selected = [r for r in rows if want is None or r["disasters"] == want]
-        if not selected:
-            continue
-        grouped[subset] = selected
-        limits += list(skill_by(selected, "model_id", "horizon").values())
-    if not limits:
-        raise ValueError(
-            "no skill scores to plot: every selected forecast either failed to "
-            "parse or had no usable baseline"
-        )
-    # Padded multiplicatively, since the axis is logarithmic; parity is always
-    # inside the range so the reference line cannot fall off the figure.
-    ylim = (min(limits + [BASELINE_SKILL]) / 1.3, max(limits + [BASELINE_SKILL]) * 1.3)
-
-    return [
-        plot_skill_by_horizon(
-            report, selected, model_names, kind, split, outdir, subset, ylim
-        )
-        for subset, selected in grouped.items()
-    ]
-
-
-def run_split(
-    report: MdReport,
-    rows: list[dict],
-    model_names: list[str],
-    kind: str,
-    split: str,
-    plot: bool,
-    outdir: Path,
-) -> list[Path]:
-    """Every table and figure for one side of the city-funds split.
-
-    Returns the paths written, so main can list them together after the tables
-    rather than interleaving "Wrote" lines with the correlation output.
-    """
-    selected = split_rows(rows, split)
-    name, how = SPLITS[split]
-    report.heading(f"{name.upper()} — {how}", level=1)
-    if not selected:
-        report.text("no scored forecasts on this side of the split; nothing to report")
-        return []
-
-    print_skill_by_metric(report, selected, model_names, kind, split)
-    print_skill_by_horizon(report, selected, model_names, kind, split)
-    if not plot:
-        return []
-    figures = [
-        plot_eci_vs_skill(report, selected, model_names, kind, split, outdir),
-        plot_forecastbench_vs_skill(
-            report, selected, model_names, kind, split, outdir
-        ),
-        plot_eci_correlation_by_horizon(
-            report, selected, model_names, kind, split, outdir
-        ),
-        plot_predictors_correlation_by_horizon(
-            report, selected, model_names, kind, split, outdir
-        ),
-    ]
-    return plot_horizon_figures(report, selected, model_names, kind, split, outdir) + [
-        f for f in figures if f is not None
-    ]
 
 
 @main_with_config
@@ -1363,7 +1091,7 @@ def main() -> None:
         )
 
     print("=" * 70)
-    print("MICROPOLIS WORLD — single city eval, skill vs a naive baseline")
+    print("MICROPOLIS WORLD — single city eval, scores vs a naive baseline")
     print("=" * 70)
     print(f"data:   {data_file}")
     print(f"config: {cfg.path}")
@@ -1373,12 +1101,14 @@ def main() -> None:
     print(baseline_note(args.baseline))
 
     report = MdReport()
+    report.heading(f"Scores normalized by baseline ({args.baseline})")
     report.text(
         "score = CRPS_model / CRPS_baseline per question, geometric mean over "
-        "questions; below 1 beats the baseline. City funds is reported "
-        "separately from the other five metrics — see the module docstring for "
-        "why.\n\n"
+        "questions; below 1 beats the baseline. All six metrics are pooled, "
+        "city funds included.\n\n"
         f"{baseline_note(args.baseline)}\n\n"
+        f"H{READ_OFF_HORIZON} (the read-off) is excluded throughout: the "
+        "baseline resolves it exactly by construction.\n\n"
         f"{len(forecasts)} forecast questions x {len(models)} models"
     )
 
@@ -1386,15 +1116,27 @@ def main() -> None:
     print_dropped(report, dropped, len(rows))
     if not rows:
         sys.exit(
-            "[error] no forecast has a usable skill score; nothing to report. "
+            "[error] no forecast has a usable score; nothing to report. "
             "The counts above say why"
         )
 
+    cells = print_model_scores(report, rows, models, args.baseline)
+
     written = []
-    for split in SPLITS:
-        written += run_split(
-            report, rows, models, args.baseline, split, args.plot, outdir
-        )
+    if args.plot:
+        figures = [
+            plot_model_scores(
+                report, cells, ordered_by_score(cells, models), args.baseline, outdir
+            ),
+            plot_score_by_horizon(report, rows, models, args.baseline, outdir),
+            plot_score_vs_predictor(
+                report, rows, models, args.baseline, outdir, "eci"
+            ),
+            plot_score_vs_predictor(
+                report, rows, models, args.baseline, outdir, "forecastbench"
+            ),
+        ]
+        written = [f for f in figures if f is not None]
 
     if written:
         print()
@@ -1404,7 +1146,7 @@ def main() -> None:
     md_name = f"analysis-skill{plot_suffix(args.baseline)}.md"
     out_path = report.write(
         label_dir(label) / md_name,
-        f"Single city eval — skill vs baseline ({args.baseline})",
+        f"Single city eval — scores normalized by baseline ({args.baseline})",
     )
     print(out_path)
 

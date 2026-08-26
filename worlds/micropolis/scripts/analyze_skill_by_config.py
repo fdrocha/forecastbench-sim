@@ -30,9 +30,10 @@ favored merely for covering more of some model's questions than another config
 does. This makes them deliberately different from the models x configs cells,
 which stay pooled per model to keep matching the parent script.
 
-Scoring is imported from analyze_baseline_skill.py rather than reimplemented,
-so a cell here is by construction the same number as that script's "all"
-column for the same config, baseline and split.
+Scoring — and the confidence-interval machinery below — is imported from
+analyze_baseline_skill.py rather than reimplemented, so a cell here is by
+construction the same number, and a bar the same interval, as that script
+reports for the same config, baseline and split.
 
 The error bars are t intervals on the mean of log skill, exponentiated (so they
 are multiplicative and asymmetric around the mean, as a ratio's interval should
@@ -86,27 +87,20 @@ sys.path.insert(0, str(Path(__file__).parent))
 from analyze_baseline_skill import (
     BASELINE_SKILL,
     BASELINES,
+    CI_LEVEL,
+    MIN_CLUSTERS,
     SPLITS,
     baseline_note,
+    cluster_key,
     geometric_mean_of,
     plot_suffix,
     print_dropped,
     score_skill,
     split_note,
     split_rows,
+    stats_by_model,
 )
 from analyze_single_city import eci_of, is_forecast, stars_for
-
-# Two-sided 95%. The t quantile is taken at cluster_count-1 degrees of freedom
-# rather than a flat z, since the clustering leaves tens of effective
-# observations rather than hundreds and z would be optimistic at that size.
-CI_LEVEL = 0.95
-
-# Below this many clusters the spread over cluster means is too noisy to be
-# worth drawing, and a bar built from a handful of trajectories would imply a
-# precision the data cannot support. Such cells get a point and no bar.
-MIN_CLUSTERS = 4
-
 
 # The pooled view, for the summary scatter that opens the report. Kept out of
 # SPLITS — which drives the per-split sections and must stay the two-way funds
@@ -170,18 +164,6 @@ def short_labels(labels: list[str]) -> dict[str, str]:
     return trimmed
 
 
-def cluster_key(row: dict) -> tuple:
-    """What a row's questions are correlated within.
-
-    A (scenario, snapshot turn) pair names one simulated trajectory read at one
-    point in time. Every question sharing it — all metrics, all horizons — is
-    read off that same history, so they rise and fall together and are not
-    independent draws. The scenario id already encodes city and disasters, so
-    the pair is the whole grouping.
-    """
-    return (row["scenario_id"], row["snapshot_turn"])
-
-
 def comparison_dir(name: str) -> Path:
     """Where one comparison's report and plots go.
 
@@ -190,51 +172,6 @@ def comparison_dir(name: str) -> Path:
     config's label dir would make the comparison look like that run's property.
     """
     return OUT_DIR / "comparisons" / name
-
-
-def skill_stats(rows: list[dict]) -> tuple[float, float | None, float | None, int]:
-    """(geometric mean, CI low, CI high, n questions) of `rows`' skill ratios.
-
-    The point estimate is the geometric mean over every question, unchanged and
-    still matching analyze_baseline_skill.py's "all" column.
-
-    The interval is clustered on cluster_key(): each trajectory's questions are
-    averaged into one value, and the spread is taken over those cluster means.
-    Questions within a trajectory are not independent — overlapping horizons on
-    a shared history — so a per-question interval understates the uncertainty
-    substantially. Built in log space and exponentiated, so it is multiplicative
-    and brackets the geometric mean it belongs to.
-
-    Note the point estimate weights questions equally while the interval weights
-    clusters equally. With the balanced corpora this was built for the two
-    agree; where clusters differ in size the mean stays the pooled one so the
-    cell keeps matching the parent script, and only the width comes from the
-    clusters.
-
-    Returns bounds of None — a point with no bar — when there are too few
-    clusters to estimate a spread worth drawing.
-    """
-    logs = [r["log_skill"] for r in rows]
-    if not logs:
-        raise ValueError("skill_stats needs at least one row")
-    mean = statistics.fmean(logs)
-
-    grouped: dict[tuple, list[float]] = {}
-    for r in rows:
-        grouped.setdefault(cluster_key(r), []).append(r["log_skill"])
-    cluster_means = [statistics.fmean(v) for v in grouped.values()]
-
-    if len(cluster_means) < MIN_CLUSTERS:
-        return math.exp(mean), None, None, len(logs)
-
-    sem = statistics.stdev(cluster_means) / math.sqrt(len(cluster_means))
-    crit = stats.t.ppf(1 - (1 - CI_LEVEL) / 2, len(cluster_means) - 1)
-    return (
-        math.exp(mean),
-        math.exp(mean - crit * sem),
-        math.exp(mean + crit * sem),
-        len(logs),
-    )
 
 
 def response_counts(
@@ -319,14 +256,6 @@ def mean_of_model_means(rows: list[dict]) -> tuple[float, float | None, float | 
     sem = statistics.stdev(cluster_means) / math.sqrt(len(cluster_means))
     crit = stats.t.ppf(1 - (1 - CI_LEVEL) / 2, len(cluster_means) - 1)
     return math.exp(mean), math.exp(mean - crit * sem), math.exp(mean + crit * sem)
-
-
-def stats_by_model(rows: list[dict]) -> dict[str, tuple]:
-    """skill_stats per model over `rows`, keyed by model id."""
-    grouped: dict[str, list[dict]] = {}
-    for r in rows:
-        grouped.setdefault(r["model_id"], []).append(r)
-    return {m: skill_stats(v) for m, v in grouped.items()}
 
 
 def format_cell(cell: tuple | None) -> str:
