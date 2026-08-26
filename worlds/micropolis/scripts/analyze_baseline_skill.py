@@ -54,10 +54,13 @@ disagree.
 
 Writes the report to data/micropolis/single_city/{label}/analysis-skill.md
 (--baseline plain, the default) or analysis-skill-sigma.md (--baseline sigma),
-with plots in data/micropolis/single_city/{label}/plots/with_baseline/. The two
-baselines' plots are also distinguished by a -sigma suffix, so running both
-never overwrites the other's figures. Only the paths written and the report's
-own path are printed to stdout.
+with plots in data/micropolis/single_city/{label}/plots/with_baseline/. Beside
+the report it writes scores.csv: model_scores.csv with MPScore/MPScoreLo/
+MPScoreHi columns appended, carrying the Model scores table's numbers in a
+form the next analysis can load rather than parse out of fixed-width text.
+The two baselines' plots and exports are also distinguished by a -sigma
+suffix, so running both never overwrites the other's files. Only the paths
+written and the report's own path are printed to stdout.
 
 Usage:
     scripts/analyze_baseline_skill.py
@@ -1122,7 +1125,16 @@ def main() -> None:
 
     cells = print_model_scores(report, rows, models, args.baseline)
 
-    written = []
+    # The CSV export of that table: model_scores.csv's columns plus this run's
+    # own scores with their 95% CIs, exactly the cells printed above. Written
+    # even under --no-plot, being data rather than a figure, and suffixed like
+    # the plots so a sigma run never overwrites a plain run's export.
+    csv_path = model_scores.write_scores_csv(
+        label_dir(label) / f"scores{plot_suffix(args.baseline)}.csv",
+        {m: cell[:3] for m, cell in cells.items()},
+    )
+
+    written = [csv_path]
     if args.plot:
         figures = [
             plot_model_scores(
@@ -1136,7 +1148,7 @@ def main() -> None:
                 report, rows, models, args.baseline, outdir, "forecastbench"
             ),
         ]
-        written = [f for f in figures if f is not None]
+        written += [f for f in figures if f is not None]
 
     if written:
         print()
