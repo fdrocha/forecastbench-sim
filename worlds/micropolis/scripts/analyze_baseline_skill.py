@@ -41,9 +41,11 @@ The read-off horizon is excluded throughout: it is a comprehension check, the
 baseline resolves it exactly by construction, and a ratio against a zero
 denominator says nothing.
 
-The report is four sections past the preamble: a per-model table of overall
+The report is five sections past the preamble: a per-model table of overall
 scores and the bar chart that draws it, score against horizon as one small
-panel per model, and score against ECI and against ForecastBench. All six
+panel per model, score against ECI and against ForecastBench, and a
+model-by-city heatmap of the same scores, which is the only place the report
+breaks the cities apart rather than pooling them. All six
 metrics are pooled everywhere, city funds included; the funds split lives on
 only in analyze_skill_by_config.py, which imports its machinery from here.
 Every interval is a 95% t interval on mean log score, clustered on (scenario,
@@ -348,6 +350,18 @@ def cluster_key(row: dict) -> tuple:
     return (row["scenario_id"], row["snapshot_turn"])
 
 
+def city_of(row: dict) -> str:
+    """The city a row's question was read off, from its scenario id.
+
+    The id is built as {city}_{disasters flag}_seed{n} by CitySimulation, so the
+    city is the leading segment. Both disaster settings of one city fold into
+    the same row of the heatmap: the cell is about the map, and splitting it
+    would halve every cell's question count for a distinction the figure is not
+    asking about.
+    """
+    return row["scenario_id"].partition("_")[0]
+
+
 def score_stats(rows: list[dict]) -> tuple[float, float | None, float | None, int]:
     """(geometric mean, CI low, CI high, n questions) of `rows`' scores.
 
@@ -582,6 +596,18 @@ def set_ratio_ticks(
 
 
 SCORE_AXIS_LABEL = "Score (CRPS_model / CRPS_baseline, log scale)"
+
+# The heatmap's color span, as a factor either side of the baseline: a cell at
+# 2x is the reddest red, one at 0.5x the bluest blue. Fixed rather than fitted
+# to the data so one runaway cell cannot flatten the rest of the grid to
+# neutral, and so two runs' grids are comparable at a glance.
+HEATMAP_SPAN = 2.0
+
+# The blank strip, in cell widths, between the heatmap body and its pooled
+# margins. Half a cell is enough to break the grid — the margins are aggregates
+# over a whole row or column, not one more model or city — without pushing them
+# so far out that a reader loses the alignment.
+MARGIN_GAP = 0.5
 
 
 def plot_model_scores(
@@ -1037,6 +1063,182 @@ def plot_score_vs_predictor(
     return out
 
 
+def plot_score_heatmap(
+    report: MdReport, rows: list[dict], model_names: list[str], kind: str, outdir: Path
+) -> Path | None:
+    """Score per (model, city) as a heatmap: models across, cities down.
+
+    The rest of the report pools cities together, so a model that is strong
+    everywhere and one that is strong on half the maps and lost on the other
+    half arrive at the same overall number. This is the figure that separates
+    them, and it also reads the other way down a row: a city every model loses
+    on is a property of the map, not of the models.
+
+    Color is diverging around the baseline, in log space, so a cell twice the
+    baseline's error is as far from neutral as one half of it — the same
+    symmetry the score's geometric mean is built on. The scale is clipped to a
+    fixed span rather than fitted to the data: a single extreme cell would
+    otherwise wash the whole grid to neutral, and a fixed span also means two
+    runs' heatmaps can be laid side by side. Cells past the span keep the end
+    color and are still labeled with their own number, so nothing is hidden by
+    the clip.
+
+    Columns are ordered by overall score like every other figure here; rows are
+    ordered by the city's own score over all models, worst-forecast city first.
+
+    Returns None when no (model, city) cell has a score.
+    """
+    report.heading("Score by model and city")
+
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    for r in rows:
+        grouped.setdefault((r["model_id"], city_of(r)), []).append(r)
+    if not grouped:
+        report.text("no scored rows; skipping the heatmap.")
+        return None
+    cells = {k: score_stats(v) for k, v in grouped.items()}
+
+    overall = stats_by_model(rows)
+    models = [m for m in ordered_by_score(overall, model_names) if m in overall]
+
+    by_city: dict[str, list[dict]] = {}
+    for r in rows:
+        by_city.setdefault(city_of(r), []).append(r)
+    city_stats = {c: score_stats(v) for c, v in by_city.items()}
+    # Worst first, so the cities that defeat the field are at the top where a
+    # reader starts rather than buried at the bottom of a fifteen-row grid.
+    cities = sorted(city_stats, key=lambda c: -city_stats[c][0])
+
+    report.text(
+        f"{baseline_note(kind)}\n\n"
+        "one cell per (model, city): the geometric mean of "
+        "CRPS_model / CRPS_baseline over that pair's questions, all six metrics "
+        "and every forecast horizon pooled. Both disaster settings of a city "
+        "share a row. Blue beats the baseline, red loses to it, and the color "
+        f"is symmetric in log space around 1 — clipped at "
+        f"{1 / HEATMAP_SPAN:g}x and {HEATMAP_SPAN:g}x, past which the cell keeps "
+        "the end color but still prints its own number. Columns run best "
+        "overall score first (the Model scores order), rows worst-forecast city "
+        "first. The rightmost column and the bottom row are the pooled margins, "
+        "not cells — the same numbers the per-model table carries. Intervals "
+        "are omitted here for room; a single cell rests on far fewer questions "
+        "than the table's rows do, so read the grid for pattern and the table "
+        "for level."
+    )
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LogNorm
+
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    # The margins get their own trailing column and row, separated from the grid
+    # by a gap: they are aggregates over a whole row or column, and butted
+    # straight against the cells they summarize they would read as one more
+    # model and one more city.
+    n_col, n_row = len(models), len(cities)
+    grid = [[cells.get((m, c)) for m in models] for c in cities]
+
+    fig, ax = plt.subplots(
+        figsize=(max(8.0, 0.62 * n_col + 3.4), max(5.0, 0.42 * n_row + 3.0))
+    )
+    norm = LogNorm(vmin=1 / HEATMAP_SPAN, vmax=HEATMAP_SPAN)
+    # Reversed so the low, baseline-beating end is the cool one: the colormap
+    # runs red -> blue as the value rises, and here rising is worse.
+    cmap = plt.get_cmap("RdBu_r")
+
+    def draw(col: int, row: int, cell: tuple | None) -> None:
+        """One patch plus its number, at grid position (col, row)."""
+        if cell is None:
+            ax.add_patch(
+                plt.Rectangle((col, row), 1, 1, facecolor="0.92", edgecolor="white")
+            )
+            return
+        value = cell[0]
+        rgba = cmap(norm(value))
+        ax.add_patch(plt.Rectangle((col, row), 1, 1, facecolor=rgba, edgecolor="white"))
+        # Ink color follows the patch's own lightness rather than the value:
+        # both ends of a diverging map are dark, so a fixed black would vanish
+        # at both extremes at once.
+        light = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
+        ax.text(
+            col + 0.5,
+            row + 0.5,
+            f"{value:.2f}",
+            ha="center",
+            va="center",
+            fontsize=7,
+            color="white" if light < 0.55 else "0.15",
+        )
+
+    for row, city in enumerate(cities):
+        for col in range(n_col):
+            draw(col, row, grid[row][col])
+        draw(n_col + MARGIN_GAP, row, city_stats[city])
+    for col, m in enumerate(models):
+        draw(col, n_row + MARGIN_GAP, overall[m])
+    # The corner is the whole corpus pooled: the number the report opens with.
+    draw(n_col + MARGIN_GAP, n_row + MARGIN_GAP, score_stats(rows))
+
+    ax.set_xlim(0, n_col + MARGIN_GAP + 1)
+    # Inverted so row 0 — the worst city — is at the top, reading downward.
+    ax.set_ylim(n_row + MARGIN_GAP + 1, 0)
+    ax.set_xticks([c + 0.5 for c in range(n_col)] + [n_col + MARGIN_GAP + 0.5])
+    ax.set_xticklabels(
+        [m.split("/")[-1] for m in models] + ["all models"],
+        rotation=40,
+        ha="right",
+        fontsize=8,
+    )
+    ax.set_yticks([r + 0.5 for r in range(n_row)] + [n_row + MARGIN_GAP + 0.5])
+    ax.set_yticklabels(cities + ["all cities"], fontsize=8)
+    # The margin ticks are italicized so a reader scanning the axis can tell
+    # the pooled row and column from the models and cities beside them.
+    for label in (ax.get_xticklabels()[-1], ax.get_yticklabels()[-1]):
+        label.set_fontstyle("italic")
+    ax.tick_params(length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    # extendfrac is pinned small: the default sizes each arrow as a fraction of
+    # the bar, and on an axes this tall that leaves two arrowheads taking a
+    # third of the ladder between them. The arrows only need to say the scale
+    # is clipped.
+    bar = fig.colorbar(
+        plt.cm.ScalarMappable(norm=norm, cmap=cmap),
+        ax=ax,
+        extend="both",
+        extendfrac=0.02,
+        pad=0.02,
+    )
+    bar.set_ticks([t for t in FINE_TICKS if 1 / HEATMAP_SPAN <= t <= HEATMAP_SPAN])
+    bar.set_ticklabels(
+        [
+            f"{t:g}x" if t != 1 else "1x (baseline)"
+            for t in FINE_TICKS
+            if 1 / HEATMAP_SPAN <= t <= HEATMAP_SPAN
+        ]
+    )
+    bar.ax.tick_params(labelsize=8)
+    bar.set_label(SCORE_AXIS_LABEL, fontsize=9)
+
+    ax.set_title(
+        "Score by model and city — all metrics pooled\n"
+        f"baseline: {BASELINES[kind][0]}; blue beats it, red loses to it\n"
+        "margins are the pooled row and column, not cells",
+        fontsize=11,
+    )
+    fig.tight_layout()
+
+    out = outdir / f"score_heatmap{plot_suffix(kind)}.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    report.image(out)
+    return out
+
+
 @main_with_config
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
@@ -1147,6 +1349,7 @@ def main() -> None:
             plot_score_vs_predictor(
                 report, rows, models, args.baseline, outdir, "forecastbench"
             ),
+            plot_score_heatmap(report, rows, models, args.baseline, outdir),
         ]
         written += [f for f in figures if f is not None]
 
