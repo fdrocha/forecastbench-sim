@@ -97,6 +97,7 @@ def collect_from_config(
         snapshot_only,
         cfg.get_int_or("history_length", -1),
         cfg.get_bool_or("report_effectiveness", False),
+        cfg.get_bool_or("censorCityFunds", True),
         cfg.get_questions_sort(),
     )
 

@@ -57,6 +57,7 @@ def main() -> None:
             cfg.get_bool_or("snapshot_only_report", False),
             cfg.get_int_or("history_length", -1),
             cfg.get_bool_or("report_effectiveness", False),
+            cfg.get_bool_or("censorCityFunds", True),
             cfg.get_questions_sort(),
         )
         batches = group_into_batches(corpus, cfg.get_questions_per_prompt())

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+import micropolis_world.module_globals as g
 from micropolis_world.config import (
     QUESTION_TAGGING_NUMERIC,
     QUESTION_TAGGING_SEMANTIC,
@@ -30,7 +31,7 @@ from micropolis_world.single_city import (
     group_into_batches,
     response_path,
 )
-from micropolis_world.templates import ALL_TEMPLATES
+from micropolis_world.templates import ALL_TEMPLATES, asked_templates
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -194,6 +195,9 @@ class TestQuestionsSort:
     """The two orders build_corpus can number a batch's questions in."""
 
     HORIZONS = [12, 24]
+    # build_corpus censors city funds by default, so the expected order runs
+    # over the templates it actually asks — not all of ALL_TEMPLATES.
+    TEMPLATES = asked_templates(censor_city_funds=True)
 
     def _corpus(self, **kw):
         scenarios = get_single_city_base_scenarios(
@@ -211,14 +215,14 @@ class TestQuestionsSort:
     def test_turn_order_is_the_default(self):
         pairs = [(q["horizon"], q["metric"]) for q in self._corpus()]
         assert pairs == [
-            (h, t.signal_name) for h in self.HORIZONS for t in ALL_TEMPLATES
+            (h, t.signal_name) for h in self.HORIZONS for t in self.TEMPLATES
         ]
 
     def test_metric_order_groups_horizons_per_metric(self):
         corpus = self._corpus(questions_sort=QUESTIONS_SORT_METRIC)
         pairs = [(q["horizon"], q["metric"]) for q in corpus]
         assert pairs == [
-            (h, t.signal_name) for t in ALL_TEMPLATES for h in self.HORIZONS
+            (h, t.signal_name) for t in self.TEMPLATES for h in self.HORIZONS
         ]
 
     def test_both_orders_ask_the_same_questions(self):
@@ -233,6 +237,17 @@ class TestQuestionsSort:
     def test_unknown_sort_is_rejected(self):
         with pytest.raises(ValueError, match="questions_sort"):
             self._corpus(questions_sort="sideways")
+
+    def test_censoring_drops_the_city_funds_questions(self):
+        asked = {q["metric"] for q in self._corpus()}
+        assert g.FUNDS_METRIC not in asked
+        assert asked == {
+            t.signal_name for t in ALL_TEMPLATES if t.signal_name != g.FUNDS_METRIC
+        }
+
+    def test_not_censoring_asks_about_city_funds(self):
+        asked = {q["metric"] for q in self._corpus(censor_city_funds=False)}
+        assert asked == {t.signal_name for t in ALL_TEMPLATES}
 
 
 class TestSemanticTagging:

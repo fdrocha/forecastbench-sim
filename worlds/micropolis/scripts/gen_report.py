@@ -36,6 +36,7 @@ def main() -> None:
     history_length = cfg.get_int_or("history_length", -1)
     snapshot_only = cfg.get_bool_or("snapshot_only_report", False)
     report_effectiveness = cfg.get_bool_or("report_effectiveness", False)
+    censor_city_funds = cfg.get_bool_or("censorCityFunds", True)
     label = cfg.get_label(args.label)
     scenarios = scenarios_from(cfg, args.cities, args.disasters)
 
@@ -67,6 +68,7 @@ def main() -> None:
                 snapshot_only=snapshot_only,
                 history_length=history_length,
                 report_effectiveness=report_effectiveness,
+                censor_city_funds=censor_city_funds,
             )
         )
         print()

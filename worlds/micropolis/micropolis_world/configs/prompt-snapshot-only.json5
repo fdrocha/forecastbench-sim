@@ -36,6 +36,10 @@
   "history_freq": 4,
   "report_effectiveness": true,
 
+  // Pinned false: this variant's results were gathered before
+  // censorCityFunds existed, so it keeps reporting and asking about funds.
+  "censorCityFunds": false,
+
   // Models to prompt (a string names a JSON5 file, relative to this one,
   // holding the list) and the response token cap.
   "models": "models-for-prompt-variants.json5",

@@ -142,6 +142,10 @@ METRICS = [
     "landValueAverage",
 ]
 
+# The one METRICS entry that is money rather than a behavioral reading, named
+# so the report's censorCityFunds variant can drop it by name.
+FUNDS_METRIC = "totalFunds"
+
 # The engine logs one row every 16 ticks, so a row's turn is its tick // 16,
 # which equals the row's index in log_data. Events carry raw ticks only, so
 # this is also how an event is placed on the same turn axis.

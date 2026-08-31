@@ -20,7 +20,7 @@ from .config import (
     QUESTIONS_SORTS,
 )
 from .report import gen_world_report
-from .templates import ALL_TEMPLATES, REGISTRY
+from .templates import REGISTRY, asked_templates
 
 # The quantiles elicited for every continuous question, matching FreeCiv.
 PERCENTILE_KEYS = ["p10", "p25", "p50", "p75", "p90"]
@@ -104,9 +104,16 @@ def build_corpus(
     snapshot_only_report: bool = False,
     history_length: int = -1,
     report_effectiveness: bool = False,
+    censor_city_funds: bool = True,
     questions_sort: str = QUESTIONS_SORT_TURN,
 ) -> list[dict]:
     """One question per (scenario, snapshot turn, horizon, metric) combination.
+
+    `censor_city_funds` (the default) both hides the city's money from the
+    world report and drops the city funds question from the corpus, so the
+    metric is neither reported nor asked about. False asks about all of
+    templates.Q_METRICS and reports the balance, which is what the prompt
+    variants gathered before the flag existed were run with.
 
     `questions_sort` picks the order the questions come out in, and so the
     order they are numbered in each batch prompt: QUESTIONS_SORT_TURN asks
@@ -121,6 +128,7 @@ def build_corpus(
             f"questions_sort must be one of {QUESTIONS_SORTS}, got {questions_sort!r}"
         )
     resolver = QuestionResolver(REGISTRY)
+    templates = asked_templates(censor_city_funds)
     corpus = []
     nscenarios = len(scenarios)
     # +1 because the furthest question resolves *at* max(snapshot_turns) +
@@ -141,14 +149,15 @@ def build_corpus(
                 snapshot_only=snapshot_only_report,
                 history_length=history_length,
                 report_effectiveness=report_effectiveness,
+                censor_city_funds=censor_city_funds,
             )
             # Both orders ask the same questions; only the order they are
             # numbered in the prompt differs, so the pairs are generated once
             # and re-ordered rather than duplicating the loop body.
             pairs = (
-                [(H, t) for H in horizons for t in ALL_TEMPLATES]
+                [(H, t) for H in horizons for t in templates]
                 if questions_sort == QUESTIONS_SORT_TURN
-                else [(H, t) for t in ALL_TEMPLATES for H in horizons]
+                else [(H, t) for t in templates for H in horizons]
             )
             for H, template in pairs:
                 T = SNAPSHOT_TURN + H

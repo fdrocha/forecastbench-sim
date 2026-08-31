@@ -64,6 +64,12 @@
   "history_freq": 24,
   "report_effectiveness": false,
 
+  // Drop the city's money from the eval entirely: the city funds reading,
+  // cash flow and auto-budget lines in CURRENT STATE, the city funds column
+  // in HISTORY, and the city funds question itself. True is the default, so a
+  // config that wants the balance reported and asked about must say false.
+  "censorCityFunds": true,
+
   "models": "models-base.json5",
   "max_tokens": 30000,
 }

@@ -99,9 +99,10 @@ def gather_responses(
     Cache files are named with the prompt's hash (see single_city.prompt_hash),
     so a response is only ever reused when it was gathered under the exact
     prompt being asked now — a config change to horizons, templates,
-    history_freq, history_length, snapshot_only_report, preamble_path or
-    epilogue_path, question_tagging or questions_per_prompt changes the hash,
-    which simply misses the cache rather than risking a stale match.
+    history_freq, history_length, snapshot_only_report, censorCityFunds,
+    preamble_path or epilogue_path, question_tagging or questions_per_prompt
+    changes the hash, which simply misses the cache rather than risking a
+    stale match.
     An empty reply — a reasoning model can burn the whole token budget
     thinking — is not cached, so the next run retries it; a non-empty reply is
     cached even when unparseable, since retrying greedy decoding would return
@@ -292,6 +293,7 @@ def main() -> None:
     # report the corpus carries and the templates the prompt names it with can
     # never disagree about which variant this run is.
     snapshot_only = cfg.get_bool_or("snapshot_only_report", False)
+    censor_city_funds = cfg.get_bool_or("censorCityFunds", True)
     preamble_path = cfg.get_preamble_path()
     epilogue_path = cfg.get_epilogue_path()
     questions_sort = cfg.get_questions_sort()
@@ -309,6 +311,8 @@ def main() -> None:
         print(f"epilogue: {epilogue_path}")
     if snapshot_only:
         print("report: snapshot only (no HISTORY table)")
+    if censor_city_funds:
+        print("report: city funds censored")
     if questions_sort != QUESTIONS_SORT_TURN:
         print(f"questions sorted by: {questions_sort}")
     if question_tagging != QUESTION_TAGGING_NUMERIC:
@@ -331,6 +335,7 @@ def main() -> None:
         snapshot_only,
         cfg.get_int_or("history_length", -1),
         cfg.get_bool_or("report_effectiveness", False),
+        censor_city_funds,
         questions_sort,
     )
 

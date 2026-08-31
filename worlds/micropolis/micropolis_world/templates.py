@@ -38,3 +38,16 @@ ALL_TEMPLATES: list[QuestionTemplate] = [
 ]
 
 REGISTRY = TemplateRegistry(ALL_TEMPLATES)
+
+
+def asked_templates(censor_city_funds: bool) -> list[QuestionTemplate]:
+    """ALL_TEMPLATES, minus the city funds question when censoring.
+
+    Censoring hides the balance from the world report, so asking for it would
+    be a forecast from nothing the report states; the metric is dropped from
+    the corpus instead. REGISTRY keeps every template either way, so a funds
+    question still resolves if something else asks one.
+    """
+    if not censor_city_funds:
+        return ALL_TEMPLATES
+    return [t for t in ALL_TEMPLATES if t.signal_name != g.FUNDS_METRIC]
