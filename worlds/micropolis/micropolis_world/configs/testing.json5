@@ -1,8 +1,4 @@
-// Default parameters for the scripts in worlds/micropolis/scripts/.
-//
-// Parsed as JSON5, so comments and trailing commas are allowed. Any script run
-// without a config file argument uses this one. See README.md for which script
-// reads which key; unused keys are ignored, so one config can serve them all.
+// Config file used for quick testing, using one cheap model
 {
   // RNG seed for the simulations. Override per-run with --seed.
   "seed": 42,
@@ -20,14 +16,14 @@
     "joffburg",
     "kamakura",
     "kowloon",
-    "linecity",
-    "senri",
-    "southpac",
-    "wetcity",
-    "yokohama",
-    "kobe",
-    "kyoto",
-    "deadwood",
+//    "linecity",
+//    "senri",
+//    "southpac",
+//    "wetcity",
+//    "yokohama",
+//    "kobe",
+//    "kyoto",
+//    "deadwood",
 
     // The following cities start with 0 population and nothing happens
     // "about",
@@ -43,7 +39,7 @@
 
   // How many turns run_sim.py simulates. The corpus scripts ignore this and
   // derive their own length from snapshot_turns + horizons.
-  "turns": 2400,
+  "turns": 1000,
 
   // Turns at which a world report is generated and questions are asked,
   // and the forecast horizons past each snapshot. 48 turns per year.
@@ -64,6 +60,9 @@
   "history_freq": 24,
   "report_effectiveness": false,
 
-  "models": "models-base.json5",
+  "models": [
+      "openai/gpt-4.1",
+      "google/gemini-2.5-flash",
+  ]
   "max_tokens": 30000,
 }

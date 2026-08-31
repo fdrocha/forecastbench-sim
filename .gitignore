@@ -3,6 +3,7 @@
 .settings/
 .ipynb_checkpoints/
 .claude/
+**/CLAUDE.local.md
 .worktreeinclude
 
 # Generated files
