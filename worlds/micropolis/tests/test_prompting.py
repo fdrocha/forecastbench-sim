@@ -12,6 +12,8 @@ import time
 
 import pytest
 from fbsim_core.evaluation.models import LiteLLMModel
+from test_usage import make_response
+
 from micropolis_world.prompting import (
     PromptJob,
     PromptResult,
@@ -20,7 +22,6 @@ from micropolis_world.prompting import (
     prompt_model_async,
     run_prompts,
 )
-from test_usage import make_response
 
 
 @pytest.fixture

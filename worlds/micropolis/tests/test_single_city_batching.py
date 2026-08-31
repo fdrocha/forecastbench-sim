@@ -7,6 +7,7 @@ sort tests, which build a small corpus and so run the simulator.
 """
 
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -194,10 +195,10 @@ class TestBuildBatchPrompt:
 class TestQuestionsSort:
     """The two orders build_corpus can number a batch's questions in."""
 
-    HORIZONS = [12, 24]
+    HORIZONS: ClassVar = [12, 24]
     # build_corpus censors city funds by default, so the expected order runs
     # over the templates it actually asks — not all of ALL_TEMPLATES.
-    TEMPLATES = asked_templates(censor_city_funds=True)
+    TEMPLATES: ClassVar = asked_templates(censor_city_funds=True)
 
     def _corpus(self, **kw):
         scenarios = get_single_city_base_scenarios(

@@ -147,7 +147,7 @@ def plot_run(sim: CitySimulation, output: str | None = None) -> None:
                     xy=(0, 0),
                     xytext=(10, 10),
                     textcoords="offset points",
-                    bbox=dict(boxstyle="round", fc="w", ec="0.3"),
+                    bbox={"boxstyle": "round", "fc": "w", "ec": "0.3"},
                     visible=False,
                     zorder=100,
                 )

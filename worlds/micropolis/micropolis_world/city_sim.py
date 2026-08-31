@@ -4,7 +4,7 @@ import json
 import subprocess
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from . import module_globals as g
 

@@ -27,6 +27,7 @@ Usage:
 
 import argparse
 import sys
+from itertools import pairwise
 from pathlib import Path
 
 import micropolis_world.module_globals as g
@@ -40,8 +41,8 @@ from micropolis_world.config import (
 from micropolis_world.plot_sim import PANEL_GRID, PANEL_METRICS
 from micropolis_world.single_city import (
     DatasetError,
-    Responses,
     ResponseId,
+    Responses,
     data_path,
     load_dataset,
     plots_path,
@@ -143,7 +144,7 @@ def plot_forecasts(
         # every snapshot's resolve turns at once, so clusters from different
         # snapshots that land close together still do not merge.
         resolve_turns = sorted({c["snapshot_turn"] + c["horizon"] for c in entries})
-        gaps = [b - a for a, b in zip(resolve_turns, resolve_turns[1:])]
+        gaps = [b - a for a, b in pairwise(resolve_turns)]
         slot = 0.6 * min(gaps) if gaps else 0.04 * (max(turns) - min(turns))
         dodge = {
             model_id: slot * ((i + 0.5) / len(model_names) - 0.5)

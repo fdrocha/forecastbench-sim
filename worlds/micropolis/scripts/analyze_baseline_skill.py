@@ -77,6 +77,8 @@ import sys
 from pathlib import Path
 
 from fbsim_core.metrics import compute_crps
+from scipy import stats
+
 from micropolis_world import model_scores
 from micropolis_world.config import (
     add_config_args,
@@ -96,7 +98,6 @@ from micropolis_world.single_city import (
     scenario_history,
     select_for_config,
 )
-from scipy import stats
 
 # Imported rather than reimplemented so the baseline this scores against is
 # provably the same one analyze_single_city.py draws on its figures.
@@ -921,8 +922,11 @@ def plot_score_vs_predictor(
         ),
         "forecastbench": (
             "Score vs Forecastbench",
-            "ForecastBench overall score "
-            "(higher is better; horizontal bars are its published 95% CI)",
+            (
+                "ForecastBench overall score "
+                "(higher is better; horizontal bars are its published "
+                "95% CI)"
+            ),
             model_scores.fb_overall_of,
             lambda m: (s := model_scores.scores_of(m)) and s.fb_error,
         ),
@@ -956,9 +960,11 @@ def plot_score_vs_predictor(
 
     lines = [
         baseline_note(kind),
-        "score is lower-is-better and the x axis is higher-is-better, so a "
-        "negative correlation means the models the benchmark rates higher beat "
-        "the baseline by more.",
+        (
+            "score is lower-is-better and the x axis is higher-is-better, "
+            "so a negative correlation means the models the benchmark rates "
+            "higher beat the baseline by more."
+        ),
     ]
     if skipped:
         lines.append(f"no {heading.split(' vs ')[1]} score, excluded: {', '.join(skipped)}")

@@ -43,8 +43,9 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 
-import micropolis_world.module_globals as g
 from fbsim_core.evaluation.models import get_models
+
+import micropolis_world.module_globals as g
 from micropolis_world.config import (
     QUESTION_TAGGING_NUMERIC,
     QUESTION_TAGGING_SEMANTIC,

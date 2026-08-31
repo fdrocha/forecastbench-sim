@@ -7,9 +7,8 @@ the name prompt_model binds, so nothing here calls a model or needs a key.
 """
 
 import pytest
-from litellm.types.utils import Choices, Message, ModelResponse, Usage
-
 from fbsim_core.evaluation.models import LiteLLMModel
+from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
 import micropolis_world.module_globals as g
 from micropolis_world.usage import CallUsage, cost_from_response, usage_from_response

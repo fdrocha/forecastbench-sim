@@ -8,9 +8,9 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import pytest  # noqa: E402
+import pytest
 
-from micropolis_world.plot_sim import (  # noqa: E402
+from micropolis_world.plot_sim import (
     PANEL_GRID,
     PANEL_METRICS,
     plot_repeats,

@@ -72,6 +72,8 @@ import sys
 import warnings
 from pathlib import Path
 
+from scipy import stats
+
 from micropolis_world import model_scores
 from micropolis_world.config import Config, ConfigError, main_with_config
 from micropolis_world.plot_labels import place_labels
@@ -84,7 +86,6 @@ from micropolis_world.single_city import (
     load_dataset,
     select_for_config,
 )
-from scipy import stats
 
 sys.path.insert(0, str(Path(__file__).parent))
 from analyze_baseline_skill import (
@@ -711,8 +712,10 @@ def plot_eci_vs_skill_by_config(
     )
     lines = [
         baseline_note(kind),
-        "skill is lower-is-better, so rho<0 means the more capable models beat "
-        "the baseline by more (pro-g).",
+        (
+            "skill is lower-is-better, so rho<0 means the more capable "
+            "models beat the baseline by more (pro-g)."
+        ),
     ]
 
     outdir.mkdir(parents=True, exist_ok=True)

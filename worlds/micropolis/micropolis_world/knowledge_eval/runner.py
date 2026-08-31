@@ -7,14 +7,13 @@ shuffles it with a fixed seed, and appends the numbered result to the preamble.
 import asyncio
 import base64
 import hashlib
-import json
 import random
 import re
 import time
 from collections import Counter
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from dataclasses import dataclass
 
 from .. import module_globals as g
 from ..module_globals import warn_if_truncated

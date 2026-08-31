@@ -19,7 +19,7 @@ from fbsim_core.metrics import compute_crps
 from . import module_globals as g
 from .city_sim import CitySimulation
 from .config import Config, scenarios_from
-from .knowledge_eval.runner import prompt_hash
+from .knowledge_eval.runner import prompt_hash  # noqa: F401 - re-exported
 from .usage import load_usage, save_usage  # noqa: F401 - re-exported for the scripts
 
 # Batch prompts and raw model responses are cached here, shared across every
@@ -285,7 +285,7 @@ def git_commit_note(repo: Path | None = None, count_untracked: bool = True) -> s
         ).stdout.strip()
         dirty = bool(
             subprocess.run(
-                status, capture_output=True, text=True, cwd=repo
+                status, capture_output=True, text=True, check=False, cwd=repo
             ).stdout.strip()
         )
     except (subprocess.CalledProcessError, FileNotFoundError, NotADirectoryError):

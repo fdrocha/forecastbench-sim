@@ -9,6 +9,7 @@ by bare model name.
 import csv
 
 import pytest
+
 from micropolis_world import model_scores
 
 # A miniature model_scores.csv: one model with a slug (joinable), one without

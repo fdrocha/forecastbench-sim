@@ -33,6 +33,7 @@ import argparse
 import re
 import statistics
 import sys
+from itertools import pairwise
 from pathlib import Path
 
 from fbsim_core.metrics import compute_crps
@@ -758,7 +759,7 @@ def plot_normalized_by_horizon(
     # overlap into a single blob and the legend colors can't be matched to
     # anything. The offset is a fixed function of the model's index, not random,
     # so a model sits in the same place in every regenerated figure.
-    gap = min((b - a for a, b in zip(horizons, horizons[1:])), default=1)
+    gap = min((b - a for a, b in pairwise(horizons)), default=1)
     # Held well inside the gap so a point stays visibly attached to its own tick;
     # with few horizons a wider spread would put a model nearer the next tick
     # than its own.
@@ -974,8 +975,10 @@ def plot_eci_vs_normalized(
     lines = [
         f"rho={rho:+.3f}  p={p_rho:.4f} {stars(p_rho):<4} ({direction}, n={len(points)})",
         f"Pearson r={r:+.3f}  p={p_r:.4f} {stars(p_r)}",
-        "nCRPS is lower-is-better, so rho<0 means the more capable models "
-        "forecast better (pro-g).",
+        (
+            "nCRPS is lower-is-better, so rho<0 means the more capable "
+            "models forecast better (pro-g)."
+        ),
     ]
     if skipped:
         lines.append(f"no ECI score, excluded: {', '.join(skipped)}")
@@ -1396,7 +1399,7 @@ def annotate_read_off(ax, rows: list[tuple]) -> None:
         fontsize=8,
         color="#777777",
         ha="center",
-        arrowprops=dict(arrowstyle="-", color="#bbbbbb", lw=0.8, shrinkB=2),
+        arrowprops={"arrowstyle": "-", "color": "#bbbbbb", "lw": 0.8, "shrinkB": 2},
     )
 
 
