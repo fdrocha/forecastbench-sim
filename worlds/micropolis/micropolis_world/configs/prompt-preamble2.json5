@@ -1,4 +1,4 @@
-// based on prompt-long.json5, but switches to preamble2
+// based on prompt-long.json5, but switches to preamble2b
 {
   // RNG seed for the simulations. Override per-run with --seed.
   "seed": 42,
@@ -27,7 +27,7 @@
   // and the forecast horizons past each snapshot. 48 turns per year.
   "snapshot_turns": [240, 480],    // years 5 and 10
   "horizons": [0, 48, 96, 144, 192, 240],  // 1-5 out
-  "preamble_path" : "preamble2.txt",
+  "preamble_path" : "preamble2b.txt",
   // gen_report.py: turn to print the report for (negative counts back from the
   // last logged turn), and how often the report includes historical data.
   "snapshot_only_report" : false,

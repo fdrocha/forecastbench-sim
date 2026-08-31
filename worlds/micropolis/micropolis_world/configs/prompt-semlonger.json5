@@ -29,7 +29,7 @@
   // and the forecast horizons past each snapshot. 48 turns per year.
   "snapshot_turns": [1440, 1920],    // years 30 and 40
   "horizons": [0, 48, 96, 144, 192, 240],  // 1-5 out
-  "preamble_path" : "preamble2.txt",
+  "preamble_path" : "preamble2b.txt",
 
   // Tag each question "<metric>@<turn>" instead of numbering it, and expect
   // answer lines carrying the same tag. No epilogue_path here, so the run
