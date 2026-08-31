@@ -1,3 +1,5 @@
+// based on prompt-numlonger.json5 but using snapshots at 20 and 30 years
+// instead of 30 and 40
 {
   // RNG seed for the simulations. Override per-run with --seed.
   "seed": 42,
@@ -24,20 +26,28 @@
 
   // Turns at which a world report is generated and questions are asked,
   // and the forecast horizons past each snapshot. 48 turns per year.
-  "snapshot_turns": [240, 480],    // years 5 and 10
+  "snapshot_turns": [960, 1440],    // years 20 and 30
   "horizons": [0, 48, 96, 144, 192, 240],  // 1-5 out
+  "preamble_path" : "preamble2.txt",
+
+  // Tag each question "<metric>@<turn>" instead of numbering it, and expect
+  // answer lines carrying the same tag. No epilogue_path here, so the run
+  // picks up epilogue2.txt, whose examples show the tagged answer format.
+  "question_tagging": "numeric",
+
+  // Ask every horizon for one metric before moving to the next metric, so a
+  // metric's whole trajectory is asked about in one run of consecutive lines.
+  "questions_sort": "metric",
 
   // gen_report.py: turn to print the report for (negative counts back from the
   // last logged turn), and how often the report includes historical data.
   "snapshot_only_report" : false,
   "report_turn": -1,
-  "history_freq": 4,
-  "report_effectiveness": true,
+  "history_freq": 24,
+  "report_effectiveness": false,
 
   "censorCityFunds": true,
 
-  // Models to prompt (a string names a JSON5 file, relative to this one,
-  // holding the list) and the response token cap.
   "models": "models-for-prompt-variants.json5",
   "max_tokens": 30000,
 }

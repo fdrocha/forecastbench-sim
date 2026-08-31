@@ -39,7 +39,7 @@
 
   // Disaster settings to run each city under; crossed with "cities".
   // [false, true] runs both variants of every city.
-  "disasters": [false, true],
+  "disasters": [true],
 
   // How many turns run_sim.py simulates. The corpus scripts ignore this and
   // derive their own length from snapshot_turns + horizons.
