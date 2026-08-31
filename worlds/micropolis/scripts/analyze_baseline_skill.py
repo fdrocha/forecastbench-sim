@@ -573,9 +573,7 @@ FINE_TICKS = [
 ]  # fmt: skip
 
 
-def set_ratio_ticks(
-    ax, candidates: list[float], max_ticks: int | None = None
-) -> None:
+def set_ratio_ticks(ax, candidates: list[float], max_ticks: int | None = None) -> None:
     """Put ratio-labeled ticks on a log score axis, spanning its current limits.
 
     `max_ticks` thins a dense ladder down for a small axis by dropping every
@@ -745,9 +743,7 @@ def plot_score_by_horizon(
         (h, v)
         for h in horizons
         for v in [
-            geometric_mean_of(
-                [cells[(m, h)][0] for m in ordered if (m, h) in cells]
-            )
+            geometric_mean_of([cells[(m, h)][0] for m in ordered if (m, h) in cells])
         ]
         if v is not None
     ]
@@ -967,7 +963,9 @@ def plot_score_vs_predictor(
         ),
     ]
     if skipped:
-        lines.append(f"no {heading.split(' vs ')[1]} score, excluded: {', '.join(skipped)}")
+        lines.append(
+            f"no {heading.split(' vs ')[1]} score, excluded: {', '.join(skipped)}"
+        )
     report.text("\n".join(lines))
 
     import matplotlib
@@ -1349,9 +1347,7 @@ def main() -> None:
                 report, cells, ordered_by_score(cells, models), args.baseline, outdir
             ),
             plot_score_by_horizon(report, rows, models, args.baseline, outdir),
-            plot_score_vs_predictor(
-                report, rows, models, args.baseline, outdir, "eci"
-            ),
+            plot_score_vs_predictor(report, rows, models, args.baseline, outdir, "eci"),
             plot_score_vs_predictor(
                 report, rows, models, args.baseline, outdir, "forecastbench"
             ),

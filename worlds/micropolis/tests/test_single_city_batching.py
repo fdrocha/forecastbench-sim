@@ -325,16 +325,22 @@ class TestSemanticTagging:
         ]
 
     def test_skipped_question_does_not_shift_the_others(self):
-        response = delimited(f"{TAGS[0]}: {as_line(SET1)}", f"{TAGS[2]}: {as_line(SET3)}")
-        assert parse_batch_percentiles_semantic(
-            response, LABELS, TAGS, quiet=True
-        ) == [SET1, None, SET3]
+        response = delimited(
+            f"{TAGS[0]}: {as_line(SET1)}", f"{TAGS[2]}: {as_line(SET3)}"
+        )
+        assert parse_batch_percentiles_semantic(response, LABELS, TAGS, quiet=True) == [
+            SET1,
+            None,
+            SET3,
+        ]
 
     def test_tag_matching_ignores_case_and_spacing(self):
         response = delimited(f"  Metric 1 @ 288 : {as_line(SET1)}")
-        assert parse_batch_percentiles_semantic(
-            response, LABELS, TAGS, quiet=True
-        ) == [SET1, None, None]
+        assert parse_batch_percentiles_semantic(response, LABELS, TAGS, quiet=True) == [
+            SET1,
+            None,
+            None,
+        ]
 
     def test_unknown_tag_is_ignored_not_guessed(self):
         # A tag naming no question — including the right metric at the wrong
@@ -342,17 +348,21 @@ class TestSemanticTagging:
         response = delimited(
             f"metric 9@288: {as_line(SET1)}", f"metric 1@240: {as_line(SET2)}"
         )
-        assert parse_batch_percentiles_semantic(
-            response, LABELS, TAGS, quiet=True
-        ) == [None, None, None]
+        assert parse_batch_percentiles_semantic(response, LABELS, TAGS, quiet=True) == [
+            None,
+            None,
+            None,
+        ]
 
     def test_no_positional_fallback(self):
         # Unlike the numeric parser, an untagged full set answers nothing:
         # there is no trustworthy way to tell which question it meant.
         response = delimited(as_line(SET1), as_line(SET2), as_line(SET3))
-        assert parse_batch_percentiles_semantic(
-            response, LABELS, TAGS, quiet=True
-        ) == [None, None, None]
+        assert parse_batch_percentiles_semantic(response, LABELS, TAGS, quiet=True) == [
+            None,
+            None,
+            None,
+        ]
 
     def test_restated_answer_wins(self):
         response = (
@@ -361,23 +371,27 @@ class TestSemanticTagging:
             f"{TAGS[0]}: {as_line(SET1)}\n"
             "<<<END>>>"
         )
-        assert parse_batch_percentiles_semantic(
-            response, LABELS, TAGS, quiet=True
-        )[0] == SET1
+        assert (
+            parse_batch_percentiles_semantic(response, LABELS, TAGS, quiet=True)[0]
+            == SET1
+        )
 
     def test_non_monotonic_is_discarded(self):
         response = delimited(f"{TAGS[0]}: p10=50, p25=40, p50=30, p75=20, p90=10")
-        assert parse_batch_percentiles_semantic(
-            response, LABELS, TAGS, quiet=True
-        ) == [None, None, None]
+        assert parse_batch_percentiles_semantic(response, LABELS, TAGS, quiet=True) == [
+            None,
+            None,
+            None,
+        ]
 
     def test_empty_response(self):
-        assert parse_batch_percentiles_semantic(None, LABELS, TAGS, quiet=True) == [
-            None
-        ] * 3
-        assert parse_batch_percentiles_semantic("", LABELS, TAGS, quiet=True) == [
-            None
-        ] * 3
+        assert (
+            parse_batch_percentiles_semantic(None, LABELS, TAGS, quiet=True)
+            == [None] * 3
+        )
+        assert (
+            parse_batch_percentiles_semantic("", LABELS, TAGS, quiet=True) == [None] * 3
+        )
 
 
 class TestQuestionsPerPrompt:
@@ -444,8 +458,10 @@ class TestQuestionsPerPrompt:
         # A chunk repeats the report and renumbers from 1, and its epilogue
         # states its own count — the model never sees a question number it was
         # not asked about, nor a count that disagrees with the list.
-        questions = [dict(q, question_text=f"What about {i}?", context=REPORT)
-                     for i, q in enumerate(self._corpus(6))]
+        questions = [
+            dict(q, question_text=f"What about {i}?", context=REPORT)
+            for i, q in enumerate(self._corpus(6))
+        ]
         chunks = list(group_into_batches(questions, 4).values())
         assert [len(c) for c in chunks] == [3, 3]
         for chunk in chunks:

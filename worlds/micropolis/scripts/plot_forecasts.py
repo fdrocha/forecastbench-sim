@@ -56,6 +56,7 @@ def forecasts_path(label: str) -> Path:
     # scoring script writes alongside them.
     return plots_path(label) / "forecasts"
 
+
 # These figures carry one marker per (model, snapshot, horizon) per panel, so the
 # full model set makes them unreadable; this config subsets to a legible few.
 # Named here as the default rather than in default.json5 so the scoring scripts,

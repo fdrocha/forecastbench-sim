@@ -39,7 +39,9 @@ def test_single_city_sidecar_sits_beside_its_response():
 
     assert sidecar.parent == response.parent
     # Same model slug and prompt hash, so the pair is found or missed together.
-    assert sidecar.stem.removeprefix("usage-") == response.stem.removeprefix("response-")
+    assert sidecar.stem.removeprefix("usage-") == response.stem.removeprefix(
+        "response-"
+    )
     assert sidecar.suffix == ".json"
 
 
@@ -53,7 +55,9 @@ def test_knowledge_eval_sidecar_sits_beside_its_response():
     sidecar = runner.usage_path(MODEL, PHASH)
 
     assert sidecar.parent == response.parent
-    assert sidecar.stem.removeprefix("usage-") == response.stem.removeprefix("response-")
+    assert sidecar.stem.removeprefix("usage-") == response.stem.removeprefix(
+        "response-"
+    )
     assert sidecar.suffix == ".json"
 
 

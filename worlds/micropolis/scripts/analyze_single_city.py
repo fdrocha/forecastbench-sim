@@ -1856,7 +1856,9 @@ def main() -> None:
             if out is not None:
                 print(f"Wrote {out}")
 
-    out_path = report.write(label_dir(label) / "analysis-crps.md", "Single city eval — CRPS")
+    out_path = report.write(
+        label_dir(label) / "analysis-crps.md", "Single city eval — CRPS"
+    )
     print(out_path)
 
 

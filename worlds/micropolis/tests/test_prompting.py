@@ -136,7 +136,9 @@ def test_retries_rate_limits_with_a_stderr_warning(monkeypatch, capsys):
     async def fake_acompletion(**kwargs):
         attempts.append(kwargs)
         if len(attempts) < 3:
-            raise litellm.RateLimitError("slow down", llm_provider="openai", model="gpt-4o")
+            raise litellm.RateLimitError(
+                "slow down", llm_provider="openai", model="gpt-4o"
+            )
         return make_response()
 
     monkeypatch.setattr("litellm.acompletion", fake_acompletion)
@@ -186,7 +188,9 @@ def test_raises_once_the_retry_budget_is_spent(monkeypatch, capsys):
     assert capsys.readouterr().err.count("RateLimitError") == 2
 
 
-def test_transient_errors_retry_but_client_errors_raise_immediately(monkeypatch, capsys):
+def test_transient_errors_retry_but_client_errors_raise_immediately(
+    monkeypatch, capsys
+):
     import litellm
 
     attempts = []
@@ -194,7 +198,9 @@ def test_transient_errors_retry_but_client_errors_raise_immediately(monkeypatch,
     async def flaky_acompletion(**kwargs):
         attempts.append(kwargs)
         if len(attempts) == 1:
-            raise litellm.InternalServerError("oops", llm_provider="openai", model="gpt-4o")
+            raise litellm.InternalServerError(
+                "oops", llm_provider="openai", model="gpt-4o"
+            )
         return make_response()
 
     monkeypatch.setattr("litellm.acompletion", flaky_acompletion)
@@ -213,7 +219,9 @@ def test_transient_errors_retry_but_client_errors_raise_immediately(monkeypatch,
 
     async def unauthorized_acompletion(**kwargs):
         attempts.append(kwargs)
-        raise litellm.AuthenticationError("bad key", llm_provider="openai", model="gpt-4o")
+        raise litellm.AuthenticationError(
+            "bad key", llm_provider="openai", model="gpt-4o"
+        )
 
     monkeypatch.setattr("litellm.acompletion", unauthorized_acompletion)
     attempts.clear()

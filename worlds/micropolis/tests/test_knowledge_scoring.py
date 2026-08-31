@@ -157,9 +157,11 @@ def test_scores_by_model_name_restricts_to_a_subset(monkeypatch):
     easy = [s for s in statements if s.difficulty == 0]
     # Right on the easy tier, wrong everywhere else, so the two calls must differ.
     answers = answers_for(
-        lambda s: (Answer.TRUE if s.is_true else Answer.FALSE)
-        if s.difficulty == 0
-        else (Answer.FALSE if s.is_true else Answer.TRUE)
+        lambda s: (
+            (Answer.TRUE if s.is_true else Answer.FALSE)
+            if s.difficulty == 0
+            else (Answer.FALSE if s.is_true else Answer.TRUE)
+        )
     )
     monkeypatch.setattr(
         "micropolis_world.knowledge_eval.runner.get_cached_answers",

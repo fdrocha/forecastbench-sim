@@ -45,6 +45,7 @@ def data_path(label: str) -> Path:
 def plots_path(label: str) -> Path:
     return label_dir(label) / "plots"
 
+
 # Metrics left out of normalized CRPS. Normalizing by |actual| is undefined
 # where the actual is 0, and city funds legitimately sits at 0 for long
 # stretches — a bankrupt city stays broke — so the whole metric is excluded
@@ -166,8 +167,6 @@ def usage_path(batch_id: str, model_id: str, phash: str) -> Path:
     must match response_path's exactly, or the sidecar lands next to nothing.
     """
     return batch_dir(batch_id) / f"usage-{model_id.replace('/', '_')}-{phash}.json"
-
-
 
 
 def save_dataset(

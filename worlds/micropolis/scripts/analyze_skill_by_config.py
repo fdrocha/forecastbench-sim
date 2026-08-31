@@ -162,7 +162,7 @@ def short_labels(labels: list[str]) -> dict[str, str]:
     if cut < 0:
         return {l: l for l in labels}
     prefix = common[: cut + 1]
-    trimmed = {l: l[len(prefix):] for l in labels}
+    trimmed = {l: l[len(prefix) :] for l in labels}
     if not all(trimmed.values()):
         return {l: l for l in labels}
     return trimmed
@@ -217,7 +217,9 @@ def response_counts(
     return asked, parsed
 
 
-def mean_of_model_means(rows: list[dict]) -> tuple[float, float | None, float | None] | None:
+def mean_of_model_means(
+    rows: list[dict],
+) -> tuple[float, float | None, float | None] | None:
     """One config's average skill, giving every model one vote.
 
     The point estimate is the geometric mean of the per-model geometric means,
@@ -326,9 +328,7 @@ def eci_correlation(rows: list[dict]) -> tuple[float, float, int] | None:
     # when the cell simply has no correlation to show.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", stats.ConstantInputWarning)
-        rho, p = stats.spearmanr(
-            [e for e, _ in points], [s for _, s in points]
-        )
+        rho, p = stats.spearmanr([e for e, _ in points], [s for _, s in points])
     # nan would format as "nan" and read as a computed result rather than as
     # "not available".
     if math.isnan(rho):
@@ -385,9 +385,7 @@ def print_summary_table(
     # it: the splits hold very different numbers of questions, so averaging the
     # columns would silently promote city funds — one metric — to half the
     # weight of the five behavioral ones.
-    overall = {
-        label: mean_of_model_means(rows) for label, rows in per_config.items()
-    }
+    overall = {label: mean_of_model_means(rows) for label, rows in per_config.items()}
 
     report.heading("Summary by config", level=1)
     report.text(
@@ -432,9 +430,7 @@ def print_summary_table(
             return "-"
         return f"{100 * (asked - valid) / asked:.2f}%"
 
-    correlations = {
-        label: eci_correlation(rows) for label, rows in per_config.items()
-    }
+    correlations = {label: eci_correlation(rows) for label, rows in per_config.items()}
 
     def eci_corr(label: str) -> str:
         """rho with its significance stars, or a dash where it is not defined."""
@@ -459,9 +455,7 @@ def print_summary_table(
         ("ECI corr", eci_corr),
     ]
     label_col = max([len("Config")] + [len(short(l)) for l in per_config])
-    widths = [
-        max(len(head), *(len(fn(l)) for l in per_config)) for head, fn in cols
-    ]
+    widths = [max(len(head), *(len(fn(l)) for l in per_config)) for head, fn in cols]
 
     header = f"{'Config':<{label_col}}  " + "  ".join(
         f"{head:>{w}}" for (head, _), w in zip(cols, widths)
@@ -565,8 +559,30 @@ def plot_avg_skill_bars(
     # factor of two of each other, so that axis's steps would leave a plot
     # spanning 0.7-1.1 labeled at one or two ticks.
     candidates = [
-        0.1, 0.125, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
-        1.0, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 6, 8, 12, 16,
+        0.1,
+        0.125,
+        0.2,
+        0.25,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9,
+        1.0,
+        1.1,
+        1.25,
+        1.5,
+        1.75,
+        2,
+        2.5,
+        3,
+        4,
+        6,
+        8,
+        12,
+        16,
     ]
     ticks = [t for t in candidates if lo_lim <= t <= hi_lim]
     ax.set_yticks(ticks)
@@ -604,9 +620,7 @@ def print_skill_table(
         ordered_models(per_config),
         key=lambda m: (eci_of(m) is None, -(eci_of(m) or 0)),
     )
-    cells = {
-        label: stats_by_model(rows) for label, rows in per_config.items()
-    }
+    cells = {label: stats_by_model(rows) for label, rows in per_config.items()}
 
     report.heading(
         f"Skill vs baseline by model and config — {SPLITS[split][0]} "
@@ -650,9 +664,7 @@ def print_skill_table(
     for label, rows in per_config.items():
         ns = [cells[label][m][3] for m in models if m in cells[label]]
         if ns:
-            per_model = (
-                f"{min(ns)}" if min(ns) == max(ns) else f"{min(ns)}-{max(ns)}"
-            )
+            per_model = f"{min(ns)}" if min(ns) == max(ns) else f"{min(ns)}-{max(ns)}"
             # Both counts, since they answer different questions: the questions
             # say how much was scored, the clusters say how wide the bars are.
             n_clusters = len({cluster_key(r) for r in rows})
@@ -707,9 +719,7 @@ def plot_eci_vs_skill_by_config(
         )
         return None
 
-    report.heading(
-        f"ECI vs skill vs baseline by config — {split_display(split)[0]}"
-    )
+    report.heading(f"ECI vs skill vs baseline by config — {split_display(split)[0]}")
     lines = [
         baseline_note(kind),
         (
@@ -835,9 +845,7 @@ def intersect_models(
     cell either way, and keeping it would leave a dash in the row it is meant to
     make comparable.
     """
-    by_config = [
-        {r["model_id"] for r in rows} for rows in per_config.values()
-    ]
+    by_config = [{r["model_id"] for r in rows} for rows in per_config.values()]
     common = set.intersection(*by_config) if by_config else set()
     dropped = sorted(set.union(*by_config) - common) if by_config else []
     narrowed = {
@@ -961,9 +969,7 @@ def main() -> None:
         # it was computed from.
         common = {r["model_id"] for rows in per_config.values() for r in rows}
         for sel in selections.values():
-            sel["model_names"] = [
-                m for m in sel["model_names"] if m in common
-            ]
+            sel["model_names"] = [m for m in sel["model_names"] if m in common]
         if not any(per_config.values()):
             sys.exit(
                 "[error] --intersect-models: no model has scored rows in every "
@@ -1014,9 +1020,7 @@ def main() -> None:
             f"'{SHORT[trimmed[0]]}' is the config '{trimmed[0]}'."
         )
     if args.intersect_models:
-        common = sorted(
-            {r["model_id"] for rows in per_config.values() for r in rows}
-        )
+        common = sorted({r["model_id"] for rows in per_config.values() for r in rows})
         note = (
             "--intersect-models: every table and figure below is restricted to "
             f"the {len(common)} model(s) scored in all "
@@ -1030,9 +1034,7 @@ def main() -> None:
         print_dropped(report, dropped, len(per_config[label]))
 
     counts = {
-        label: response_counts(
-            sel["corpus"], sel["responses"], sel["model_names"]
-        )
+        label: response_counts(sel["corpus"], sel["responses"], sel["model_names"])
         for label, sel in selections.items()
         if label in per_config
     }
@@ -1064,9 +1066,7 @@ def main() -> None:
                 written.append(fig)
         empty = [label for label in per_config if not per_config[label]]
         if empty:
-            report.text(
-                "omitted from the summary, no scored rows: " + ", ".join(empty)
-            )
+            report.text("omitted from the summary, no scored rows: " + ", ".join(empty))
 
     for split in SPLITS:
         selected = {
@@ -1096,9 +1096,7 @@ def main() -> None:
     # so a sigma run never overwrites a plain run's export.
     all_rows = [r for rows in per_config.values() for r in rows]
     if all_rows:
-        mp_stats = {
-            m: cell[:3] for m, cell in stats_by_model(all_rows).items()
-        }
+        mp_stats = {m: cell[:3] for m, cell in stats_by_model(all_rows).items()}
         outdir.mkdir(parents=True, exist_ok=True)
         csv_path = outdir / f"scores{plot_suffix(args.baseline)}.csv"
         model_scores.write_scores_csv(csv_path, mp_stats)

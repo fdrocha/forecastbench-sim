@@ -43,7 +43,9 @@ def main() -> None:
 
     for i, (city, disasters) in enumerate(scenarios):
         sim = CitySimulation(city_name=city, seed=seed, disasters=disasters)
-        print(f"[{i + 1}/{len(scenarios)}] running {sim.get_id_str()} for {turns} turns")
+        print(
+            f"[{i + 1}/{len(scenarios)}] running {sim.get_id_str()} for {turns} turns"
+        )
         sim.run(nturns=turns, quiet=args.quiet)
 
         if args.plot:
