@@ -1,8 +1,10 @@
 # Micropolis world
 
-Validates simulated forecasting against real-world forecasting ability: LLMs forecast city
-metrics from a text report of a Micropolis run, and their CRPS/skill is correlated against
-external benchmarks (ECI, ForecastBench) held in `model_scores.csv`.
+Validates simulated forecasting against real-world forecasting ability: LLMs forecast from a
+text report of a Micropolis run, and their skill is correlated against external benchmarks
+(ECI, ForecastBench) held in `model_scores.csv`. Two evals share that report: the
+**continuous** one asks for p10–p90 percentiles of city metrics (scored by CRPS), the
+**binary** one asks for a single P(Yes) on 27 yes/no questions (to be scored by Brier).
 
 ## Layout
 
@@ -18,15 +20,55 @@ absent, `module_globals.ensure_api_keys()` (GCP Secret Manager).
 ## Pipeline
 
 `CitySimulation` (JSONL log/events cached per city+seed+disasters) → `report.gen_world_report`
-(the model-facing text) → `scenarios.build_corpus` (one question per scenario × snapshot_turn
-× horizon × metric, each with its resolved value) → `continuous_eval.group_into_batches` →
-`scenarios.build_batch_prompt_continuous` → `prompting.run_prompts` (async fan-out,
-per-provider semaphores, own retry/backoff) → `scenarios.parse_batch_percentiles[_semantic]`
-→ `data.json` → the `analyze_*` / `plot_*` scripts.
+(the model-facing text) → a corpus builder → `gather.gather_raw_responses` →
+a parser → `data.json` → the `analyze_*` / `plot_*` scripts.
+
+`gather.py` is the half both evals share: `group_into_batches` (questions sharing a scenario
+and snapshot turn share a report, so they are asked in one numbered prompt),
+`EvalPaths` (the content-addressed cache layout, instantiated per eval as
+`continuous_eval.PATHS` / `binary_eval.PATHS`), `gather_raw_responses` (cache-hit split,
+`prompting.run_prompts` async fan-out with per-provider semaphores, write-on-landing, cost
+accounting) and `write_dataset`. It stops at raw response text; **parsing is per eval**,
+which is where the two genuinely differ. Do not import `continuous_eval` from `gather` —
+that cycles.
+
+Per eval, the pieces around that seam:
+- **Continuous** — `scenarios.build_corpus` (one question per scenario × snapshot_turn ×
+  horizon × metric, resolved through fbsim-core's `QuestionResolver`) →
+  `scenarios.build_batch_prompt_continuous` → `scenarios.parse_batch_percentiles[_semantic]`
+  → `continuous_eval.save_dataset` (`"percentiles"` per forecast).
+- **Binary** — `binary_questions.build_corpus_binary` (27 questions × snapshot_turn ×
+  horizon, resolved locally — see below) → `scenarios.build_batch_prompt_binary` →
+  `scenarios.parse_batch_probabilities` → `binary_eval.save_dataset_binary`
+  (`"probability"` per forecast, `"answer"` bool per question).
 
 From fbsim-core: `QuestionTemplate`/`TemplateRegistry`/`QuestionResolver`, `compute_crps`,
-`evaluation.models.get_models`. Each scenario is a single city, always entity `0`, in the
-turn-major world schema built by `city_sim.to_world`.
+`evaluation.models.get_models` (`compute_brier_score` is there for the binary analysis when
+it lands). Each scenario is a single city, always entity `0`, in the turn-major world schema
+built by `city_sim.to_world`.
+
+## Binary questions
+
+`binary_questions.py` implements `binary_forecasts.md`, which is the normative spec —
+question texts (§3), the messageNum/messageText table (§2.3), the reference resolver (§4)
+and the structural constraints (§5). Read it before touching resolution.
+
+- `QUESTIONS` is the single table: each `Question(qid, text, resolution)` holds its id
+  (A1–A16 mid-range, target P(Yes) ≈ 10–90%; B1–B11 tail, ≈ 0.5–5%), its `{HORIZON}`-templated
+  text and its criterion as a lambda over a `Window` — `w.n(msg)`, `w.at(t)`, `w.pop(t)`,
+  `w.yc(a, b)` — so a question's wording and its resolution never drift apart.
+- **Turn convention is this codebase's, not the doc's**: `state_at(T) = log_data[T]` and an
+  event's turn is `tick // 16` (`city_sim.turn_of`), a uniform one-turn relabel of §4's
+  `rows[T-1]`. Windows are half-open `(NOW, H]` — strictly after the snapshot — and the
+  question texts say "between the current turn and turn {HORIZON}" because models otherwise
+  count events already listed in the report.
+- Events are referenced by `Message(num, text)` constants (`MSG_EARTHQUAKE`, …), never bare
+  numbers. `RunIndex.from_sim` raises if a messageNum's text disagrees with the table — the
+  §2.3 drift guard, since the engine's enum is position-implied. Message 27 (helicopter) is
+  guarded but counted by no question: it co-fires with 24 for one plane crash.
+- `check_structural_constraints` runs on every (sim, window) during corpus building: a Yes on
+  a question the city's map makes impossible (§5) means a resolver or table bug, not a rare
+  event.
 
 ## Conventions
 
@@ -39,10 +81,19 @@ turn-major world schema built by `city_sim.to_world`.
 - **A prompt variant is a config plus a text file, not a code change** — see
   `configs/preamble*.txt`, `epilogue*.txt`, `prompt-*.json5`.
 - **The response cache is content-addressed and never invalidated.** Prompts, raw responses
-  and usage sidecars live in `continuous/cache/{batch_id}/…-{prompt_hash}.txt|json`, shared
-  across labels; a new variant adds files beside the old ones. A cached response is never
-  re-fetched, so its cost must be written when first paid. Per-label outputs (`data.json`,
-  plots, reports) go under `continuous/{label}/`.
+  and usage sidecars live in `{continuous,binary}/cache/{batch_id}/…-{prompt_hash}.txt|json`,
+  shared across labels; a new variant adds files beside the old ones. A cached response is
+  never re-fetched, so its cost must be written when first paid. Per-label outputs
+  (`data.json`, plots, reports) go under `{continuous,binary}/{label}/`. **Anything that
+  changes the prompt text — including a report default such as `report_census` — re-hashes
+  every batch and re-prompts from scratch.** Before running a real config to "check the
+  cache", confirm the prompts are unchanged or use `--dry-run`; a full continuous config is
+  ~$3 to re-gather.
+- **Both evals share one world report.** `gen_world_report`'s defaults are what the
+  continuous corpus gets (it passes no report flags), so a default change moves both evals
+  together — which is the point: the two are meant to be comparable at the same snapshot.
+  `report_census` (rubble/fire/road tile counts, on by default) exists because the binary
+  A13–A15 resolve on those counts.
 - **Analysis is offline.** The `analyze_*`/`plot_*` scripts read only `data.json` and cached
   sim logs — no prompting, no re-simulating, no API keys. Keep it that way; it makes them
   free to re-run. `select_for_config` narrows a gathered dataset to a config's slice and
@@ -67,19 +118,27 @@ turn-major world schema built by `city_sim.to_world`.
 Simulation / inspection:
 - `run_sim.py` — run the engine for the config's cities × disasters, plus a plot each.
 - `gen_report.py` — print the model-facing world report for already-run sims.
-- `gen_corpus.py` — build and dump the question corpus.
-- `generate_prompt.py` — print the first batch prompt a config would send (stdout = bare
-  prompt, status to stderr), for eyeballing or diffing variants.
+- `gen_corpus.py` — build and dump the continuous question corpus.
+- `generate_prompt.py` — print the first continuous batch prompt a config would send
+  (stdout = bare prompt, status to stderr), for eyeballing or diffing variants. It has no
+  binary equivalent yet; binary prompts are written to the cache by a real
+  `run_eval_binary.py` run, not by its `--dry-run`.
 - `check_determinism.py` — repeat a scenario at one seed and diff the outputs.
 
-Continuous forecasting eval:
-- `run_eval_continuous.py` — the only script here that prompts models; writes `data.json`.
+Continuous forecasting eval (percentiles, `data/micropolis/continuous/`):
+- `run_eval_continuous.py` — prompts models; writes `data.json`.
 - `analyze_continuous.py` — CRPS tables/figures, normalized by |actual|.
 - `analyze_baseline_skill.py` — same forecasts scored against a naive (`plain`/`sigma`)
   no-change baseline, so 1.0 is the meaningful zero point.
 - `analyze_skill_by_config.py` — that skill compared across several configs (many-config
   arg form), typically the prompt variants.
 - `plot_forecasts.py` — trajectories with forecast quantiles overlaid.
+
+Binary forecasting eval (P(Yes), `data/micropolis/binary/`, spec in `binary_forecasts.md`):
+- `run_eval_binary.py` — prompts models; writes `data.json`. Defaults to `configs/binary.json5`
+  (19 eligible cities, snapshots 960/1440, horizons +240/+480, disasters on).
+  `--dry-run` builds the corpus and prints per-question Yes counts, for eyeballing resolution
+  against the spec's P(Yes) ranges. No analysis script yet.
 
 Domain-knowledge eval (`micropolis_world/knowledge_eval/`, True/False/Unknown statements
 about the engine, own cache under `data/micropolis/knowledge_eval/`):
@@ -95,7 +154,11 @@ imply or for a `--glob` of sidecar paths.
 `uv run pytest` from `worlds/micropolis`. Tests import sibling test modules by bare name
 (pytest rootdir path insertion), and load analysis scripts through
 `importlib.util.spec_from_file_location` since `scripts/` isn't importable. Nothing in the
-suite calls a model or needs a key.
+suite calls a model or needs a key. The gather loop itself is not covered (it needs API
+mocking), so a change to it is verified by regenerating a `data.json` from cache before and
+after and diffing.
 
-When testing changes avoid doing API calls to models unlessnecessary.
-If API calls are needed, use the config worlds/micropolis/micropolis_world/configs/testing.json5 with appropriate overrides or something derived from it.
+When testing changes avoid doing API calls to models unless necessary.
+If API calls are needed, use `configs/testing.json5` (continuous) or
+`configs/binary-testing.json5` (binary) — two cheap models, a couple of cities — or something
+derived from them, never a production config.
