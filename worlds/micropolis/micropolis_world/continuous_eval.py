@@ -19,6 +19,12 @@ from fbsim_core.metrics import compute_crps
 from . import module_globals as g
 from .city_sim import CitySimulation
 from .config import Config, scenarios_from
+from .gather import (  # noqa: F401 - re-exported for the scripts and tests
+    EvalPaths,
+    batch_id_for,
+    group_into_batches,
+    write_dataset,
+)
 from .knowledge_eval.runner import prompt_hash  # noqa: F401 - re-exported
 from .usage import load_usage, save_usage  # noqa: F401 - re-exported for the scripts
 
@@ -70,69 +76,10 @@ class Response:
 Responses = dict[ResponseId, Response]
 
 
-def batch_id_for(question: dict) -> str:
-    """The batch a corpus question is prompted in.
-
-    Questions sharing a scenario and snapshot turn share a game report — the
-    bulk of the prompt — so they are asked together in one numbered prompt.
-    """
-    return f"{question['scenario_id']}_T{question['snapshot_turn']}"
-
-
-def _split_evenly(questions: list[dict], limit: int) -> list[list[dict]]:
-    """`questions` cut into consecutive chunks of at most `limit` each.
-
-    The chunk count is what `limit` really fixes: enough chunks that none
-    exceeds it. Their sizes are then evened out rather than filling each chunk
-    before starting the next, so 20 questions at a limit of 12 come out 10 and
-    10 instead of 12 and 8 — no prompt is left with a lopsided tail asking
-    about only a question or two.
-    """
-    nchunks = -(-len(questions) // limit)  # ceiling division
-    base, extra = divmod(len(questions), nchunks)
-    chunks = []
-    start = 0
-    for i in range(nchunks):
-        # The first `extra` chunks take one more, so sizes differ by at most 1.
-        stop = start + base + (1 if i < extra else 0)
-        chunks.append(questions[start:stop])
-        start = stop
-    return chunks
-
-
-def group_into_batches(
-    corpus: list[dict], questions_per_prompt: int = -1
-) -> dict[str, list[dict]]:
-    """Group corpus questions by batch_id, preserving corpus order.
-
-    `questions_per_prompt` caps how many questions one prompt may ask. The
-    default -1 means no cap: a scenario's whole snapshot goes in one prompt,
-    which is the cheapest way to ask them since they share a game report. A
-    positive value splits a batch that would exceed it into consecutive chunks
-    (see _split_evenly), each becoming its own batch — its own prompt repeating
-    the report, its own cache directory, and its own response — so a split
-    batch stays one hash per batch id for analyze_usage, and a chunk that fails
-    is retried on its own. Chunk ids are suffixed "_c{i}of{n}"; an unsplit
-    batch keeps the plain id, so existing caches stay addressable.
-    """
-    batches: dict[str, list[dict]] = {}
-    for c in corpus:
-        batches.setdefault(batch_id_for(c), []).append(c)
-    if questions_per_prompt < 0:
-        return batches
-
-    if questions_per_prompt == 0:
-        raise ValueError("questions_per_prompt must be -1 or a positive integer")
-
-    split: dict[str, list[dict]] = {}
-    for bid, questions in batches.items():
-        if len(questions) <= questions_per_prompt:
-            split[bid] = questions
-            continue
-        chunks = _split_evenly(questions, questions_per_prompt)
-        for i, chunk in enumerate(chunks, 1):
-            split[f"{bid}_c{i}of{len(chunks)}"] = chunk
-    return split
+# The continuous eval's cache layout. The helpers below are kept as
+# module-level functions because the scripts and tests import them by name;
+# PATHS is what the shared gather machinery is handed.
+PATHS = EvalPaths(OUT_DIR)
 
 
 def batch_dir(batch_id: str) -> Path:
@@ -146,27 +93,20 @@ def batch_dir(batch_id: str) -> Path:
     with or invalidating them. Deleting the directory re-gathers the batch from
     scratch on the next run.
     """
-    return OUT_DIR / "cache" / batch_id
+    return PATHS.batch_dir(batch_id)
 
 
 def prompt_path(batch_id: str, phash: str) -> Path:
-    return batch_dir(batch_id) / f"prompt-{phash}.txt"
+    return PATHS.prompt_path(batch_id, phash)
 
 
 def response_path(batch_id: str, model_id: str, phash: str) -> Path:
-    # Model ids are provider/name; the slash would nest a directory.
-    return batch_dir(batch_id) / f"response-{model_id.replace('/', '_')}-{phash}.txt"
+    return PATHS.response_path(batch_id, model_id, phash)
 
 
 def usage_path(batch_id: str, model_id: str, phash: str) -> Path:
-    """Tokens and cost of the call that produced the matching response file.
-
-    A cached response is never re-fetched, so what it cost has to be recorded
-    when it is first paid or it is lost on every later run. Written beside the
-    response and keyed the same way, so the pair stays together — note the slug
-    must match response_path's exactly, or the sidecar lands next to nothing.
-    """
-    return batch_dir(batch_id) / f"usage-{model_id.replace('/', '_')}-{phash}.json"
+    """Tokens and cost of the call that produced the matching response file."""
+    return PATHS.usage_path(batch_id, model_id, phash)
 
 
 def save_dataset(
@@ -175,19 +115,11 @@ def save_dataset(
     model_names: list[str],
     path: Path,
 ) -> Path:
-    """Write the corpus and this run's forecasts as one self-contained file.
+    """Write the corpus and this run's percentile forecasts to `path`.
 
-    The analysis and plotting scripts read only this, so it carries everything
-    they need: the questions with their resolved values, and each model's
-    percentiles per question. The full response text is deliberately left out —
-    it stays in the response cache, and including it here would multiply the
-    file size for something no downstream script reads.
+    The continuous eval's shape of gather.write_dataset: one "percentiles"
+    entry per (question, model) that was gathered.
     """
-    # Prompts are megabytes of world report repeated per question; the
-    # downstream scripts want the question, not the prompt that produced it.
-    dropped = {"context"}
-    questions = [{k: v for k, v in c.items() if k not in dropped} for c in corpus]
-
     forecasts = [
         {
             "model_id": model_id,
@@ -199,15 +131,7 @@ def save_dataset(
         for r in [responses.get(ResponseId(model_id, c["question_id"]))]
         if r is not None
     ]
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {"models": model_names, "questions": questions, "forecasts": forecasts},
-            indent=2,
-        )
-    )
-    return path
+    return write_dataset(corpus, forecasts, model_names, path)
 
 
 def load_dataset(path: Path) -> tuple[list[dict], Responses, list[str]]:

@@ -1,8 +1,9 @@
 """Output paths + dataset IO for the binary yes/no eval.
 
-The binary counterpart of continuous_eval.py's cache/path/dataset half, rooted at
-data/micropolis/binary/ instead of continuous/. Batching, hashing and usage
-sidecars are reused from continuous_eval/usage unchanged.
+The binary counterpart of continuous_eval.py's cache/path/dataset half, rooted
+at data/micropolis/binary/ instead of continuous/. The cache layout, batching,
+hashing, gathering and dataset writing all come from gather.py; what lives
+here is the binary response type and the shape its forecasts take on disk.
 """
 
 import json
@@ -11,8 +12,14 @@ from pathlib import Path
 
 from . import module_globals as g
 from .continuous_eval import ResponseId
+from .gather import EvalPaths, write_dataset
 
 OUT_DIR = g.DATA_DIR / "binary"
+
+# The binary eval's cache layout — same content-addressing as the continuous
+# eval's, under the binary root. The helpers below are kept as module-level
+# functions because the script and tests import them by name.
+PATHS = EvalPaths(OUT_DIR)
 
 
 def label_dir(label: str) -> Path:
@@ -24,25 +31,19 @@ def data_path(label: str) -> Path:
 
 
 def batch_dir(batch_id: str) -> Path:
-    """Where a batch's prompt and raw model responses are cached.
-
-    Same layout and content-addressing as continuous_eval.batch_dir (shared across
-    labels, one file per prompt hash), under the binary root.
-    """
-    return OUT_DIR / "cache" / batch_id
+    return PATHS.batch_dir(batch_id)
 
 
 def prompt_path(batch_id: str, phash: str) -> Path:
-    return batch_dir(batch_id) / f"prompt-{phash}.txt"
+    return PATHS.prompt_path(batch_id, phash)
 
 
 def response_path(batch_id: str, model_id: str, phash: str) -> Path:
-    # Model ids are provider/name; the slash would nest a directory.
-    return batch_dir(batch_id) / f"response-{model_id.replace('/', '_')}-{phash}.txt"
+    return PATHS.response_path(batch_id, model_id, phash)
 
 
 def usage_path(batch_id: str, model_id: str, phash: str) -> Path:
-    return batch_dir(batch_id) / f"usage-{model_id.replace('/', '_')}-{phash}.json"
+    return PATHS.usage_path(batch_id, model_id, phash)
 
 
 @dataclass(frozen=True)
@@ -61,16 +62,12 @@ def save_dataset_binary(
     model_names: list[str],
     path: Path,
 ) -> Path:
-    """Write the corpus and this run's forecasts as one self-contained file.
+    """Write the corpus and this run's probability forecasts to `path`.
 
-    Mirrors continuous_eval.save_dataset: questions keep their resolved bool
-    "answer", forecasts carry each model's P(Yes) (null = answered unusably;
-    an absent row = never gathered), and the report ("context") stays in the
-    prompt cache rather than being repeated per question here.
+    The binary eval's shape of gather.write_dataset: questions keep their
+    resolved bool "answer", and each gathered (question, model) pair carries a
+    "probability" (null = answered unusably; an absent row = never gathered).
     """
-    dropped = {"context"}
-    questions = [{k: v for k, v in c.items() if k not in dropped} for c in corpus]
-
     forecasts = [
         {
             "model_id": model_id,
@@ -82,15 +79,7 @@ def save_dataset_binary(
         for r in [responses.get(ResponseId(model_id, c["question_id"]))]
         if r is not None
     ]
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {"models": model_names, "questions": questions, "forecasts": forecasts},
-            indent=2,
-        )
-    )
-    return path
+    return write_dataset(corpus, forecasts, model_names, path)
 
 
 def load_dataset_binary(path: Path) -> tuple[list[dict], BinaryResponses, list[str]]:
