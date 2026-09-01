@@ -8,8 +8,7 @@ The config selects which slice of the dataset to score, exactly as
 analyze_continuous.py does for the continuous eval. The report is split into
 two sections — the mid-range A questions and the tail B questions — each with
 the same structure: Yes counts, a models x questions Brier table, a models x
-horizons Brier table, the Brier-by-horizon figures (all runs, then split by
-disasters), and the ECI correlations. Everything goes to one Markdown report,
+horizons Brier table, a Brier-by-horizon figure, and the ECI correlations. Everything goes to one Markdown report,
 data/micropolis/binary/{label}/analysis-brier.md; --no-plot skips the figures.
 
 Usage:
@@ -21,7 +20,6 @@ Usage:
 """
 
 import argparse
-import re
 import sys
 from collections import Counter
 from itertools import pairwise
@@ -275,17 +273,13 @@ def plot_brier_by_horizon(
     model_names: list[str],
     outdir: Path,
     section: str,
-    subset: str = "",
-    ymax: float | None = None,
 ) -> Path:
     """Scatter mean Brier against horizon, one series per model.
 
     The horizon table says the same thing, but the shape is immediate here —
     how sharply accuracy decays with distance, and which models depart from the
     pack. The mean over models is drawn as a thick line so it reads as the
-    summary rather than as one more model. `subset` names the slice being drawn
-    and `ymax` fixes the axis top so the disasters/no-disasters figures read
-    against each other.
+    summary rather than as one more model.
     """
     import matplotlib
 
@@ -372,14 +366,13 @@ def plot_brier_by_horizon(
     )
     ax.set_ylabel("Mean Brier score (lower is better)")
     ax.set_title(
-        f"Mean Brier by horizon — section {section}"
-        f"{f' — {subset}' if subset else ''}\n"
+        f"Mean Brier by horizon — section {section}\n"
         f"{len(model_names)} models, {len(corpus)} questions"
     )
     ax.set_xticks(horizons)
     ax.grid(alpha=0.3, zorder=0)
     ax.margins(x=0.04)
-    ax.set_ylim(bottom=0, top=ymax)
+    ax.set_ylim(bottom=0)
 
     handles, labels = ax.get_legend_handles_labels()
     by_label = dict(zip(labels, handles))
@@ -395,61 +388,11 @@ def plot_brier_by_horizon(
     )
     fig.tight_layout()
 
-    suffix = (
-        f"-{re.sub(r'[^a-z0-9]+', '-', subset.lower()).strip('-')}" if subset else ""
-    )
-    out = outdir / f"brier_by_horizon-{section}{suffix}.png"
+    out = outdir / f"brier_by_horizon-{section}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
-    report.image(out, caption=subset)
+    report.image(out)
     return out
-
-
-def plot_horizon_figures_binary(
-    report: MdReport,
-    corpus: list[dict],
-    responses: BinaryResponses,
-    model_names: list[str],
-    outdir: Path,
-    section: str,
-) -> list[Path]:
-    """The horizon scatter over all runs, then split by whether disasters ran.
-
-    Disasters are the corpus's one deliberate difficulty axis — and for the
-    B questions, most of the events being asked about — so the split says
-    whether the tail skill is about the shocks at all.
-    """
-    subsets = [
-        ("", lambda c: True),
-        ("disasters", lambda c: c["scenario"]["disasters"]),
-        ("no disasters", lambda c: not c["scenario"]["disasters"]),
-    ]
-    selections = [(subset, [c for c in corpus if keep(c)]) for subset, keep in subsets]
-    selections = [(subset, sel) for subset, sel in selections if sel]
-
-    # One y-axis top across the set, taken from the per-(model, horizon) means
-    # the figures plot, so the subsets read against each other.
-    ymax = 0.0
-    scored = {}
-    for subset, selected in selections:
-        rows = score_forecasts_binary(selected, responses, model_names)
-        scored[subset] = rows
-        by_cell: dict[tuple[str, int], list[float]] = {}
-        for r in rows:
-            by_cell.setdefault((r["model_id"], r["horizon"]), []).append(r["brier"])
-        ymax = max([ymax] + [sum(v) / len(v) for v in by_cell.values()])
-    if ymax <= 0:
-        raise ValueError(
-            "no Brier scores to plot: every selected forecast failed to parse"
-        )
-    ymax *= 1.08  # headroom so the topmost marker isn't clipped by the frame
-
-    return [
-        plot_brier_by_horizon(
-            report, selected, scored[subset], model_names, outdir, section, subset, ymax
-        )
-        for subset, selected in selections
-    ]
 
 
 def plot_eci_vs_brier(
@@ -757,8 +700,10 @@ def main() -> None:
         print_brier_horizon_table(report, section_corpus, rows, models, prefix)
 
         if args.plot:
-            written += plot_horizon_figures_binary(
-                report, section_corpus, responses, models, outdir, prefix
+            written.append(
+                plot_brier_by_horizon(
+                    report, section_corpus, rows, models, outdir, prefix
+                )
             )
             written += [
                 p
