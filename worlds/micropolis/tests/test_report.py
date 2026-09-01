@@ -28,6 +28,7 @@ def make_row(turn: int, funds: int = 4242) -> dict:
     row.update({m: 100 + i for i, m in enumerate(g.METRICS)})
     row[g.FUNDS_METRIC] = funds
     row.update({key: 3 for key, _ in g.SNAPSHOT_INFRASTRUCTURE})
+    row["census"] = {"rubble": 53, "fire": 0, "road": 127}
     return row
 
 
@@ -57,6 +58,17 @@ class TestSnapshotSection:
             assert f"{g.METRIC_LABELS[metric]}: {row[metric]}" in text
         assert "Tax rate: 7%" in text
         assert "Difficulty: Medium" in text
+
+    def test_census_shown_by_default(self):
+        text = "\n".join(_snapshot_section(make_row(48)))
+        assert (
+            "Ground survey — rubble tiles 53, tiles on fire 0, road tiles 127" in text
+        )
+
+    def test_report_census_false_omits_the_tile_counts(self):
+        text = "\n".join(_snapshot_section(make_row(48), report_census=False))
+        assert "Ground survey" not in text
+        assert "rubble" not in text
 
 
 class TestHistorySection:

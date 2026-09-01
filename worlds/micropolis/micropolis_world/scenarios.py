@@ -49,6 +49,14 @@ DEFAULT_SEMANTIC_EPILOGUE_PATH = CONFIG_DIR / "epilogue2.txt"
 # hyphen so it cannot be confused with a minus sign in the question itself.
 SEMANTIC_TAG_SEPARATOR = " — "
 
+# Defaults for the binary yes/no eval's prompt, mirroring the continuous pair.
+DEFAULT_BINARY_PREAMBLE_PATH = CONFIG_DIR / "preamble-binary.txt"
+DEFAULT_BINARY_EPILOGUE_PATH = CONFIG_DIR / "epilogue-binary.txt"
+
+# The answer-block marker a binary response is asked for; accepts the singular
+# form too, matching FreeCiv's parser tolerance.
+_PROBABILITIES_MARKER_RE = r"PROBABILIT(?:Y|IES)"
+
 
 def semantic_tag(metric: str, resolution_turn: int) -> str:
     """The "<metric label>@<turn>" tag naming one question in semantic mode.
@@ -268,6 +276,33 @@ def build_batch_prompt_continuous(
 {read_epilogue(n, epilogue_path)}"""
 
 
+def build_batch_prompt_binary(
+    context: str,
+    questions: list[dict],
+    preamble_path: Path | str | None = None,
+    epilogue_path: Path | str | None = None,
+) -> str:
+    """Ask for one P(Yes) per binary question, sharing one game report.
+
+    The binary counterpart of build_batch_prompt_continuous: same skeleton,
+    numeric tagging only, and the binary preamble/epilogue defaults. Answers
+    come back as a <<<PROBABILITIES>>> block of "Q1: 0.65" lines, read by
+    parse_batch_probabilities.
+    """
+    listed_questions = "\n".join(
+        f"{i}. {q['question_text']}" for i, q in enumerate(questions, 1)
+    )
+    return f"""{read_preamble(preamble_path or DEFAULT_BINARY_PREAMBLE_PATH)}
+
+## Game report
+{context}
+
+## Questions
+{listed_questions}
+
+{read_epilogue(len(questions), epilogue_path or DEFAULT_BINARY_EPILOGUE_PATH)}"""
+
+
 def _validate_monotonic(
     percentiles: dict[str, float], label: str, quiet: bool
 ) -> dict[str, float] | None:
@@ -323,17 +358,18 @@ def _scan_bare_percentiles(text: str) -> dict[str, float] | None:
         return None
 
 
-def _extract_answer_block(response: str) -> str:
-    """The part of a response holding the percentile estimates.
+def _extract_answer_block(response: str, marker_re: str = r"PERCENTILES?") -> str:
+    """The part of a response holding the estimates.
 
-    The delimited <<<PERCENTILES>>> block is the requested format and the most
-    reliable, so prefer its contents. Models sometimes emit only the closing
-    tag, having written the percentiles as ordinary prose above it, so fall
-    back to everything before a lone <<<END>>> and finally to the whole
+    The delimited <<<{marker}>>> block is the requested format and the most
+    reliable, so prefer its contents; `marker_re` names it (percentiles by
+    default, probabilities for the binary eval). Models sometimes emit only
+    the closing tag, having written the answers as ordinary prose above it, so
+    fall back to everything before a lone <<<END>>> and finally to the whole
     response.
     """
     delimiter_match = re.search(
-        r"<<<PERCENTILES?>>>(.*?)<<<END>>>", response, re.DOTALL | re.IGNORECASE
+        rf"<<<{marker_re}>>>(.*?)<<<END>>>", response, re.DOTALL | re.IGNORECASE
     ) or re.search(r"(.*?)<<<END>>>", response, re.DOTALL | re.IGNORECASE)
     return delimiter_match.group(1).strip() if delimiter_match else response
 
@@ -544,4 +580,145 @@ def parse_batch_percentiles(
         for i in range(n):
             if not answered[i]:
                 print(f"  {labels[i]}: no percentiles found in batched response")
+    return results
+
+
+# A probability at the start of a string: "0.65", ".65", "1", "65%", "65 %".
+# Anchored so a number buried in trailing prose ("fewer than 1 in 10") is not
+# read as the answer, while "0.65 (earthquake unlikely)" still is.
+_PROB_TOKEN_RE = re.compile(r"^\s*(\d+(?:\.\d+)?|\.\d+)\s*(%?)")
+
+
+def _scan_probability(text: str) -> float | None:
+    """The number at the start of `text` read as a probability, or None.
+
+    An explicit "%" divides by 100, so "65%" and "0.65" mean the same thing.
+    The range is not checked here — _validate_probability does that, so the
+    caller can tell "no answer on this line" from "an answer worth warning
+    about".
+    """
+    m = _PROB_TOKEN_RE.match(text)
+    if not m:
+        return None
+    value = float(m.group(1))
+    return value / 100 if m.group(2) else value
+
+
+def _validate_probability(value: float, label: str, quiet: bool) -> float | None:
+    """Return `value` if it is in [0, 1], else warn and return None.
+
+    A bare number outside the range is rejected rather than clamped — the
+    binary counterpart of _validate_monotonic's convention that an answer
+    which isn't a valid forecast is dropped, not repaired.
+    """
+    if 0.0 <= value <= 1.0:
+        return value
+    if not quiet:
+        print(f"  {label}: probability {value:g} outside [0, 1], discarding")
+    return None
+
+
+def parse_probability(
+    response: str | None, label: str = "response", quiet: bool = False
+) -> float | None:
+    """Extract one P(Yes) from a single-question model response.
+
+    Reads the first line of the <<<PROBABILITIES>>> answer block (or its
+    fallbacks, see _extract_answer_block) that starts with a number, with or
+    without a "Q1:"-style prefix. Out-of-range values are rejected by
+    _validate_probability; either rejection warns naming `label` unless
+    `quiet`.
+    """
+    if not response:
+        if not quiet:
+            print(f"  {label}: empty model response")
+        return None
+    content = _extract_answer_block(response, _PROBABILITIES_MARKER_RE)
+    for line in content.split("\n"):
+        # A bare decimal like "0.65" also matches the number-prefix pattern
+        # (as item "0." followed by "65"), so only strip a prefix that names
+        # the one question being asked.
+        m = _QUESTION_NUMBER_RE.match(line)
+        text = line[m.end() :] if m and m.group(1) == "1" else line
+        value = _scan_probability(text)
+        if value is not None:
+            return _validate_probability(value, label, quiet)
+    if not quiet:
+        print(f"  {label}: unable to parse a probability from response: {response!r}")
+    return None
+
+
+def parse_batch_probabilities(
+    response: str | None, labels: list[str], quiet: bool = False
+) -> list[float | None]:
+    """Extract one P(Yes) per question from a batched model response.
+
+    The binary counterpart of parse_batch_percentiles, with the same mapping
+    rules: the requested format is one "Q<n>: 0.65" line per question inside a
+    <<<PROBABILITIES>>> block, and those lines are mapped by their stated
+    number, not their position, so a model that skips a question can't shift
+    every answer after it. Later lines overwrite earlier ones for the same
+    number. When no line carries a question number, lines that are nothing but
+    a single probability are assigned positionally in order of appearance.
+    Out-of-range values are rejected by _validate_probability, and every
+    question left without a usable answer gets a warning naming its label
+    (unless `quiet`).
+    """
+    n = len(labels)
+    # A single-question prompt asks for the unnumbered single-question format,
+    # so read it back with the single-question parser.
+    if n == 1:
+        return [parse_probability(response, label=labels[0], quiet=quiet)]
+
+    results: list[float | None] = [None] * n
+    if not response:
+        if not quiet:
+            print(f"  {labels[0]} (+{n - 1} more): empty model response")
+        return results
+
+    lines = [
+        line
+        for line in _extract_answer_block(response, _PROBABILITIES_MARKER_RE).split(
+            "\n"
+        )
+        if line.strip()
+    ]
+
+    # First pass: numbered answer lines, mapped by their stated number. The
+    # probability must start right after the number prefix, so a numbered
+    # prose sentence in the reasoning is not an answer.
+    answered = [False] * n
+    for line in lines:
+        m = _QUESTION_NUMBER_RE.match(line)
+        if not m:
+            continue
+        idx = int(m.group(1)) - 1
+        if not 0 <= idx < n:
+            continue
+        value = _scan_probability(line[m.end() :])
+        if value is not None:
+            answered[idx] = True
+            results[idx] = _validate_probability(value, labels[idx], quiet)
+
+    # Positional fallback, only when nothing was numbered: each line that is
+    # nothing but one probability answers the next question in order. A line
+    # with any letters is prose, not an answer.
+    if not any(answered):
+        pos = 0
+        for line in lines:
+            if pos >= n:
+                break
+            if re.search(r"[a-zA-Z]", line):
+                continue
+            value = _scan_probability(line)
+            if value is not None:
+                answered[pos] = True
+                results[pos] = _validate_probability(value, labels[pos], quiet)
+                pos += 1
+
+    if not quiet:
+        # _validate_probability already explained the answered-but-invalid ones.
+        for i in range(n):
+            if not answered[i]:
+                print(f"  {labels[i]}: no probability found in batched response")
     return results

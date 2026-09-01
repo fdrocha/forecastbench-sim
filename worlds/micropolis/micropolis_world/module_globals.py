@@ -214,3 +214,11 @@ SNAPSHOT_INFRASTRUCTURE = [
     ("poweredZoneCount", "Powered zones"),
     ("unpoweredZoneCount", "Unpowered zones"),
 ]
+
+# The row["census"] tile counts shown when a report asks for the census section
+# (report_census=True) — the fields the binary tile-count questions resolve on.
+SNAPSHOT_CENSUS = [
+    ("rubble", "rubble tiles"),
+    ("fire", "tiles on fire"),
+    ("road", "road tiles"),
+]

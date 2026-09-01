@@ -1,0 +1,30 @@
+// Config for quick binary-eval testing: two cities, one window, cheap models.
+{
+  "seed": 42,
+  "label": "binary-testing",
+
+  "cities": [
+    "bruce",
+    "kobe",
+  ],
+
+  "disasters": [true],
+  "turns": 1201,
+
+  // One (snapshot, horizon) window keeps the required sim length at 1201
+  // turns, which existing cached runs already cover.
+  "snapshot_turns": [960],
+  "horizons": [240],
+
+  "history_freq": 24,
+  "preamble_path": "preamble-binary.txt",
+  "epilogue_path": "epilogue-binary.txt",
+  "report_census": true,
+  "censorCityFunds": true,
+
+  "models": [
+    "openai/gpt-4.1",
+    "google/gemini-2.5-flash",
+  ],
+  "max_tokens": 30000,
+}

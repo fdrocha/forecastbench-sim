@@ -20,7 +20,10 @@ def _report_metrics(censor_city_funds: bool) -> list[str]:
 
 
 def _snapshot_section(
-    row: dict, report_effectiveness: bool = False, censor_city_funds: bool = True
+    row: dict,
+    report_effectiveness: bool = False,
+    censor_city_funds: bool = True,
+    report_census: bool = True,
 ) -> list[str]:
     """Current-state block from a single log_data row.
 
@@ -31,6 +34,10 @@ def _snapshot_section(
 
     censor_city_funds drops every line about the city's money — the funds
     reading, cash flow, and the auto-budget setting.
+
+    report_census (the default) adds the ground-survey tile counts
+    (g.SNAPSHOT_CENSUS) the binary tile-count questions resolve on. False
+    reproduces the reports built before the flag existed.
     """
     lines = [f"CURRENT STATE (turn {turn_of(row)})", ""]
     difficulty = _difficulty_labels[row["gameLevel"]]
@@ -57,6 +64,13 @@ def _snapshot_section(
         "  Infrastructure — "
         + ", ".join(f"{label} {row[key]}" for key, label in g.SNAPSHOT_INFRASTRUCTURE)
     )
+    if report_census:
+        lines.append(
+            "  Ground survey — "
+            + ", ".join(
+                f"{label} {row['census'][key]}" for key, label in g.SNAPSHOT_CENSUS
+            )
+        )
     return lines
 
 
@@ -158,6 +172,7 @@ def gen_world_report(
     history_length: int = -1,
     report_effectiveness: bool = False,
     censor_city_funds: bool = True,
+    report_census: bool = True,
 ) -> str:
     """Build the model-facing situation report for `sim` as of `turn`.
 
@@ -188,6 +203,11 @@ def gen_world_report(
             of it, and scenarios.build_corpus then drops the city funds
             question too, so the metric is neither reported nor asked about.
             False reports all of it.
+        report_census: Include the ground-survey tile counts (rubble, fire,
+            road) in CURRENT STATE. True (the default) includes them; False
+            reproduces the reports built before the flag existed. Part of the
+            prompt, so flipping it misses the response cache rather than
+            mixing variants.
 
     As a side effect it saves the world report to disk and prints out the path to it.
     """
@@ -210,7 +230,7 @@ def gen_world_report(
             f"City: {sim.city_name}",
             f"Disasters: {'enabled' if sim.disasters else 'disabled'}",
         ],
-        _snapshot_section(row, report_effectiveness, censor_city_funds),
+        _snapshot_section(row, report_effectiveness, censor_city_funds, report_census),
     ]
     if not snapshot_only:
         sections.append(

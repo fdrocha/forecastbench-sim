@@ -1,0 +1,9 @@
+You MUST provide a probability for every question UNDER ALL CIRCUMSTANCES. If for some reason you can't answer, estimate 0.5, but always return a number between 0 and 1.
+
+You may analyze the data, but you MUST end your response with your probabilities in this exact format:
+<<<PROBABILITIES>>>
+Q1: 0.65
+Q2: 0.03
+<<<END>>>
+
+Provide one such line for each of the {n} questions, in order, replacing the example values with your probability that the answer is YES, as a decimal between 0 and 1.

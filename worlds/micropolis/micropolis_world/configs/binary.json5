@@ -1,0 +1,61 @@
+// Default parameters for the binary yes/no eval (scripts/run_eval_binary.py).
+// Questions, snapshots and horizons follow worlds/micropolis/binary_forecasts.md.
+{
+  "seed": 42,
+
+  // Names the output directory under data/micropolis/binary/. Must not reuse
+  // a continuous config's label: world report files are keyed by label and
+  // shared across evals, so a shared label would make the two variants
+  // overwrite each other's report file.
+  "label": "default",
+
+  // The 19 eligible cities from binary_forecasts.md §1: populated,
+  // non-scenario builtins.
+  "cities": [
+    "badnews",
+    "bruce",
+    "deadwood",
+    "freds",
+    "haight",
+    "happisle",
+    "joffburg",
+    "kamakura",
+    "kobe",
+    "kowloon",
+    "kyoto",
+    "linecity",
+    "med_isle",
+    "ndulls",
+    "radial",
+    "senri",
+    "southpac",
+    "wetcity",
+    "yokohama",
+  ],
+
+  // The benchmark uses disasters on (binary_forecasts.md §1).
+  "disasters": [true],
+
+  // How many turns run_sim.py simulates. The corpus scripts ignore this and
+  // derive their own length from snapshot_turns + horizons.
+  "turns": 2400,
+
+  // Snapshots at game-years 20 and 30, horizons 5 and 10 game-years out.
+  "snapshot_turns": [960, 1440],
+  "horizons": [240, 480],
+
+  "history_freq": 24,
+  "preamble_path": "preamble-binary.txt",
+  "epilogue_path": "epilogue-binary.txt",
+
+  // Show the rubble/fire/road tile counts that A13-A15 resolve on (the
+  // default, also for continuous reports, so the two evals' reports match).
+  // False reproduces the pre-flag reports, leaving those questions answered
+  // from priors alone.
+  "report_census": true,
+
+  "censorCityFunds": true,
+
+  "models": "models-base.json5",
+  "max_tokens": 30000,
+}
