@@ -1,4 +1,4 @@
-"""Unit tests for the single-city score tables.
+"""Unit tests for the continuous score tables.
 
 Covers the within-column ranking and the ranked cell's padding, which is what
 keeps the numbers aligned when some ranks have more digits than others. Nothing
@@ -17,11 +17,11 @@ SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
 def load_module():
     """Import the analysis script, which is not on the package path."""
     spec = importlib.util.spec_from_file_location(
-        "analyze_single_city", SCRIPTS_DIR / "analyze_single_city.py"
+        "analyze_continuous", SCRIPTS_DIR / "analyze_continuous.py"
     )
     module = importlib.util.module_from_spec(spec)
     # The script parses argv at call time, not import time, but keep it clean.
-    argv, sys.argv = sys.argv, ["analyze_single_city"]
+    argv, sys.argv = sys.argv, ["analyze_continuous"]
     try:
         spec.loader.exec_module(module)
     finally:

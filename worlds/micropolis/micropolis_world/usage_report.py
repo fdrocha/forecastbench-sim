@@ -1,7 +1,7 @@
 """Aggregate the usage sidecars left behind by past API calls.
 
 Every kept model response has a usage-{model}-{hash}.json beside it recording
-what that call cost (see single_city.usage_path and knowledge_eval.runner's
+what that call cost (see continuous_eval.usage_path and knowledge_eval.runner's
 equivalent). This module sums those records into per-provider and per-model
 tables. It reads only what is already on disk, so it costs nothing and works
 offline.
@@ -225,7 +225,7 @@ def load_from_glob(pattern: str) -> list[CallUsage]:
     """Every sidecar matching `pattern`, which may be absolute or under data/.
 
     A relative pattern is resolved against the micropolis data directory, so
-    "single_city/cache/*/usage-*.json" reaches the single-city cache without
+    "continuous/cache/*/usage-*.json" reaches the continuous cache without
     the caller having to know where that lives.
     """
     if Path(pattern).is_absolute():

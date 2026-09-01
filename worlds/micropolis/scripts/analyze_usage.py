@@ -29,7 +29,7 @@ Usage:
     scripts/analyze_usage.py cfgA.json5 cfgB.json5 cfgC.json5
     scripts/analyze_usage.py configs/*.json5 --per-config
     scripts/analyze_usage.py --cities kyoto --disasters false
-    scripts/analyze_usage.py --glob 'single_city/cache/*/usage-*.json'
+    scripts/analyze_usage.py --glob 'continuous/cache/*/usage-*.json'
     scripts/analyze_usage.py --glob 'knowledge_eval/cache/usage-*.json' --per-model
     scripts/analyze_usage.py --glob '**/usage-*.json' --per-model
 """
@@ -43,16 +43,16 @@ from micropolis_world.config import (
     load_configs,
     main_with_config,
 )
-from micropolis_world.scenarios import (
-    build_batch_prompt_continuous,
-    build_corpus,
-    get_single_city_base_scenarios,
-)
-from micropolis_world.single_city import (
+from micropolis_world.continuous_eval import (
     group_into_batches,
     prompt_hash,
     response_path,
     usage_path,
+)
+from micropolis_world.scenarios import (
+    build_batch_prompt_continuous,
+    build_corpus,
+    get_base_scenarios,
 )
 
 
@@ -61,9 +61,9 @@ def collect_from_config(
     args: argparse.Namespace,
     seen: set[tuple[str, str, str]],
 ) -> ur.Collected:
-    """The sidecars for the calls this config's single-city eval implies.
+    """The sidecars for the calls this config's continuous eval implies.
 
-    Rebuilds the corpus and batch prompts the same way run_single_city_eval.py
+    Rebuilds the corpus and batch prompts the same way run_eval_continuous.py
     does, because the sidecar's filename carries the prompt's hash: without
     re-deriving the prompt there is no way to tell which stored call belongs to
     this config rather than to some other variant cached beside it.
@@ -83,7 +83,7 @@ def collect_from_config(
     print(f"config: {cfg.path}")
     print(f"label:  {label}")
 
-    scenarios = get_single_city_base_scenarios(
+    scenarios = get_base_scenarios(
         seed=seed,
         cities=cfg.get_cities(args.cities),
         disasters=cfg.get_disasters(args.disasters),

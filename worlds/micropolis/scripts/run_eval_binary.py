@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run python3
 """Binary yes/no evaluation: gather model probability forecasts.
 
-The binary counterpart of run_single_city_eval.py: builds the 27-question
+The binary counterpart of run_eval_continuous.py: builds the 27-question
 corpus from binary_questions.py for every (city, disasters) combination in the
 config, prompts each configured model for one P(Yes) per question, and writes
 the questions and forecasts to data/micropolis/binary/{label}/data.json.
@@ -9,9 +9,9 @@ the questions and forecasts to data/micropolis/binary/{label}/data.json.
 Questions sharing a game report — same scenario and snapshot turn — are asked
 together in one numbered prompt. Prompts and raw responses are cached under
 data/micropolis/binary/cache/{batch_id}/ with the same content-addressed
-naming as the single-city eval, so a config change misses the cache rather
+naming as the continuous eval, so a config change misses the cache rather
 than mixing variants, and data.json is regenerated from cached responses on
-every run. The gather loop below mirrors run_single_city_eval.gather_responses
+every run. The gather loop below mirrors run_eval_continuous.gather_responses
 (minus its semantic-tagging branches); a third eval variant should extract the
 shared machinery rather than copy it again.
 
@@ -48,6 +48,12 @@ from micropolis_world.config import (
     load_config,
     main_with_config,
 )
+from micropolis_world.continuous_eval import (
+    ResponseId,
+    group_into_batches,
+    prompt_hash,
+    save_usage,
+)
 from micropolis_world.prompting import (
     PromptJob,
     PromptResult,
@@ -57,14 +63,8 @@ from micropolis_world.prompting import (
 )
 from micropolis_world.scenarios import (
     build_batch_prompt_binary,
-    get_single_city_base_scenarios,
+    get_base_scenarios,
     parse_batch_probabilities,
-)
-from micropolis_world.single_city import (
-    ResponseId,
-    group_into_batches,
-    prompt_hash,
-    save_usage,
 )
 
 DEFAULT_BINARY_CONFIG_PATH = CONFIG_DIR / "binary.json5"
@@ -81,7 +81,7 @@ def gather_responses_binary(
 ) -> BinaryResponses:
     """Prompt each model on each batch of questions, reusing cached responses.
 
-    Same contract as run_single_city_eval.gather_responses: cache files are
+    Same contract as run_eval_continuous.gather_responses: cache files are
     named with the prompt's hash, so a response is only reused under the exact
     prompt being asked now; an empty reply is not cached (retried next run), a
     non-empty one is cached even when unparseable; uncached calls run
@@ -265,7 +265,7 @@ def main() -> None:
     if questions_per_prompt > 0:
         print(f"questions per prompt: at most {questions_per_prompt}")
 
-    scenarios = get_single_city_base_scenarios(
+    scenarios = get_base_scenarios(
         seed=seed,
         cities=cfg.get_cities(args.cities),
         disasters=cfg.get_disasters(args.disasters),

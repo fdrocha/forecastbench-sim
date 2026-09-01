@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run python3
-"""Score the single city eval against a naive baseline instead of against |actual|.
+"""Score the continuous eval against a naive baseline instead of against |actual|.
 
-scripts/analyze_single_city.py normalizes CRPS by |actual|, which answers "how
+scripts/analyze_continuous.py normalizes CRPS by |actual|, which answers "how
 large is the error relative to the thing being forecast". That number has no
 zero point: 0.09 is only good or bad relative to how hard the question was. This
 script divides by the CRPS of a naive baseline forecast instead, so the scale
@@ -24,7 +24,7 @@ nothing changes from the snapshot value:
                    fairer comparison, since it submits a real interval as the
                    models do, and it is almost never exactly right.
 
-Both baselines and their reasoning live in analyze_single_city.py, which this
+Both baselines and their reasoning live in analyze_continuous.py, which this
 imports rather than reimplements, so the two scripts cannot disagree about what
 the baseline is.
 
@@ -54,9 +54,9 @@ independent draws — and that computation is likewise shared with
 analyze_skill_by_config.py by import, so a bar there and a bar here cannot
 disagree.
 
-Writes the report to data/micropolis/single_city/{label}/analysis-skill.md
+Writes the report to data/micropolis/continuous/{label}/analysis-skill.md
 (--baseline plain, the default) or analysis-skill-sigma.md (--baseline sigma),
-with plots in data/micropolis/single_city/{label}/plots/with_baseline/. Beside
+with plots in data/micropolis/continuous/{label}/plots/with_baseline/. Beside
 the report it writes scores.csv: model_scores.csv with MPScore/MPScoreLo/
 MPScoreHi columns appended, carrying the Model scores table's numbers in a
 form the next analysis can load rather than parse out of fixed-width text.
@@ -85,8 +85,7 @@ from micropolis_world.config import (
     load_config,
     main_with_config,
 )
-from micropolis_world.plot_labels import place_labels
-from micropolis_world.single_city import (
+from micropolis_world.continuous_eval import (
     DatasetError,
     MdReport,
     ResponseId,
@@ -98,11 +97,12 @@ from micropolis_world.single_city import (
     scenario_history,
     select_for_config,
 )
+from micropolis_world.plot_labels import place_labels
 
 # Imported rather than reimplemented so the baseline this scores against is
-# provably the same one analyze_single_city.py draws on its figures.
+# provably the same one analyze_continuous.py draws on its figures.
 sys.path.insert(0, str(Path(__file__).parent))
-from analyze_single_city import (
+from analyze_continuous import (
     NORMAL_Z,
     READ_OFF_HORIZON,
     eci_of,
@@ -1300,7 +1300,7 @@ def main() -> None:
         )
 
     print("=" * 70)
-    print("MICROPOLIS WORLD — single city eval, scores vs a naive baseline")
+    print("MICROPOLIS WORLD — continuous eval, scores vs a naive baseline")
     print("=" * 70)
     print(f"data:   {data_file}")
     print(f"config: {cfg.path}")
@@ -1363,7 +1363,7 @@ def main() -> None:
     md_name = f"analysis-skill{plot_suffix(args.baseline)}.md"
     out_path = report.write(
         label_dir(label) / md_name,
-        f"Single city eval — scores normalized by baseline ({args.baseline})",
+        f"Continuous eval — scores normalized by baseline ({args.baseline})",
     )
     print(out_path)
 

@@ -1,4 +1,4 @@
-// Config for scripts/run_knowledge_eval.py — the Micropolis domain-knowledge
+// Config for scripts/run_eval_knowledge.py — the Micropolis domain-knowledge
 // test (True/False/Unknown statements, scored per model).
 //
 // The "models" list is the default set used across the freeciv world: the same
@@ -8,7 +8,7 @@
 // run_tutorial_conditions.py.
 //
 // Only "models", "max_tokens" and the optional "provider_concurrency" are read
-// by run_knowledge_eval.py; the rest of the keys are here so this file also
+// by run_eval_knowledge.py; the rest of the keys are here so this file also
 // works with the other micropolis scripts.
 // analyze_knowledge.py also reads "models", to recover the provider/name ids
 // that the cached response filenames have flattened.

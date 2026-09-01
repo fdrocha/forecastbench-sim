@@ -241,7 +241,7 @@ def test_baseline_crps_excludes_the_read_off_horizon():
 def test_score_skill_reports_why_pairs_were_dropped(monkeypatch):
     """The tally is what keeps a shrunken table from reading as a complete one."""
     module = load_module()
-    from micropolis_world.single_city import Response, ResponseId
+    from micropolis_world.continuous_eval import Response, ResponseId
 
     corpus = _corpus(100, 150)
     responses = {
@@ -266,7 +266,7 @@ def test_score_skill_reports_why_pairs_were_dropped(monkeypatch):
 def test_score_skill_carries_the_cluster_identity():
     """The intervals cluster on (scenario, snapshot), so both travel on the row."""
     module = load_module()
-    from micropolis_world.single_city import Response, ResponseId
+    from micropolis_world.continuous_eval import Response, ResponseId
 
     corpus = _corpus(100, 150)
     responses = {

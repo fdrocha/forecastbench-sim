@@ -2,7 +2,7 @@
 
 Everything runs on synthetic log/event rows except TestBuildCorpusBinary,
 which builds a one-city corpus and so runs (or loads) the simulator, like
-test_single_city_batching's questions sort tests.
+test_continuous_batching's questions sort tests.
 """
 
 import pytest
@@ -30,7 +30,7 @@ from micropolis_world.binary_questions import (
     yearly_checkpoints,
 )
 from micropolis_world.city_sim import CitySimulation
-from micropolis_world.scenarios import get_single_city_base_scenarios
+from micropolis_world.scenarios import get_base_scenarios
 
 
 def make_row(
@@ -329,9 +329,7 @@ class TestQuestions:
 
 class TestBuildCorpusBinary:
     def test_one_city_corpus(self):
-        scenarios = get_single_city_base_scenarios(
-            seed=42, cities=["bruce"], disasters=[True]
-        )
+        scenarios = get_base_scenarios(seed=42, cities=["bruce"], disasters=[True])
         corpus = build_corpus_binary(
             scenarios,
             snapshot_turns=[96],

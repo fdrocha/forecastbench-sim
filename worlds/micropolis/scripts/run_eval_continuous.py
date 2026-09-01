@@ -1,9 +1,9 @@
 #!/usr/bin/env -S uv run python3
-"""Single city scenario evaluation: gather model forecasts.
+"""Continuous forecast evaluation: gather model forecasts.
 
 Builds the question corpus for every (city, disasters) combination in the
 config file, prompts each configured model on it, and writes the questions and
-their forecasts to data/micropolis/single_city/data.json.
+their forecasts to data/micropolis/continuous/data.json.
 
 Questions that share a game report — same scenario and snapshot turn — are
 asked together in one numbered prompt, so the report is paid for once per
@@ -11,7 +11,7 @@ batch instead of once per question. The uncached batch calls all run
 concurrently, capped per provider (see micropolis_world/prompting.py; a
 config's "provider_concurrency" map adjusts the caps), with one progress line
 printed as each response lands and the response written to disk right then. Each batch's prompt and raw responses are
-cached in data/micropolis/single_city/cache/{batch_id}/ as prompt-{hash}.txt
+cached in data/micropolis/continuous/cache/{batch_id}/ as prompt-{hash}.txt
 and one response-{model}-{hash}.txt per model, where {hash} is the first 8
 characters of the prompt's SHA-256 digest (see knowledge_eval/runner.py's
 prompt_hash) — the same convention the knowledge eval uses. A response is only
@@ -22,16 +22,16 @@ regenerated from the cached responses on every run, so parser improvements
 take effect without re-prompting.
 
 Scoring and plotting read that file:
-    scripts/analyze_single_city.py   tables of CRPS
+    scripts/analyze_continuous.py   tables of CRPS
     scripts/plot_forecasts.py        trajectories with forecasts overlaid
 
 Usage:
-    scripts/run_single_city_eval.py
-    scripts/run_single_city_eval.py my_config.json --seed 7
-    scripts/run_single_city_eval.py my_config.json --dry-run
-    scripts/run_single_city_eval.py --models openai/gpt-4o xai/grok-4-0709
-    scripts/run_single_city_eval.py --cities kyoto bruce --disasters false
-    scripts/run_single_city_eval.py --label kyoto_only --cities kyoto
+    scripts/run_eval_continuous.py
+    scripts/run_eval_continuous.py my_config.json --seed 7
+    scripts/run_eval_continuous.py my_config.json --dry-run
+    scripts/run_eval_continuous.py --models openai/gpt-4o xai/grok-4-0709
+    scripts/run_eval_continuous.py --cities kyoto bruce --disasters false
+    scripts/run_eval_continuous.py --label kyoto_only --cities kyoto
 
 --models overrides the config's list; see data/micropolis/available_models.md
 for what each provider offers.
@@ -54,21 +54,7 @@ from micropolis_world.config import (
     load_config,
     main_with_config,
 )
-from micropolis_world.prompting import (
-    PromptJob,
-    PromptResult,
-    format_eta,
-    format_latency,
-    run_prompts,
-)
-from micropolis_world.scenarios import (
-    build_batch_prompt_continuous,
-    build_corpus,
-    get_single_city_base_scenarios,
-    parse_batch_percentiles,
-    parse_batch_percentiles_semantic,
-)
-from micropolis_world.single_city import (
+from micropolis_world.continuous_eval import (
     Response,
     ResponseId,
     Responses,
@@ -81,6 +67,20 @@ from micropolis_world.single_city import (
     save_dataset,
     save_usage,
     usage_path,
+)
+from micropolis_world.prompting import (
+    PromptJob,
+    PromptResult,
+    format_eta,
+    format_latency,
+    run_prompts,
+)
+from micropolis_world.scenarios import (
+    build_batch_prompt_continuous,
+    build_corpus,
+    get_base_scenarios,
+    parse_batch_percentiles,
+    parse_batch_percentiles_semantic,
 )
 
 
@@ -97,7 +97,7 @@ def gather_responses(
 ) -> Responses:
     """Prompt each model on each batch of questions, reusing cached responses.
 
-    Cache files are named with the prompt's hash (see single_city.prompt_hash),
+    Cache files are named with the prompt's hash (see continuous_eval.prompt_hash),
     so a response is only ever reused when it was gathered under the exact
     prompt being asked now — a config change to horizons, templates,
     history_freq, history_length, snapshot_only_report, censorCityFunds,
@@ -302,7 +302,7 @@ def main() -> None:
     questions_per_prompt = cfg.get_questions_per_prompt()
 
     print("=" * 70)
-    print("MICROPOLIS WORLD — single city eval")
+    print("MICROPOLIS WORLD — continuous eval")
     print("=" * 70)
     print(f"config: {cfg.path}")
     print(f"label:  {label}")
@@ -321,7 +321,7 @@ def main() -> None:
     if questions_per_prompt > 0:
         print(f"questions per prompt: at most {questions_per_prompt}")
 
-    scenarios = get_single_city_base_scenarios(
+    scenarios = get_base_scenarios(
         seed=seed,
         cities=cfg.get_cities(args.cities),
         disasters=cfg.get_disasters(args.disasters),
@@ -364,7 +364,7 @@ def main() -> None:
     print(f"\nWrote {len(corpus)} questions x {len(models)} models -> {out_path}")
     print(f"  {usable} of {len(responses)} forecasts usable")
     print("=" * 70)
-    print("Next: scripts/analyze_single_city.py, scripts/plot_forecasts.py")
+    print("Next: scripts/analyze_continuous.py, scripts/plot_forecasts.py")
 
 
 if __name__ == "__main__":

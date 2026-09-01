@@ -1,4 +1,4 @@
-"""Unit tests for the batched single-city eval.
+"""Unit tests for the batched continuous eval.
 
 Covers the batch prompt builder, the batch response parser, and the cache
 layout helpers. Nothing here calls a model or writes to disk; the only I/O is
@@ -17,20 +17,20 @@ from micropolis_world.config import (
     QUESTION_TAGGING_SEMANTIC,
     QUESTIONS_SORT_METRIC,
 )
+from micropolis_world.continuous_eval import (
+    batch_id_for,
+    group_into_batches,
+    response_path,
+)
 from micropolis_world.scenarios import (
     DEFAULT_EPILOGUE_PATH,
     DEFAULT_SEMANTIC_EPILOGUE_PATH,
     PERCENTILE_KEYS,
     build_batch_prompt_continuous,
     build_corpus,
-    get_single_city_base_scenarios,
+    get_base_scenarios,
     parse_batch_percentiles,
     parse_batch_percentiles_semantic,
-)
-from micropolis_world.single_city import (
-    batch_id_for,
-    group_into_batches,
-    response_path,
 )
 from micropolis_world.templates import ALL_TEMPLATES, asked_templates
 
@@ -201,9 +201,7 @@ class TestQuestionsSort:
     TEMPLATES: ClassVar = asked_templates(censor_city_funds=True)
 
     def _corpus(self, **kw):
-        scenarios = get_single_city_base_scenarios(
-            seed=42, cities=["bruce"], disasters=[False]
-        )
+        scenarios = get_base_scenarios(seed=42, cities=["bruce"], disasters=[False])
         return build_corpus(
             scenarios,
             [240],

@@ -11,13 +11,13 @@ Nothing here calls a model.
 
 import json
 
-from micropolis_world.knowledge_eval import runner
-from micropolis_world.single_city import (
+from micropolis_world.continuous_eval import (
     load_usage,
     response_path,
     save_usage,
     usage_path,
 )
+from micropolis_world.knowledge_eval import runner
 from micropolis_world.usage import CallUsage
 
 PHASH = "abcd1234"
@@ -33,7 +33,7 @@ USAGE = CallUsage(
 )
 
 
-def test_single_city_sidecar_sits_beside_its_response():
+def test_continuous_sidecar_sits_beside_its_response():
     response = response_path("bruce_s42_T240", MODEL, PHASH)
     sidecar = usage_path("bruce_s42_T240", MODEL, PHASH)
 

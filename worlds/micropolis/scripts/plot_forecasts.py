@@ -1,10 +1,10 @@
 #!/usr/bin/env -S uv run python3
-"""Plot single city metric trajectories with model forecasts overlaid.
+"""Plot city metric trajectories with model forecasts overlaid.
 
 One figure per scenario, carrying every snapshot taken from it and every horizon
 asked from those snapshots. Reads
-data/micropolis/single_city/{label}/data.json, written by
-scripts/run_single_city_eval.py, and the simulation logs the questions came
+data/micropolis/continuous/{label}/data.json, written by
+scripts/run_eval_continuous.py, and the simulation logs the questions came
 from; prompts no models.
 
 The config selects which slice of the dataset to draw — its models, cities,
@@ -12,7 +12,7 @@ disasters, snapshot_turns and horizons — so one gathered dataset can be plotte
 many ways. Naming anything the dataset lacks is an error, not a smaller figure.
 
 Writes one figure per scenario to
-data/micropolis/single_city/{label}/plots/forecasts/, panelled by
+data/micropolis/continuous/{label}/plots/forecasts/, panelled by
 metric.
 
 Defaults to the forecasts_plots.json5 config, which subsets the models to a
@@ -38,8 +38,7 @@ from micropolis_world.config import (
     load_config,
     main_with_config,
 )
-from micropolis_world.plot_sim import PANEL_GRID, PANEL_METRICS
-from micropolis_world.single_city import (
+from micropolis_world.continuous_eval import (
     DatasetError,
     ResponseId,
     Responses,
@@ -48,6 +47,7 @@ from micropolis_world.single_city import (
     plots_path,
     select_for_config,
 )
+from micropolis_world.plot_sim import PANEL_GRID, PANEL_METRICS
 
 
 def forecasts_path(label: str) -> Path:
@@ -352,7 +352,7 @@ def main() -> None:
         sys.exit(f"[error] {e}")
 
     print("=" * 70)
-    print("MICROPOLIS WORLD — single city forecast plots")
+    print("MICROPOLIS WORLD — continuous forecast plots")
     print("=" * 70)
     print(f"data:   {data_file}")
     print(f"config: {cfg.path}")

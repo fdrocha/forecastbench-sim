@@ -1,6 +1,6 @@
 """Score parsed knowledge-eval answers against the statement key.
 
-Shared by scripts/run_knowledge_eval.py, which gathers the answers, and
+Shared by scripts/run_eval_knowledge.py, which gathers the answers, and
 scripts/analyze_knowledge.py, which reports on them.
 """
 

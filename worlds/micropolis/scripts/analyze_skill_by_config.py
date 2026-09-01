@@ -55,7 +55,7 @@ behavioral metrics, the read-off horizon is excluded, and --baseline picks the
 naive forecast to score against.
 
 Writes a Markdown report, plots and scores.csv to
-data/micropolis/single_city/comparisons/{name}/, where {name} defaults to the
+data/micropolis/continuous/comparisons/{name}/, where {name} defaults to the
 config labels joined with '+'. Only the paths written are printed to stdout.
 
 Usage:
@@ -76,8 +76,7 @@ from scipy import stats
 
 from micropolis_world import model_scores
 from micropolis_world.config import Config, ConfigError, main_with_config
-from micropolis_world.plot_labels import place_labels
-from micropolis_world.single_city import (
+from micropolis_world.continuous_eval import (
     OUT_DIR,
     DatasetError,
     MdReport,
@@ -86,6 +85,7 @@ from micropolis_world.single_city import (
     load_dataset,
     select_for_config,
 )
+from micropolis_world.plot_labels import place_labels
 
 sys.path.insert(0, str(Path(__file__).parent))
 from analyze_baseline_skill import (
@@ -104,7 +104,7 @@ from analyze_baseline_skill import (
     split_rows,
     stats_by_model,
 )
-from analyze_single_city import eci_of, is_forecast, stars_for
+from analyze_continuous import eci_of, is_forecast, stars_for
 
 # The pooled view, for the summary scatter that opens the report. Kept out of
 # SPLITS — which drives the per-split sections and must stay the two-way funds
@@ -1110,7 +1110,7 @@ def main() -> None:
     md_name = f"skill-by-config{plot_suffix(args.baseline)}.md"
     out_path = report.write(
         outdir / md_name,
-        f"Single city eval — skill vs baseline across configs ({args.baseline})",
+        f"Continuous eval — skill vs baseline across configs ({args.baseline})",
     )
     print(out_path)
 

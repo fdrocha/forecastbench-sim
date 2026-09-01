@@ -1,8 +1,8 @@
 #!/usr/bin/env -S uv run python3
-"""Score the single city eval: CRPS tables by metric and by horizon.
+"""Score the continuous eval: CRPS tables by metric and by horizon.
 
-Reads data/micropolis/single_city/{label}/data.json, written by
-scripts/run_single_city_eval.py. Prompts no models and runs no simulations, so
+Reads data/micropolis/continuous/{label}/data.json, written by
+scripts/run_eval_continuous.py. Prompts no models and runs no simulations, so
 it is cheap to re-run while changing how the numbers are presented.
 
 The config selects which slice of the dataset to score — its models, cities,
@@ -10,7 +10,7 @@ disasters, snapshot_turns and horizons — so one gathered dataset can be viewed
 many ways. Naming anything the dataset lacks is an error, not a smaller table.
 
 Writes every table and figure to one Markdown report,
-data/micropolis/single_city/{label}/analysis-crps.md, rather than to
+data/micropolis/continuous/{label}/analysis-crps.md, rather than to
 stdout: normalized CRPS against horizon, over all runs and restricted to the
 runs with and without disasters; forecast skill against ECI; and the
 correlation of each against horizon, both for ECI alone and comparing ECI to
@@ -18,12 +18,12 @@ the knowledge-eval score. --no-plot skips the figures. Only the paths written
 and the report's own path are printed to stdout.
 
 Usage:
-    scripts/analyze_single_city.py
-    scripts/analyze_single_city.py subset.json5
-    scripts/analyze_single_city.py --per-metric
-    scripts/analyze_single_city.py --no-plot
-    scripts/analyze_single_city.py --cities kyoto --disasters false
-    scripts/analyze_single_city.py --models openai/gpt-5.6-sol --label myrun
+    scripts/analyze_continuous.py
+    scripts/analyze_continuous.py subset.json5
+    scripts/analyze_continuous.py --per-metric
+    scripts/analyze_continuous.py --no-plot
+    scripts/analyze_continuous.py --cities kyoto --disasters false
+    scripts/analyze_continuous.py --models openai/gpt-5.6-sol --label myrun
 
 The per-metric horizon tables are one table per metric and so are the bulk of the
 output; --per-metric opts into them.
@@ -45,8 +45,7 @@ from micropolis_world.config import (
     load_config,
     main_with_config,
 )
-from micropolis_world.plot_labels import place_labels
-from micropolis_world.single_city import (
+from micropolis_world.continuous_eval import (
     UNNORMALIZED_METRICS,
     DatasetError,
     MdReport,
@@ -60,6 +59,7 @@ from micropolis_world.single_city import (
     score_forecasts,
     select_for_config,
 )
+from micropolis_world.plot_labels import place_labels
 
 # The nearest horizon asks for a value the snapshot report already prints, so it
 # is a comprehension check — did the model read the report and follow the answer
@@ -1823,7 +1823,7 @@ def main() -> None:
         sys.exit(f"[error] {e}")
 
     print("=" * 70)
-    print("MICROPOLIS WORLD — single city eval scores")
+    print("MICROPOLIS WORLD — continuous eval scores")
     print("=" * 70)
     print(f"data:   {data_file}")
     print(f"config: {cfg.path}")
@@ -1857,7 +1857,7 @@ def main() -> None:
                 print(f"Wrote {out}")
 
     out_path = report.write(
-        label_dir(label) / "analysis-crps.md", "Single city eval — CRPS"
+        label_dir(label) / "analysis-crps.md", "Continuous eval — CRPS"
     )
     print(out_path)
 

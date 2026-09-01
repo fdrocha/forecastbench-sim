@@ -7,9 +7,9 @@ yet. This is the only script in the knowledge eval that calls a model; to score
 what it gathered, run scripts/analyze_knowledge.py.
 
 Usage:
-    scripts/run_knowledge_eval.py
-    scripts/run_knowledge_eval.py my_config.json5
-    scripts/run_knowledge_eval.py --models openai/gpt-4o xai/grok-4-0709
+    scripts/run_eval_knowledge.py
+    scripts/run_eval_knowledge.py my_config.json5
+    scripts/run_eval_knowledge.py --models openai/gpt-4o xai/grok-4-0709
 
 Without a config argument this uses configs/knowledge_eval.json5. --models
 overrides the config's list; see data/micropolis/available_models.md for what

@@ -284,7 +284,7 @@ class Config:
         snapshot goes in a single prompt, which is the cheapest way to ask them
         since they share a game report. A positive value splits a batch that
         would exceed it, repeating the report in each prompt (see
-        single_city.group_into_batches). Part of what the prompt asks, so
+        continuous_eval.group_into_batches). Part of what the prompt asks, so
         changing it misses the response cache rather than mixing variants.
         """
         value = self.get_int_or("questions_per_prompt", -1)
@@ -364,7 +364,7 @@ class Config:
     def get_label(self, override: str | None = None) -> str:
         """The 'label', or the config file's stem if it has none.
 
-        Names the single-city eval's per-run output directory, so every config
+        Names the continuous eval's per-run output directory, so every config
         gets a distinct one even without setting the key explicitly. `override`
         is a --label from the command line, which wins over both.
         """
@@ -467,7 +467,7 @@ def add_config_args(
     ap.add_argument(
         "--label",
         default=None,
-        help="Name of the output directory under data/micropolis/single_city/, "
+        help="Name of the output directory under data/micropolis/continuous/, "
         "overriding the config's 'label'",
     )
 

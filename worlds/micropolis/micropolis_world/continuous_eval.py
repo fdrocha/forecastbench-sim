@@ -1,7 +1,7 @@
-"""Shared pieces of the single city eval: response cache, dataset, scoring.
+"""Shared pieces of the continuous eval: response cache, dataset, scoring.
 
-The eval is split across three scripts — run_single_city_eval.py gathers model
-responses, analyze_single_city.py scores them, plot_forecasts.py draws them —
+The eval is split across three scripts — run_eval_continuous.py gathers model
+responses, analyze_continuous.py scores them, plot_forecasts.py draws them —
 and this module holds what more than one of them needs. The dataset written by
 the first is the only thing the other two read, so they never re-simulate or
 re-prompt.
@@ -26,7 +26,7 @@ from .usage import load_usage, save_usage  # noqa: F401 - re-exported for the sc
 # label: the cache filename already carries the prompt's hash (see
 # batch_dir), so two labels asking an identical prompt reuse the same cached
 # response rather than paying for it twice.
-OUT_DIR = g.DATA_DIR / "single_city"
+OUT_DIR = g.DATA_DIR / "continuous"
 
 
 def label_dir(label: str) -> Path:
@@ -218,7 +218,7 @@ def load_dataset(path: Path) -> tuple[list[dict], Responses, list[str]]:
     """
     if not path.exists():
         raise FileNotFoundError(
-            f"{path} not found — run scripts/run_single_city_eval.py first"
+            f"{path} not found — run scripts/run_eval_continuous.py first"
         )
     data = json.loads(path.read_text())
     corpus = data["questions"]
@@ -333,7 +333,7 @@ class MdReport:
 
         `path` is stored absolute and resolved to a relative link in write(),
         rather than assumed to be one fixed number of directories below the
-        report — analyze_single_city.py's figures sit directly under
+        report — analyze_continuous.py's figures sit directly under
         plots/, but analyze_baseline_skill.py's sit one level deeper, under
         plots/with_baseline/, so a hardcoded "plots/{name}" link would be wrong
         for the second caller.
@@ -434,7 +434,7 @@ def select_for_config(
         raise DatasetError(
             "the dataset does not cover this config:\n"
             + "\n".join(missing)
-            + "\n  re-run scripts/run_single_city_eval.py with this config to gather it"
+            + "\n  re-run scripts/run_eval_continuous.py with this config to gather it"
         )
 
     selected_scenarios = set(wanted_scenarios)
@@ -463,7 +463,7 @@ def select_for_config(
         raise DatasetError(
             f"the dataset is missing {len(ungathered)} forecast(s) the config asks "
             f"for: {shown}{more}\n"
-            "  re-run scripts/run_single_city_eval.py with this config to gather them"
+            "  re-run scripts/run_eval_continuous.py with this config to gather them"
         )
 
     selected_responses = {

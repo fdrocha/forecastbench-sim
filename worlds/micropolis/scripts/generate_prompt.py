@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run python3
-"""Print the first prompt run_single_city_eval.py would send for a config.
+"""Print the first prompt run_eval_continuous.py would send for a config.
 
-Builds the corpus exactly as run_single_city_eval.py does — same preamble,
+Builds the corpus exactly as run_eval_continuous.py does — same preamble,
 game report, question order, tagging and epilogue — but only for the first
 (city, disasters) scenario, which is all the first batch draws on, and prints
 that batch's prompt to stdout. Status lines go to stderr, so the output can be
@@ -20,12 +20,12 @@ import contextlib
 import sys
 
 from micropolis_world.config import add_config_args, load_config, main_with_config
+from micropolis_world.continuous_eval import group_into_batches
 from micropolis_world.scenarios import (
     build_batch_prompt_continuous,
     build_corpus,
-    get_single_city_base_scenarios,
+    get_base_scenarios,
 )
-from micropolis_world.single_city import group_into_batches
 
 
 @main_with_config
@@ -38,7 +38,7 @@ def main() -> None:
     seed = cfg.get_seed(args.seed)
     label = cfg.get_label(args.label)
 
-    scenarios = get_single_city_base_scenarios(
+    scenarios = get_base_scenarios(
         seed=seed,
         cities=cfg.get_cities(args.cities),
         disasters=cfg.get_disasters(args.disasters),

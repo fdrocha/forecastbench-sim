@@ -1,8 +1,8 @@
 """Output paths + dataset IO for the binary yes/no eval.
 
-The binary counterpart of single_city.py's cache/path/dataset half, rooted at
-data/micropolis/binary/ instead of single_city/. Batching, hashing and usage
-sidecars are reused from single_city/usage unchanged.
+The binary counterpart of continuous_eval.py's cache/path/dataset half, rooted at
+data/micropolis/binary/ instead of continuous/. Batching, hashing and usage
+sidecars are reused from continuous_eval/usage unchanged.
 """
 
 import json
@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import module_globals as g
-from .single_city import ResponseId
+from .continuous_eval import ResponseId
 
 OUT_DIR = g.DATA_DIR / "binary"
 
@@ -26,7 +26,7 @@ def data_path(label: str) -> Path:
 def batch_dir(batch_id: str) -> Path:
     """Where a batch's prompt and raw model responses are cached.
 
-    Same layout and content-addressing as single_city.batch_dir (shared across
+    Same layout and content-addressing as continuous_eval.batch_dir (shared across
     labels, one file per prompt hash), under the binary root.
     """
     return OUT_DIR / "cache" / batch_id
@@ -63,7 +63,7 @@ def save_dataset_binary(
 ) -> Path:
     """Write the corpus and this run's forecasts as one self-contained file.
 
-    Mirrors single_city.save_dataset: questions keep their resolved bool
+    Mirrors continuous_eval.save_dataset: questions keep their resolved bool
     "answer", forecasts carry each model's P(Yes) (null = answered unusably;
     an absent row = never gathered), and the report ("context") stays in the
     prompt cache rather than being repeated per question here.

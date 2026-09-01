@@ -35,7 +35,7 @@ PREAMBLE_PATH = HERE / "prompt_preamble.txt"
 OUT_DIR = g.DATA_DIR / "knowledge_eval"
 
 # Prompts, raw model responses and their usage sidecars live below OUT_DIR,
-# mirroring the single-city eval's cache layout, so OUT_DIR itself holds only
+# mirroring the continuous eval's cache layout, so OUT_DIR itself holds only
 # analysis outputs (plots, report, scores).
 CACHE_DIR = OUT_DIR / "cache"
 

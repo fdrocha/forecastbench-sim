@@ -1,5 +1,5 @@
 #!/usr/bin/env -S uv run python3
-"""Build the single-city Micropolis question corpus and write it to JSON.
+"""Build the continuous Micropolis question corpus and write it to JSON.
 
 Runs (or reuses cached) simulations for every base scenario, then resolves
 each question template at every horizon.
@@ -19,7 +19,7 @@ from micropolis_world.config import (
     load_config,
     main_with_config,
 )
-from micropolis_world.scenarios import build_corpus, get_single_city_base_scenarios
+from micropolis_world.scenarios import build_corpus, get_base_scenarios
 
 
 @main_with_config
@@ -32,7 +32,7 @@ def main() -> None:
     seed = cfg.get_seed(args.seed)
     label = cfg.get_label(args.label)
 
-    scenarios = get_single_city_base_scenarios(
+    scenarios = get_base_scenarios(
         seed=seed,
         cities=cfg.get_cities(args.cities),
         disasters=cfg.get_disasters(args.disasters),

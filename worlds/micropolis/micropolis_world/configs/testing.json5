@@ -3,7 +3,7 @@
   // RNG seed for the simulations. Override per-run with --seed.
   "seed": 42,
 
-  // Names the output directory under data/micropolis/single_city/. Defaults to
+  // Names the output directory under data/micropolis/continuous/. Defaults to
   // this file's own name when absent. Override per-run with --label.
   "label": "default",
 

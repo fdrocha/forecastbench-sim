@@ -6,7 +6,7 @@ against Epoch's ECI capability index — overall and split by statement difficul
 and honeypot status. The question is whether knowing Micropolis tracks general
 capability.
 
-Reads only the responses already cached by scripts/run_knowledge_eval.py, so it
+Reads only the responses already cached by scripts/run_eval_knowledge.py, so it
 prompts no models and needs no API keys or network. It writes knowledge.csv
 (per-model scores by subset), one scatter plot per statement subset, a summary
 figure of ρ and r across the subsets, and report.md tying the plots together;
@@ -691,7 +691,7 @@ def main() -> None:
 
     entries, skipped, no_response = load_entries()
     if not entries:
-        print("\nNo cached responses with an ECI score. Run run_knowledge_eval.py.")
+        print("\nNo cached responses with an ECI score. Run run_eval_knowledge.py.")
         return
 
     print_join_report(entries, skipped, no_response)

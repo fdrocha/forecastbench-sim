@@ -93,7 +93,7 @@ def read_epilogue(n: int, path: Path | str | None = None) -> str:
     return _read_epilogue_template(path).replace("{n}", str(n))
 
 
-def get_single_city_base_scenarios(
+def get_base_scenarios(
     seed: int, cities: list[str], disasters: list[bool]
 ) -> list[CitySimulation]:
     scenarios = []
