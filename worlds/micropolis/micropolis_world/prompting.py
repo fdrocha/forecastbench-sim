@@ -135,7 +135,7 @@ async def prompt_model_async(
     """Send `messages` to `model`, returning its text, finish reason and cost.
 
     The async twin of module_globals.prompt_model, and kept in step with it:
-    same normalized model id, same temperature gate, same LLMResponse. The
+    same normalized model id, same sampling defaults, same LLMResponse. The
     kwargs logic is knowingly duplicated rather than shared — factoring it out
     would couple the two lazy-import boundaries the tests monkeypatch through.
     The differences: a full message list instead of a single user prompt (so a
@@ -150,9 +150,9 @@ async def prompt_model_async(
     one-line warning to stderr so a throttled run is visible. Anything else
     (auth failures, bad requests) raises immediately.
 
-    `model` is a LiteLLMModel, duck-typed (.id, ._litellm_model_id,
-    .supports_temperature) so importing this module never imports fbsim-core,
-    which pulls in litellm at module level.
+    `model` is a LiteLLMModel, duck-typed (.id, ._litellm_model_id) so
+    importing this module never imports fbsim-core, which pulls in litellm at
+    module level.
     """
     # Imported here so tests can monkeypatch litellm.acompletion; the name is
     # resolved per call. See test_usage.py's `calls` fixture for why hoisting
@@ -164,7 +164,6 @@ async def prompt_model_async(
         ServiceUnavailableError,
         Timeout,
         acompletion,
-        supports_reasoning,
     )
 
     kwargs = {
@@ -175,8 +174,6 @@ async def prompt_model_async(
         "max_retries": 0,
         "timeout": timeout,
     }
-    if model.supports_temperature and not supports_reasoning(model._litellm_model_id):
-        kwargs["temperature"] = 0.0
 
     for attempt in range(num_retries + 1):
         start = time.perf_counter()

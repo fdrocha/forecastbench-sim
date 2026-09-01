@@ -54,18 +54,17 @@ def prompt_model(model, prompt: str, max_tokens: int) -> LLMResponse:
     silent blank. So the call is made here instead, and the whole response is
     read before it is dropped.
 
-    Mirrors get_response()'s handling of the parameters some models reject.
+    Sampling parameters are left unset so every model runs on its provider
+    defaults.
     """
     # Imported here so the simulation-only scripts don't pull in litellm.
-    from litellm import completion, supports_reasoning
+    from litellm import completion
 
     kwargs = {
         "model": model._litellm_model_id,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
     }
-    if model.supports_temperature and not supports_reasoning(model._litellm_model_id):
-        kwargs["temperature"] = 0.0
 
     start = time.perf_counter()
     response = completion(**kwargs)

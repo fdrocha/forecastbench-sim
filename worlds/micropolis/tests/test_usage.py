@@ -226,15 +226,15 @@ def test_prompt_model_sends_the_normalized_model_id(calls):
     assert calls[0]["model"] == "gemini/gemini-2.5-pro"
 
 
-def test_prompt_model_omits_temperature_only_for_models_that_reject_it(calls):
+def test_prompt_model_never_sends_temperature(calls):
+    """Every model runs on its provider defaults."""
     g.prompt_model(LiteLLMModel("openai/gpt-4o"), "hi", max_tokens=10)
     g.prompt_model(LiteLLMModel("openai/gpt-5"), "hi", max_tokens=10)
 
-    supported, unsupported = calls
-    assert supported["temperature"] == 0.0
-    assert "temperature" not in unsupported
-    # The cap is always sent, unlike fbsim-core's get_response.
-    assert supported["max_tokens"] == unsupported["max_tokens"] == 10
+    for call in calls:
+        assert "temperature" not in call
+        # The cap is always sent, unlike fbsim-core's get_response.
+        assert call["max_tokens"] == 10
 
 
 def test_prompt_model_reports_usage_for_an_empty_reply(monkeypatch):

@@ -91,7 +91,7 @@ def test_returns_text_finish_reason_and_cost(calls):
     assert got.usage.latency_ms is not None
 
 
-def test_sends_normalized_id_and_mirrors_temperature_rules(calls):
+def test_sends_normalized_id_and_no_sampling_params(calls):
     """The kwargs must match sync prompt_model's for the same model."""
     for model_id in ["google/gemini-2.5-pro", "openai/gpt-4o", "openai/gpt-5"]:
         asyncio.run(
@@ -102,13 +102,12 @@ def test_sends_normalized_id_and_mirrors_temperature_rules(calls):
             )
         )
 
-    gemini, supported, unsupported = calls
     # google/ is asked for; gemini/ is what LiteLLM's API expects.
-    assert gemini["model"] == "gemini/gemini-2.5-pro"
-    assert supported["temperature"] == 0.0
-    assert "temperature" not in unsupported
-    # The cap is always sent, unlike fbsim-core's get_response.
-    assert supported["max_tokens"] == unsupported["max_tokens"] == 10
+    assert calls[0]["model"] == "gemini/gemini-2.5-pro"
+    for call in calls:
+        assert "temperature" not in call
+        # The cap is always sent, unlike fbsim-core's get_response.
+        assert call["max_tokens"] == 10
 
 
 def test_owns_retries_and_disables_litellm_and_sdk_retries(calls):
