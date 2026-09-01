@@ -11,9 +11,13 @@ your forecasts from what the report shows, combined with your knowledge of
 the Micropolis engine.
 
 The turns in the questions are counted in the same unit as the game report's,
-and 48 turns make one game year. City classifications, in increasing order:
-Village (<2k population), Town (2k–10k), City (10k–50k), Capital (50k–100k),
-Metropolis (100k–500k), Megalopolis (>500k).
+and 48 turns make one game year. Every question asks only about what happens
+strictly after the report's current turn, up to and including the turn it
+names: events that already occurred by the current turn — including those
+listed in the report — do not count toward any question. City
+classifications, in increasing order: Village (<2k population), Town
+(2k–10k), City (10k–50k), Capital (50k–100k), Metropolis (100k–500k),
+Megalopolis (>500k).
 
 For each question, give a probability that honestly reflects your uncertainty
 about whether it resolves YES. Forecasts are scored with the Brier score

@@ -155,32 +155,35 @@ class Question:
 QUESTIONS = [
     Question(
         "A1",
-        "Will at least one earthquake be reported by turn {HORIZON}?",
+        "Will at least one earthquake be reported between the current turn "
+        "and turn {HORIZON}?",
         lambda w: w.n(MSG_EARTHQUAKE) >= 1,
     ),
     Question(
         "A2",
-        "Will at least one tornado be sighted by turn {HORIZON}?",
+        "Will at least one tornado be sighted between the current turn and "
+        "turn {HORIZON}?",
         lambda w: w.n(MSG_TORNADO) >= 1,
     ),
     Question(
         "A3",
-        "Will at least one flood be reported by turn {HORIZON}?",
+        "Will at least one flood be reported between the current turn and "
+        "turn {HORIZON}?",
         lambda w: w.n(MSG_FLOOD) >= 1,
     ),
     Question(
         "A4",
-        "Will a monster be sighted by turn {HORIZON}?",
+        "Will a monster be sighted between the current turn and turn {HORIZON}?",
         lambda w: w.n(MSG_MONSTER) >= 1,
     ),
     Question(
         "A5",
-        "Will an airplane crash by turn {HORIZON}?",
+        "Will an airplane crash between the current turn and turn {HORIZON}?",
         lambda w: w.n(MSG_PLANE_CRASH) >= 1,
     ),
     Question(
         "A6",
-        "Will a shipwreck be reported by turn {HORIZON}?",
+        "Will a shipwreck be reported between the current turn and turn {HORIZON}?",
         lambda w: w.n(MSG_SHIPWRECK) >= 1,
     ),
     Question(
@@ -197,8 +200,8 @@ QUESTIONS = [
     ),
     Question(
         "A9",
-        "Will the city's population read zero at any yearly checkpoint by "
-        "turn {HORIZON}?",
+        "Will the city's population read zero at any yearly checkpoint "
+        "between the current turn and turn {HORIZON}?",
         lambda w: any(w.pop(t) == 0 for t in w.yc(w.now, w.h)),
     ),
     Question(
@@ -209,7 +212,8 @@ QUESTIONS = [
     ),
     Question(
         "A11",
-        'Will a "Blackouts reported" advisory appear by turn {HORIZON}?',
+        'Will a "Blackouts reported" advisory appear between the current '
+        "turn and turn {HORIZON}?",
         lambda w: w.n(MSG_BLACKOUTS) >= 1,
     ),
     Question(
@@ -240,49 +244,54 @@ QUESTIONS = [
     ),
     Question(
         "B1",
-        "Will a nuclear meltdown occur by turn {HORIZON}?",
+        "Will a nuclear meltdown occur between the current turn and turn {HORIZON}?",
         lambda w: w.n(MSG_MELTDOWN) >= 1,
     ),
     Question(
         "B2",
-        "Will two or more earthquakes be reported by turn {HORIZON}?",
+        "Will two or more earthquakes be reported between the current turn "
+        "and turn {HORIZON}?",
         lambda w: w.n(MSG_EARTHQUAKE) >= 2,
     ),
     Question(
         "B3",
-        "Will two or more tornadoes be sighted by turn {HORIZON}?",
+        "Will two or more tornadoes be sighted between the current turn and "
+        "turn {HORIZON}?",
         lambda w: w.n(MSG_TORNADO) >= 2,
     ),
     Question(
         "B4",
         "Will at least one tornado and at least one earthquake both be "
-        "reported by turn {HORIZON}?",
+        "reported between the current turn and turn {HORIZON}?",
         lambda w: w.n(MSG_TORNADO) >= 1 and w.n(MSG_EARTHQUAKE) >= 1,
     ),
     Question(
         "B5",
-        'Will a "Fire reported!" disaster strike by turn {HORIZON}?',
+        'Will a "Fire reported!" disaster strike between the current turn '
+        "and turn {HORIZON}?",
         lambda w: w.n(MSG_FIRE) >= 1,
     ),
     Question(
         "B6",
-        "Will a train crash by turn {HORIZON}?",
+        "Will a train crash between the current turn and turn {HORIZON}?",
         lambda w: w.n(MSG_TRAIN_CRASH) >= 1,
     ),
     Question(
         "B7",
-        "Will two or more separate floods be reported by turn {HORIZON}?",
+        "Will two or more separate floods be reported between the current "
+        "turn and turn {HORIZON}?",
         lambda w: w.n(MSG_FLOOD) >= 2,
     ),
     Question(
         "B8",
-        "Will the monster be sighted two or more times by turn {HORIZON}?",
+        "Will the monster be sighted two or more times between the current "
+        "turn and turn {HORIZON}?",
         lambda w: w.n(MSG_MONSTER) >= 2,
     ),
     Question(
         "B9",
         "Will the city's population reach a new all-time high at any yearly "
-        "checkpoint by turn {HORIZON}?",
+        "checkpoint between the current turn and turn {HORIZON}?",
         lambda w: (
             max(w.pop(t) for t in w.yc(w.now, w.h))
             > max(w.pop(t) for t in w.yc(0, w.now))
