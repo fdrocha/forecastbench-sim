@@ -325,6 +325,7 @@ def select_for_config(
     cities: list[str] | None = None,
     disasters: list[bool] | None = None,
     models: list[str] | None = None,
+    rerun_hint: str = "scripts/run_eval_continuous.py",
 ) -> tuple[list[dict], Responses, list[str]]:
     """Narrow a dataset to what `cfg` asks for, or fail saying what is missing.
 
@@ -334,7 +335,9 @@ def select_for_config(
     model or city would otherwise look like a legitimately empty result.
     `cities`, `disasters` and `models` override the config's lists, for the
     matching command-line flags; keyword-only, since three same-shaped list
-    arguments in a row are easy to pass in the wrong order.
+    arguments in a row are easy to pass in the wrong order. `rerun_hint` names
+    the gathering script in the error messages — the binary eval reuses this
+    with its own script.
     """
     wanted_models = cfg.get_models(models)
     wanted_scenarios = scenario_ids_from(cfg, seed, cities, disasters)
@@ -358,7 +361,7 @@ def select_for_config(
         raise DatasetError(
             "the dataset does not cover this config:\n"
             + "\n".join(missing)
-            + "\n  re-run scripts/run_eval_continuous.py with this config to gather it"
+            + f"\n  re-run {rerun_hint} with this config to gather it"
         )
 
     selected_scenarios = set(wanted_scenarios)
@@ -387,7 +390,7 @@ def select_for_config(
         raise DatasetError(
             f"the dataset is missing {len(ungathered)} forecast(s) the config asks "
             f"for: {shown}{more}\n"
-            "  re-run scripts/run_eval_continuous.py with this config to gather them"
+            f"  re-run {rerun_hint} with this config to gather them"
         )
 
     selected_responses = {
