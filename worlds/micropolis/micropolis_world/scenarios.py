@@ -658,8 +658,10 @@ def parse_batch_probabilities(
     <<<PROBABILITIES>>> block, and those lines are mapped by their stated
     number, not their position, so a model that skips a question can't shift
     every answer after it. Later lines overwrite earlier ones for the same
-    number. When no line carries a question number, lines that are nothing but
-    a single probability are assigned positionally in order of appearance.
+    number. An answer written on one line as "Q1: 0.15, Q2: 0.05, ..." is split
+    back apart first. When no line carries a question number, lines that are
+    nothing but a single probability are assigned positionally in order of
+    appearance.
     Out-of-range values are rejected by _validate_probability, and every
     question left without a usable answer gets a warning naming its label
     (unless `quiet`).
@@ -676,13 +678,14 @@ def parse_batch_probabilities(
             print(f"  {labels[0]} (+{n - 1} more): empty model response")
         return results
 
-    lines = [
-        line
-        for line in _extract_answer_block(response, _PROBABILITIES_MARKER_RE).split(
-            "\n"
-        )
-        if line.strip()
-    ]
+    block = _extract_answer_block(response, _PROBABILITIES_MARKER_RE)
+    # Some models put the whole answer on one line, "Q1: 0.15, Q2: 0.05, ...".
+    # Break before each question number so those become answer lines too; the
+    # split is harmless on properly line-separated answers.
+    block = re.sub(
+        r"[,;]\s*(?=(?:question\s*|q)?\d+\s*[.:)])", "\n", block, flags=re.IGNORECASE
+    )
+    lines = [line for line in block.split("\n") if line.strip()]
 
     # First pass: numbered answer lines, mapped by their stated number. The
     # probability must start right after the number prefix, so a numbered

@@ -46,6 +46,10 @@ class TestParseBatchProbabilities:
         response = delimited("0.65", "0.03", "0.9")
         assert parse_batch_probabilities(response, LABELS) == [0.65, 0.03, 0.9]
 
+    def test_comma_separated_answers_on_one_line(self):
+        response = delimited("Q1: 0.65, Q2: 0.03, Q3: 0.9")
+        assert parse_batch_probabilities(response, LABELS) == [0.65, 0.03, 0.9]
+
     def test_numbered_lines_ignore_order_and_skips(self):
         response = delimited("Q3: 0.9", "Q1: 0.65")
         assert parse_batch_probabilities(response, LABELS, quiet=True) == [
