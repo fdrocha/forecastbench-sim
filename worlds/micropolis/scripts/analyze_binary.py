@@ -478,8 +478,10 @@ def plot_score_bars(
         ax.bar(
             range(len(ordered)),
             [v if v is not None else 0.0 for v in values],
-            width=0.68,
+            width=1.0,
             color=PLOT_BLUE,
+            edgecolor="white",
+            linewidth=0.5,
             zorder=3,
         )
         for i, v in enumerate(values):
@@ -524,7 +526,7 @@ def plot_score_bars(
     return out
 
 
-def plot_score_by_horizon(
+def plot_scores_by_horizon(
     report: MdReport,
     corpus: list[dict],
     rows: list[dict],
@@ -532,14 +534,15 @@ def plot_score_by_horizon(
     outdir: Path,
     section: str,  # display name, for titles
     prefix: str,  # qid prefix, for figure filenames
-    score: Score,
 ) -> Path:
-    """Scatter mean score against horizon, one series per model.
+    """Scatter both scores against horizon, one series per model, two panels.
 
-    The horizon table says the same thing, but the shape is immediate here —
-    how sharply accuracy decays with distance, and which models depart from the
-    pack. The mean over models is drawn as a thick line so it reads as the
-    summary rather than as one more model.
+    Shows how sharply accuracy decays with distance and which models depart
+    from the pack. The mean over models is a thick line in each panel, so it
+    reads as the summary rather than as one more model. Both panels share the
+    x axis and one legend, ordered by calibration error like the bar figure,
+    so a model keeps one color and one legend position across the whole
+    section.
     """
     import matplotlib
 
@@ -547,38 +550,33 @@ def plot_score_by_horizon(
     import matplotlib.pyplot as plt
 
     horizons = sorted({c["horizon"] for c in corpus})
-    by_model = {
-        model_id: {
-            h: _mean(
-                [
-                    r[score.key]
-                    for r in rows
-                    if r["model_id"] == model_id and r["horizon"] == h
-                ]
-            )
-            for h in horizons
+    by_score = {
+        score.key: {
+            model_id: {
+                h: _mean(
+                    [
+                        r[score.key]
+                        for r in rows
+                        if r["model_id"] == model_id and r["horizon"] == h
+                    ]
+                )
+                for h in horizons
+            }
+            for model_id in model_names
         }
-        for model_id in model_names
+        for score in SCORES
     }
-    # Averaged over the per-model means, so every model counts equally however
-    # many of its forecasts parsed.
-    mean_by_horizon = {
-        h: _mean([v[h] for v in by_model.values() if v[h] is not None])
-        for h in horizons
-    }
-
-    outdir.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(10, 6.5))
 
     n_colors = 10 if len(model_names) <= 10 else 20
     palette = plt.get_cmap(f"tab{n_colors}")
-
-    # Legend best-first, so its order is itself a ranking.
-    overall = {
-        model_id: _mean([v for v in by_model[model_id].values() if v is not None])
-        for model_id in model_names
-    }
-    ordered = sorted(model_names, key=lambda m: (overall[m] is None, overall[m] or 0.0))
+    # One color and one legend slot per model across both panels, ordered by
+    # calibration error to match the bar figure above.
+    calibration = SCORES[1]
+    overall = score_by_model(rows, model_names, calibration)
+    ordered = sorted(
+        model_names, key=lambda m: (m not in overall, overall.get(m, 0.0))
+    )
+    colors = {m: palette(i % n_colors) for i, m in enumerate(model_names)}
 
     # Models bunch tightly, so spread each one's points across a slice of the
     # gap between horizons — fixed per model, not random, so a model sits in the
@@ -590,67 +588,97 @@ def plot_score_by_horizon(
         for i, model_id in enumerate(model_names)
     }
 
-    for i, model_id in enumerate(model_names):
-        points = [
-            (h, by_model[model_id][h])
+    outdir.mkdir(parents=True, exist_ok=True)
+    # 1:2 height to width per panel. Bands are in inches so the panel aspect
+    # is exact, rather than whatever is left after the legend takes its share.
+    panel_w, legend_w = 8.0, 2.9
+    panel_h = panel_w / 2
+    title_h, xlabel_h, gap_h = 0.75, 0.75, 0.5
+    width = panel_w + legend_w + 0.85
+    height = 2 * panel_h + title_h + xlabel_h + gap_h
+    fig, axes = plt.subplots(2, 1, figsize=(width, height), sharex=True)
+    fig.subplots_adjust(
+        left=0.85 / width,
+        right=(0.85 + panel_w) / width,
+        top=1 - title_h / height,
+        bottom=xlabel_h / height,
+        hspace=gap_h / panel_h,
+    )
+
+    for ax, score in zip(axes, SCORES):
+        by_model = by_score[score.key]
+        for model_id in model_names:
+            points = [
+                (h, by_model[model_id][h])
+                for h in horizons
+                if by_model[model_id][h] is not None
+            ]
+            if not points:
+                continue
+            ax.scatter(
+                [h + offsets[model_id] for h, _ in points],
+                [v for _, v in points],
+                color=colors[model_id],
+                s=38,
+                alpha=0.85,
+                zorder=3,
+                label=model_id.split("/")[-1],
+            )
+        # Averaged over the per-model means, so every model counts equally
+        # however many of its forecasts parsed.
+        mean_points = [
+            (h, v)
             for h in horizons
-            if by_model[model_id][h] is not None
+            if (v := _mean([m[h] for m in by_model.values() if m[h] is not None]))
+            is not None
         ]
-        if not points:
-            continue
-        ax.scatter(
-            [h + offsets[model_id] for h, _ in points],
-            [v for _, v in points],
-            color=palette(i % n_colors),
-            s=38,
-            alpha=0.85,
-            zorder=3,
-            label=model_id.split("/")[-1],
-        )
+        if mean_points:
+            ax.plot(
+                [h for h, _ in mean_points],
+                [v for _, v in mean_points],
+                color="black",
+                lw=3,
+                marker="o",
+                ms=8,
+                zorder=4,
+                label="mean over models",
+            )
+        ax.set_ylabel(f"mean {score.name}")
+        ax.set_title(f"Mean {score.name} (lower is better)", fontsize=9)
+        ax.grid(alpha=0.3, zorder=0)
+        ax.margins(x=0.04)
+        ax.set_ylim(bottom=0)
 
-    mean_points = [(h, v) for h, v in mean_by_horizon.items() if v is not None]
-    if mean_points:
-        ax.plot(
-            [h for h, _ in mean_points],
-            [v for _, v in mean_points],
-            color="black",
-            lw=3,
-            marker="o",
-            ms=8,
-            zorder=4,
-            label="mean over models",
-        )
-
-    ax.set_xlabel(
+    axes[-1].set_xlabel(
         "Horizon in simulated years (model points spread within each tick)"
     )
-    ax.set_ylabel(f"Mean {score.name} (lower is better)")
-    ax.set_title(
-        f"Mean {score.name} by horizon — {section}\n"
-        f"{len(model_names)} models, {len(corpus)} questions"
-    )
-    ax.set_xticks(horizons, [years(h) for h in horizons])
-    ax.grid(alpha=0.3, zorder=0)
-    ax.margins(x=0.04)
-    ax.set_ylim(bottom=0)
+    axes[-1].set_xticks(horizons, [years(h) for h in horizons])
 
-    handles, labels = ax.get_legend_handles_labels()
+    # One legend for both panels: the series are the same models, so a legend
+    # per panel would be the same box printed twice.
+    handles, labels = axes[0].get_legend_handles_labels()
     by_label = dict(zip(labels, handles))
     legend_order = ["mean over models"] + [m.split("/")[-1] for m in ordered]
     legend_labels = [lbl for lbl in dict.fromkeys(legend_order) if lbl in by_label]
-    ax.legend(
+    fig.legend(
         [by_label[lbl] for lbl in legend_labels],
         legend_labels,
         loc="center left",
-        bbox_to_anchor=(1.01, 0.5),
+        bbox_to_anchor=((0.85 + panel_w + 0.15) / width, 0.5),
         fontsize=8,
         framealpha=0.9,
     )
-    fig.tight_layout()
+    fig.suptitle(
+        f"Forecast skill by horizon — {section}\n"
+        f"{len(model_names)} models, {len(corpus)} questions;"
+        f" legend ordered by {calibration.name}",
+        fontsize=10,
+    )
 
-    out = outdir / f"{score.key}_by_horizon-{prefix}.png"
+    out = outdir / f"scores_by_horizon-{prefix}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
+    report.heading(f"Mean score by horizon — {section}")
     report.image(out)
     return out
 
@@ -1036,8 +1064,7 @@ def main() -> None:
                     report, section_corpus, rows, models, outdir, section, prefix
                 )
             )
-            for score in SCORES:
-                written.append(plot_score_by_horizon(*common, score))
+            written.append(plot_scores_by_horizon(*common))
             for score in SCORES:
                 written += [
                     p
