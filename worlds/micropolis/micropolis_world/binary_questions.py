@@ -69,20 +69,10 @@ class RunIndex:
             raise ValueError(
                 "Simulation data not loaded; call sim.load_from_disk() first"
             )
-        msgs = []
-        for e in sim.events_data:
-            if e.get("event") != "sendMessage":
-                continue
-            num = e["messageNum"]
-            expected = _TEXT_BY_NUM.get(num)
-            if expected is not None and e.get("messageText") != expected:
-                raise ValueError(
-                    f"{sim.get_id_str()}: messageNum {num} at tick {e['tick']} "
-                    f"reads {e.get('messageText')!r}, expected {expected!r} — "
-                    "message table drift, resolution would be wrong"
-                )
-            msgs.append((turn_of(e), num))
-        return cls(log_data=sim.log_data, msgs=msgs)
+        return cls(
+            log_data=sim.log_data,
+            msgs=messages_from_events(sim.events_data, sim.get_id_str()),
+        )
 
     def state_at(self, t: int) -> dict:
         return self.log_data[t]
@@ -90,6 +80,28 @@ class RunIndex:
     def msg_count(self, msg: Message, a: int, b: int) -> int:
         """Count of `msg` occurrences with turn in the half-open window (a, b]."""
         return sum(1 for t, num in self.msgs if num == msg.num and a < t <= b)
+
+
+def messages_from_events(events_data: list[dict], run_id: str) -> list[tuple[int, int]]:
+    """(turn, messageNum) for every sendMessage row, with the §2.3 drift guard.
+
+    `run_id` names the run in the error. Shared by the file-based RunIndex and
+    the continuation stream reader so both resolve against the same guard.
+    """
+    msgs = []
+    for e in events_data:
+        if e.get("event") != "sendMessage":
+            continue
+        num = e["messageNum"]
+        expected = _TEXT_BY_NUM.get(num)
+        if expected is not None and e.get("messageText") != expected:
+            raise ValueError(
+                f"{run_id}: messageNum {num} at tick {e['tick']} "
+                f"reads {e.get('messageText')!r}, expected {expected!r} — "
+                "message table drift, resolution would be wrong"
+            )
+        msgs.append((turn_of(e), num))
+    return msgs
 
 
 def yearly_checkpoints(a: int, b: int) -> range:
@@ -115,6 +127,13 @@ class Window:
         # B9's all-time-high baseline scans yc(0, now), which must be non-empty.
         if self.now < g.TURNS_PER_YEAR:
             raise ValueError(f"now must be >= {g.TURNS_PER_YEAR}, got {self.now}")
+        # B9 also takes the max over yc(now, h); a window with no checkpoint
+        # would crash there instead of resolving.
+        if not yearly_checkpoints(self.now, self.h):
+            raise ValueError(
+                f"window ({self.now}, {self.h}] holds no yearly checkpoint; "
+                f"horizons must be >= {g.TURNS_PER_YEAR} turns"
+            )
 
     def n(self, msg: Message) -> int:
         """Count of `msg` occurrences in (now, h]."""
@@ -341,6 +360,20 @@ NO_AIRPORT_CITIES = {
 }
 
 
+def check_horizons(horizons: list[int]) -> None:
+    """Raise if a horizon is too short to hold a yearly checkpoint (B9).
+
+    For callers to run before simulating anything, so a bad config fails at
+    once rather than at the first Window built from it.
+    """
+    short = [h for h in horizons if h < g.TURNS_PER_YEAR]
+    if short:
+        raise ValueError(
+            f"horizons must be >= {g.TURNS_PER_YEAR} turns so every window holds "
+            f"a yearly checkpoint (B9); got {short}"
+        )
+
+
 def resolve_all(run: RunIndex, now: int, h: int) -> dict[str, bool]:
     """All 27 answers for the window (now, h] — binary_forecasts.md §4."""
     return {q.qid: q.resolve(run, now, h) for q in QUESTIONS}
@@ -384,6 +417,7 @@ def build_corpus_binary(
     questions for one horizon before the next, so a batch prompt walks the
     question list once per horizon.
     """
+    check_horizons(horizons)
     corpus = []
     nturns = max(snapshot_turns) + max(horizons) + 1
     for sim in scenarios:

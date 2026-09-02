@@ -139,6 +139,13 @@ Binary forecasting eval (P(Yes), `data/micropolis/binary/`, spec in `binary_fore
   (19 eligible cities, snapshots 960/1440, horizons +240/+480, disasters on).
   `--dry-run` builds the corpus and prints per-question Yes counts, for eyeballing resolution
   against the spec's P(Yes) ranges. No analysis script yet.
+- `extract_ground_truth.py` — pipes the engine's `run_continuations.js` (trunk to the snapshot,
+  then `branch_nseeds` reseeded continuations from a byte copy of its state) through
+  `ground_truth.consume_stream`, tallying per-question Yes counts and per-metric values at
+  every horizon. One JSONL per (scenario, snapshot) under `data/micropolis/ground_truth/`,
+  one line per horizon. Branches at `S+1` so continuations start from the row the report
+  showed; cross-checks the trunk against the cached `runs/` log; skips files that already
+  cover the config unless `--force-regen`.
 
 Domain-knowledge eval (`micropolis_world/knowledge_eval/`, True/False/Unknown statements
 about the engine, own cache under `data/micropolis/knowledge_eval/`):

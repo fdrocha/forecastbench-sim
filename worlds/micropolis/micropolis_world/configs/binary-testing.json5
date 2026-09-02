@@ -15,6 +15,7 @@
   // turns, which existing cached runs already cover.
   "snapshot_turns": [960],
   "horizons": [240],
+  "branch_nseeds": 20,
 
   "history_freq": 24,
   "preamble_path": "preamble-binary.txt",

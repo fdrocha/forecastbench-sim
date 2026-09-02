@@ -43,6 +43,10 @@
   "snapshot_turns": [960, 1440], // 20 and 30 years
   "horizons": [144, 240, 336, 480], // 3, 5, 7 and 10 years
 
+  // Reseeded continuations per (city, snapshot) that extract_ground_truth.py
+  // runs to estimate each question's P(Yes) and each metric's distribution.
+  "branch_nseeds": 1000,
+
   "history_freq": 24,
   "preamble_path": "preamble-binary.txt",
   "epilogue_path": "epilogue-binary.txt",

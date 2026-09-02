@@ -25,6 +25,7 @@ from micropolis_world.binary_questions import (
     Message,
     RunIndex,
     build_corpus_binary,
+    check_horizons,
     check_structural_constraints,
     resolve_all,
     yearly_checkpoints,
@@ -287,6 +288,17 @@ class TestResolveAllValidation:
     def test_now_before_the_first_checkpoint_raises(self):
         with pytest.raises(ValueError, match="now must be"):
             resolve(now=47, h=96)
+
+    def test_window_without_a_checkpoint_raises(self):
+        # (48, 95] holds no multiple of 48, so B9 would have nothing to max over.
+        with pytest.raises(ValueError, match="no yearly checkpoint"):
+            resolve(now=48, h=95)
+        resolve(now=48, h=96)
+
+    def test_check_horizons(self):
+        check_horizons([48, 240])
+        with pytest.raises(ValueError, match=r"got \[47\]"):
+            check_horizons([48, 47])
 
 
 class TestStructuralConstraints:
