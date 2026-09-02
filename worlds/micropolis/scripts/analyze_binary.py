@@ -110,6 +110,11 @@ SCORES = [
 
 PLOT_BLUE = "#3266a8"
 
+# Bins for the calibration line. Ten over ~1700 tail forecasts per model
+# leaves each bin with enough to average; more would make the standard errors
+# swamp the line.
+NCAL_BINS = 10
+
 # The engine runs 48 turns to the simulated year, so turn counts are reported
 # as years: a snapshot turn as the city's age, a horizon as its span.
 TURNS_PER_YEAR = 48
@@ -875,6 +880,42 @@ def plot_predictors_correlation_by_horizon_binary(
     return out
 
 
+def calibration_bins(
+    points: list[tuple[float, float]], nbins: int, log: bool, floor: float
+) -> list[tuple[float, float, float]]:
+    """Bin forecasts by their own probability and average the truth in each.
+
+    `points` are (forecast, truth) pairs. Bins are equal-width in the
+    forecast, in log space when `log`, since the tail section's forecasts span
+    two decades and equal-width linear bins would put nearly all of them in
+    the first. Returns one (bin center, mean truth, standard error) per
+    non-empty bin, the standard error being sd/sqrt(n) over the truths in the
+    bin — so a bin holding one forecast reports an error of zero, which is
+    honest about the spread and silent about the uncertainty.
+    """
+    import numpy as np
+
+    if not points:
+        return []
+    fs = np.array([max(f, floor) if log else f for f, _ in points])
+    ps = np.array([max(p, floor) if log else p for _, p in points])
+    xs = np.log10(fs) if log else fs
+    edges = np.linspace(xs.min(), xs.max(), nbins + 1)
+    # Values equal to the top edge belong to the last bin, not past it.
+    idx = np.clip(np.digitize(xs, edges[1:-1]), 0, nbins - 1)
+
+    out = []
+    for b in range(nbins):
+        sel = idx == b
+        n = int(sel.sum())
+        if n == 0:
+            continue
+        center = (edges[b] + edges[b + 1]) / 2
+        sem = float(ps[sel].std(ddof=1) / np.sqrt(n)) if n > 1 else 0.0
+        out.append((float(10**center if log else center), float(ps[sel].mean()), sem))
+    return out
+
+
 def plot_calibration(
     report: MdReport,
     corpus: list[dict],
@@ -885,7 +926,7 @@ def plot_calibration(
     prefix: str,  # qid prefix, for figure filenames
     log: bool,
 ) -> Path:
-    """One scatter per model of forecast f against ground-truth p, in two columns.
+    """One scatter per model of forecast f against ground-truth p, in three columns.
 
     The diagonal is perfect calibration; points above it are overconfident
     Yes, below it overconfident No. The tail section is drawn log-log since
@@ -902,7 +943,7 @@ def plot_calibration(
     calibration = SCORES[1]
     overall = score_by_model(rows, model_names, calibration)
     ordered = sorted(model_names, key=lambda m: overall.get(m, math.inf))
-    ncols = 2
+    ncols = 3
     nrows = math.ceil(len(ordered) / ncols)
 
     # Half a continuation: the smallest nonzero p is 1/n, so 0 lands one
@@ -914,7 +955,12 @@ def plot_calibration(
 
     outdir.mkdir(parents=True, exist_ok=True)
     fig, axes = plt.subplots(
-        nrows, ncols, figsize=(9, 4.1 * nrows), squeeze=False, sharex=True, sharey=True
+        nrows,
+        ncols,
+        figsize=(9, 3.0 * nrows + 1.1),
+        squeeze=False,
+        sharex=True,
+        sharey=True,
     )
     for ax in axes.flat[len(ordered):]:
         ax.set_visible(False)
@@ -932,6 +978,27 @@ def plot_calibration(
             edgecolors="none",
             zorder=3,
         )
+        # The binned average: within each band of forecast probability, where
+        # did the truth actually land? A line tracking the diagonal is a
+        # calibrated model; one flatter than it is a model whose confidence
+        # moves less than reality does.
+        bins = calibration_bins(
+            [(r["forecast"], r["truth"].p) for r in mine], NCAL_BINS, log, floor
+        )
+        if bins:
+            ax.errorbar(
+                [p for _, p, _ in bins],
+                [f for f, _, _ in bins],
+                xerr=[e for _, _, e in bins],
+                color="#c2432d",
+                lw=1.6,
+                marker="o",
+                ms=4,
+                capsize=2.5,
+                elinewidth=1.0,
+                zorder=5,
+                label="binned mean",
+            )
         if log:
             ax.set_xscale("log")
             ax.set_yscale("log")
@@ -940,17 +1007,28 @@ def plot_calibration(
         ax.set_aspect("equal")
         ax.grid(alpha=0.3, zorder=0)
         mean = overall.get(model_id)
-        note = f"mean cal. err. {mean:.4f}" if mean is not None else "no forecasts"
+        note = f"cal. err. {mean:.4f}" if mean is not None else "no forecasts"
+        # Three columns leaves little width, so the count and the score share
+        # a line and the clipped-zero count gets its own.
+        lines = [model_id.split("/")[-1], f"{len(mine)} forecasts, {note}"]
         if log and clipped:
-            note += f", {clipped} zero(s) clipped"
-        ax.set_title(
-            f"{model_id.split('/')[-1]}  ({len(mine)} forecasts)\n{note}", fontsize=9
-        )
+            lines.append(f"{clipped} zero(s) clipped")
+        ax.set_title("\n".join(lines), fontsize=8)
 
-    for ax in axes[-1]:
-        ax.set_xlabel("ground-truth P(Yes) from continuations")
+    # The bottom visible panel in each column carries the x label: the last
+    # row is partly empty whenever the model count is not a multiple of ncols.
+    for col in range(ncols):
+        column = [axes[r][col] for r in range(nrows) if axes[r][col].get_visible()]
+        if column:
+            column[-1].set_xlabel("ground-truth P(Yes)", fontsize=8)
     for row in axes:
-        row[0].set_ylabel("forecast P(Yes)")
+        row[0].set_ylabel("forecast P(Yes)", fontsize=8)
+    handles, labels = axes[0][0].get_legend_handles_labels()
+    if handles:
+        fig.legend(
+            handles, labels, loc="lower right", fontsize=8, framealpha=0.9,
+            bbox_to_anchor=(0.99, 0.01),
+        )
     scale = "log-log; zeros drawn at half a continuation" if log else "linear"
     fig.suptitle(
         f"Calibration: forecast vs. ground truth — {section} ({scale})\n"
@@ -967,7 +1045,10 @@ def plot_calibration(
     report.text(
         "Each panel scatters a model's forecasts against the share of reseeded"
         " continuations that resolved Yes; the dashed diagonal is perfect"
-        " calibration."
+        f" calibration. The red line bins the forecasts into {NCAL_BINS} equal"
+        + (" log-width" if log else " width")
+        + " bands by forecast probability and plots the mean ground truth in"
+        " each, with bars at one standard error."
         + (
             f" Axes are log-log; a zero on either axis is drawn at {floor:g}"
             " (half a continuation) so it stays in frame."
