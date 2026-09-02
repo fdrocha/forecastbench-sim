@@ -16,6 +16,7 @@ from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 from . import module_globals as g
 from .binary_questions import (
@@ -42,7 +43,11 @@ class StreamError(ValueError):
 
 
 def output_path(sim: CitySimulation, snapshot_turn: int) -> Path:
-    return OUT_DIR / f"{sim.get_id_str()}_T{snapshot_turn}.jsonl"
+    return output_path_for(sim.get_id_str(), snapshot_turn)
+
+
+def output_path_for(scenario_id: str, snapshot_turn: int) -> Path:
+    return OUT_DIR / f"{scenario_id}_T{snapshot_turn}.jsonl"
 
 
 def seed_shards(nseeds: int, jobs: int) -> list[tuple[int, int]]:
@@ -351,6 +356,41 @@ def write_lines(path: Path, lines: list[dict]) -> None:
 
 def load_lines(path: Path) -> list[dict]:
     return _load_jsonl(path)
+
+
+class Truth(NamedTuple):
+    """Ground-truth P(Yes) for one binary question and the continuations behind it."""
+
+    p: float
+    n: int
+
+
+def load_truths(corpus: list[dict]) -> dict[str, Truth]:
+    """Ground-truth P(Yes) per question_id for a binary corpus.
+
+    Reads the tally file of each (scenario, snapshot) the corpus touches and
+    errors on anything missing, so a report never quietly covers less than its
+    config asks for.
+    """
+    files: dict[Path, dict[int, dict]] = {}
+    truths: dict[str, Truth] = {}
+    for c in corpus:
+        path = output_path_for(c["scenario_id"], c["snapshot_turn"])
+        if path not in files:
+            if not path.exists():
+                raise FileNotFoundError(
+                    f"{path} not found — run scripts/extract_ground_truth.py first"
+                )
+            files[path] = {line["horizon"]: line for line in load_lines(path)}
+        line = files[path].get(c["horizon"])
+        if line is None:
+            raise FileNotFoundError(
+                f"{path} has no horizon {c['horizon']} — rerun "
+                "scripts/extract_ground_truth.py for this config"
+            )
+        n = line["n_continuations"]
+        truths[c["question_id"]] = Truth(line["counts"][c["qid"]] / n, n)
+    return truths
 
 
 def covers(lines: list[dict], horizons: list[int], nseeds: int) -> bool:

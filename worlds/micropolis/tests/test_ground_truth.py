@@ -21,7 +21,9 @@ from micropolis_world.ground_truth import (
     consume_stream,
     covers,
     cross_check_trunk,
+    write_lines,
     ground_truth_lines,
+    load_truths,
     merge_shards,
     producer_command,
     seed_shards,
@@ -252,3 +254,36 @@ def test_cross_check_trunk(tmp_path, monkeypatch):
             f.write(json.dumps(dict(r, cityPop=999) if t == 5 else r) + "\n")
     with pytest.raises(RuntimeError, match="turn 5, field 'cityPop'"):
         cross_check_trunk(result.trunk_log, sim)
+
+
+def test_load_truths(tmp_path, monkeypatch):
+    import micropolis_world.ground_truth as gt
+
+    monkeypatch.setattr(gt, "OUT_DIR", tmp_path)
+    sim = CitySimulation(CITY, 42, disasters=True)
+    merged = consume_stream(make_stream(), CITY, True, S, HORIZONS)
+    write_lines(
+        gt.output_path(sim, S), ground_truth_lines(sim, S, HORIZONS, merged, "x", "y")
+    )
+    corpus = [
+        {
+            "question_id": f"q{qid}{h}",
+            "qid": qid,
+            "scenario_id": sim.get_id_str(),
+            "snapshot_turn": S,
+            "horizon": h,
+        }
+        for qid in ("A1", "B1")
+        for h in HORIZONS
+    ]
+    truths = load_truths(corpus)
+    assert set(truths) == {c["question_id"] for c in corpus}
+    for c in corpus:
+        truth = truths[c["question_id"]]
+        assert truth.n == merged.n
+        assert truth.p == merged.yes[c["horizon"]][c["qid"]] / merged.n
+
+    with pytest.raises(FileNotFoundError, match="no horizon 7"):
+        load_truths([dict(corpus[0], horizon=7)])
+    with pytest.raises(FileNotFoundError, match="extract_ground_truth"):
+        load_truths([dict(corpus[0], snapshot_turn=S + 1)])
