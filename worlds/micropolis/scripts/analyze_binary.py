@@ -12,8 +12,8 @@ reseeded continuations that resolved Yes. The report is split into two
 sections — "Binary forecasts", the mid-range A questions, and "Tail
 probabilities", the B ones — each with the same structure: a base-rate
 heatmap, then the two scores paired within each view (a models x questions
-heatmap, a models x horizons table, a by-horizon figure and the ECI scatter),
-and finally a grid of per-model calibration scatters. The tail section draws
+heatmap, a per-model bar panel, a by-horizon figure and the ECI scatter), and
+finally a grid of per-model calibration scatters. The tail section draws
 its color and its scatter axes on a log scale, since its probabilities span
 two decades. Everything goes to one Markdown report,
 data/micropolis/binary/{label}/analysis-brier.md; --no-plot skips the figures.
@@ -73,7 +73,6 @@ from analyze_continuous import (
     format_predictor_comparison,
     format_tie_warnings,
     knowledge_predictor,
-    print_horizon_table,
     significance_handles,
     stars_for,
 )
@@ -426,27 +425,103 @@ def plot_score_heatmap(
     return out
 
 
-def print_score_horizon_table(
+def plot_score_bars(
     report: MdReport,
     corpus: list[dict],
     rows: list[dict],
     model_names: list[str],
+    outdir: Path,
     section: str,  # display name, for titles
-    score: Score,
-) -> None:
-    """Models x horizons of mean score, via the continuous report's table shape."""
-    print_horizon_table(
-        report,
-        [(r["model_id"], r["horizon"], r[score.key]) for r in rows],
+    prefix: str,  # qid prefix, for figure filenames
+) -> Path:
+    """Mean Brier and mean calibration error per model, as stacked bar panels.
+
+    Replaces the two models x horizons tables. Those split each model's score
+    across horizons; this pools it and puts the models side by side, which is
+    the comparison the section is actually for — the horizon breakdown lives
+    in the by-horizon figures below. Both panels share the x axis, ordered by
+    calibration error, so a model's two bars sit in one column and the panels
+    can be read against each other: where the Brier order departs from the
+    calibration order is a model whose accuracy and whose calibration
+    disagree.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    brier, calibration = SCORES
+    by_score = {
+        score.key: score_by_model(rows, model_names, score) for score in SCORES
+    }
+    # Sorted by calibration error, best first; a model with nothing to average
+    # sorts last rather than crashing the compare.
+    ordered = sorted(
         model_names,
-        sorted({c["horizon"] for c in corpus}),
-        f"Mean {score.name} by model and horizon — {section}"
-        " (lower is better)",
-        "columns are horizons in simulated years past the snapshot"
-        "\nall* pools every horizon",
-        ".3f",
-        label_horizon=years,
+        key=lambda m: (
+            m not in by_score[calibration.key],
+            by_score[calibration.key].get(m, 0.0),
+        ),
     )
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    # 1:4 vertical to horizontal per panel, and wide enough that the model
+    # labels do not collide.
+    width = max(0.62 * len(ordered) + 2.2, 9.0)
+    panel_h = width / 4
+    fig, axes = plt.subplots(
+        2, 1, figsize=(width, 2 * panel_h + 1.5), sharex=True
+    )
+
+    for ax, score in zip(axes, SCORES):
+        values = [by_score[score.key].get(m) for m in ordered]
+        ax.bar(
+            range(len(ordered)),
+            [v if v is not None else 0.0 for v in values],
+            width=0.68,
+            color=PLOT_BLUE,
+            zorder=3,
+        )
+        for i, v in enumerate(values):
+            if v is None:
+                continue
+            ax.text(
+                i,
+                v,
+                f"{v:.3f}".removeprefix("0"),
+                ha="center",
+                va="bottom",
+                fontsize=7,
+                zorder=4,
+            )
+        ax.set_ylabel(f"mean {score.name}")
+        ax.set_title(f"Mean {score.name} (lower is better)", fontsize=9)
+        ax.grid(axis="y", alpha=0.3, zorder=0)
+        ax.margins(x=0.01, y=0.14)
+        ax.set_ylim(bottom=0)
+
+    axes[-1].set_xticks(
+        range(len(ordered)),
+        [m.split("/")[-1] for m in ordered],
+        rotation=45,
+        ha="right",
+        fontsize=8,
+    )
+    fig.suptitle(
+        f"Forecast skill by model — {section}\n"
+        f"models ordered by {calibration.name}, best first;"
+        f" {len(corpus)} questions",
+        fontsize=10,
+    )
+    fig.tight_layout()
+
+    out = outdir / f"score_bars-{prefix}.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+
+    report.heading(f"Mean {brier.name} and {calibration.name} by model — {section}")
+    report.image(out)
+    return out
 
 
 def plot_score_by_horizon(
@@ -955,11 +1030,12 @@ def main() -> None:
         if args.plot:
             for score in SCORES:
                 written.append(plot_score_heatmap(*common, score, qids))
-        for score in SCORES:
-            print_score_horizon_table(
-                report, section_corpus, rows, models, section, score
-            )
         if args.plot:
+            written.append(
+                plot_score_bars(
+                    report, section_corpus, rows, models, outdir, section, prefix
+                )
+            )
             for score in SCORES:
                 written.append(plot_score_by_horizon(*common, score))
             for score in SCORES:
