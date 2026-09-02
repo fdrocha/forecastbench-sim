@@ -10,10 +10,10 @@ Every forecast f gets two scores: the Brier score (f - outcome)^2 against the
 realized answer, and the calibration error (f - p)^2 against p, the share of
 reseeded continuations that resolved Yes. The report is split into two
 sections — the mid-range A questions and the tail B questions — each with the
-same structure: Yes counts, then for each score a models x questions heatmap,
-a models x horizons table, a by-horizon figure and the ECI correlations, and
-finally a grid of per-model calibration scatters (f against p; log-log for
-the tail section). Everything goes to one Markdown report,
+same structure: the realized and ground-truth Yes rates side by side, then
+for each score a models x questions heatmap, a models x horizons table, a
+by-horizon figure and the ECI correlations, and finally a grid of per-model
+calibration scatters (f against p; log-log for the tail section). Everything goes to one Markdown report,
 data/micropolis/binary/{label}/analysis-brier.md; --no-plot skips the figures.
 
 Usage:
@@ -172,50 +172,109 @@ def score_by_model_and_horizon(
     }
 
 
-def print_yes_counts_table(report: MdReport, corpus: list[dict], qids: list[str]) -> None:
-    """Per-question Yes counts per window, so the scores below can be read
-    against how often each event actually fired."""
+def plot_base_rates(
+    report: MdReport,
+    corpus: list[dict],
+    truths: dict[str, Truth],
+    outdir: Path,
+    section: str,
+    qids: list[str],
+) -> Path:
+    """Questions x windows, twice: realized Yes counts and ground-truth P(Yes).
+
+    The two panels are what the scores below are read against — how often each
+    event actually fired, and how often it fired across reseeded continuations
+    of the same state. They share a grid, so they sit side by side, and each
+    carries its own color scale since one counts scenarios and the other is a
+    probability.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
     windows = sorted({(c["snapshot_turn"], c["horizon"]) for c in corpus})
+    nscenarios = len({c["scenario_id"] for c in corpus})
     yes = Counter(
         (c["qid"], c["snapshot_turn"], c["horizon"]) for c in corpus if c["answer"]
     )
-    nscenarios = len({c["scenario_id"] for c in corpus})
-    header = f"  {'':>4} " + "  ".join(f"T{t}+{h}" for t, h in windows)
-    lines = [header, "-" * len(header)]
-    for qid in qids:
-        counts = "  ".join(
-            f"{yes[(qid, t, h)]:>{len(f'T{t}+{h}')}}" for t, h in windows
-        )
-        lines.append(f"  {qid:>4} {counts}")
-    report.text(f"Yes counts out of {nscenarios} scenario(s) per window:")
-    report.table("\n".join(lines))
-
-
-def print_ground_truth_table(
-    report: MdReport, corpus: list[dict], truths: dict[str, Truth], qids: list[str]
-) -> None:
-    """Per-question mean ground-truth P(Yes) per window, the calibration
-    error's counterpart to the Yes counts."""
-    windows = sorted({(c["snapshot_turn"], c["horizon"]) for c in corpus})
     ps: dict[tuple[str, int, int], list[float]] = {}
     for c in corpus:
         ps.setdefault((c["qid"], c["snapshot_turn"], c["horizon"]), []).append(
             truths[c["question_id"]].p
         )
-    n = sorted({t.n for t in truths.values()})
-    header = f"  {'':>4} " + "  ".join(f"T{t}+{h}" for t, h in windows)
-    lines = [header, "-" * len(header)]
-    for qid in qids:
-        cells = "  ".join(
-            f"{_mean(ps.get((qid, t, h), [])) or 0.0:>{len(f'T{t}+{h}')}.3f}"
-            for t, h in windows
-        )
-        lines.append(f"  {qid:>4} {cells}")
-    report.text(
-        "Ground-truth P(Yes) averaged over scenarios per window, from "
-        f"{'/'.join(map(str, n))} reseeded continuations each:"
+    ncont = sorted({t.n for t in truths.values()})
+
+    counts = np.array(
+        [[yes[(qid, t, h)] for t, h in windows] for qid in qids], dtype=float
     )
-    report.table("\n".join(lines))
+    rates = counts / nscenarios
+    truth = np.array(
+        [
+            [_mean(ps.get((qid, t, h), [])) or np.nan for t, h in windows]
+            for qid in qids
+        ]
+    )
+
+    labels = [f"T{t}+{h}" for t, h in windows]
+    outdir.mkdir(parents=True, exist_ok=True)
+    height = 0.30 * len(qids) + 2.6
+    fig, axes = plt.subplots(
+        1,
+        2,
+        figsize=(1.05 * len(windows) + 2.6, height),
+        sharey=True,
+    )
+    # The suptitle is three lines. Reserved here rather than by a later
+    # subplots_adjust, which would undo the room colorbar(ax=axes) takes and
+    # let the bar sit on the right panel's last column.
+    fig.subplots_adjust(top=1 - 0.85 / height, bottom=0.20, left=0.06, right=0.90)
+
+    # Realized cells are annotated with the raw count, not the rate: out of 19
+    # scenarios "4" is the honest reading and ".211" implies a precision the
+    # 19 scenarios do not carry. The shade is the rate either way.
+    panels = [
+        (rates, counts, f"realized: Yes out of {nscenarios} scenarios", "{:.0f}"),
+        (truth, truth, "ground-truth P(Yes) from continuations", "{:.3f}"),
+    ]
+    vmax = max(float(np.nanmax(rates)), float(np.nanmax(truth)))
+    for ax, (shade, annot, title, fmt) in zip(axes, panels):
+        im = ax.imshow(shade, cmap="Reds", vmin=0.0, vmax=vmax, aspect="auto")
+        for i in range(len(qids)):
+            for j in range(len(windows)):
+                value = annot[i, j]
+                if np.isnan(value):
+                    continue
+                # ".036" rather than "0.036" in the P(Yes) panel: nothing
+                # exceeds 1, so the leading zero is width with no information.
+                text = fmt.format(value).removeprefix("0")
+                color = "white" if shade[i, j] > 0.55 * vmax else "black"
+                ax.text(
+                    j, i, text, ha="center", va="center", fontsize=6, color=color
+                )
+        ax.set_xticks(range(len(windows)), labels, fontsize=7, rotation=45, ha="right")
+        ax.set_yticks(range(len(qids)), qids, fontsize=7)
+        ax.tick_params(length=0)
+        ax.set_title(title, fontsize=9)
+    fig.colorbar(
+        im, ax=axes, fraction=0.03, pad=0.02, label="Yes rate"
+    ).ax.tick_params(labelsize=7)
+
+    fig.suptitle(
+        f"How often each question resolved Yes — section {section}\n"
+        f"columns are windows (snapshot + horizon); both panels share one"
+        f" 0-{vmax:.2f} scale\nP(Yes) over {'/'.join(map(str, ncont))} reseeded"
+        " continuations, averaged over scenarios",
+        fontsize=9,
+    )
+
+
+    out = outdir / f"base_rates-{section}.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    report.image(out)
+    return out
 
 
 def plot_score_heatmap(
@@ -876,8 +935,12 @@ def main() -> None:
         rows = score_forecasts_binary(section_corpus, responses, models, truths)
 
         report.heading(f"Section {prefix} — {description}", level=1)
-        print_yes_counts_table(report, section_corpus, qids)
-        print_ground_truth_table(report, section_corpus, truths, qids)
+        if args.plot:
+            written.append(
+                plot_base_rates(
+                    report, section_corpus, truths, outdir, prefix, qids
+                )
+            )
 
         for score in SCORES:
             report.heading(f"Section {prefix} — {score.name}", level=1)
