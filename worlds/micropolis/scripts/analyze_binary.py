@@ -236,11 +236,24 @@ def plot_base_rates(
 
     labels = [window_label(t, h) for t, h in windows]
     outdir.mkdir(parents=True, exist_ok=True)
-    height = 0.15 * len(qids) + 1.3
-    fig, ax = plt.subplots(figsize=(1.05 * len(windows) + 2.6, height))
+    # A square plot area: the grid is as tall as it is wide, whatever its row
+    # and column counts, which keeps a 16x8 section from turning into a
+    # column. Cells stay rectangular; squaring each one would make section A
+    # taller than a page. The bands are in inches, not figure fractions, so
+    # they do not grow with the figure and un-square the axes.
+    width = 0.79 * len(windows) + 1.95
+    left, right = 0.07, 0.90
+    title_in, ticks_in = 0.62, 1.15  # suptitle band; rotated x tick labels
+    height = width * (right - left) + title_in + ticks_in
+    fig, ax = plt.subplots(figsize=(width, height))
     # The suptitle is two lines. Reserved here rather than by a later
     # subplots_adjust, which would undo the room the colorbar takes.
-    fig.subplots_adjust(top=1 - 0.62 / height, bottom=0.26, left=0.07, right=0.90)
+    fig.subplots_adjust(
+        top=1 - title_in / height,
+        bottom=ticks_in / height,
+        left=left,
+        right=right,
+    )
 
     vmax = float(np.nanmax(truth))
     im = ax.imshow(truth, cmap="Reds", vmin=0.0, vmax=vmax, aspect="auto")
@@ -255,11 +268,11 @@ def plot_base_rates(
                 f"{counts[i, j]:.0f}",
                 ha="center",
                 va="center",
-                fontsize=6,
+                fontsize=8,
                 color=color,
             )
-    ax.set_xticks(range(len(windows)), labels, fontsize=7, rotation=45, ha="right")
-    ax.set_yticks(range(len(qids)), qids, fontsize=7)
+    ax.set_xticks(range(len(windows)), labels, fontsize=8, rotation=45, ha="right")
+    ax.set_yticks(range(len(qids)), qids, fontsize=8)
     ax.tick_params(length=0)
     fig.colorbar(
         im, ax=ax, fraction=0.03, pad=0.02, label="probability"
