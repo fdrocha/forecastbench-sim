@@ -109,6 +109,21 @@ SCORES = [
 
 PLOT_BLUE = "#3266a8"
 
+# The engine runs 48 turns to the simulated year, so turn counts are reported
+# as years: a snapshot turn as the city's age, a horizon as its span.
+TURNS_PER_YEAR = 48
+
+
+def years(turns: int) -> str:
+    """A turn count as years, without a trailing ".0" on the whole ones."""
+    y = turns / TURNS_PER_YEAR
+    return f"{y:.0f}y" if y == int(y) else f"{y:g}y"
+
+
+def window_label(snapshot_turn: int, horizon: int) -> str:
+    """A (snapshot, horizon) window as "Y20: 5y" — the city's age, then the span."""
+    return f"Y{snapshot_turn // TURNS_PER_YEAR}: {years(horizon)}"
+
 
 def plots_path(label: str) -> Path:
     return label_dir(label) / "plots"
@@ -180,13 +195,16 @@ def plot_base_rates(
     section: str,
     qids: list[str],
 ) -> Path:
-    """Questions x windows, twice: realized Yes counts and ground-truth P(Yes).
+    """Questions x windows: ground-truth P(Yes) as color, realized count as text.
 
-    The two panels are what the scores below are read against — how often each
-    event actually fired, and how often it fired across reseeded continuations
-    of the same state. They share a grid, so they sit side by side, and each
-    carries its own color scale since one counts scenarios and the other is a
-    probability.
+    What the scores below are read against — how often each event fired across
+    reseeded continuations of the same state, and how many of the section's
+    scenarios actually realized it. Both live in one grid because they are the
+    same quantity measured two ways; the color carries the probability, which
+    rests on a thousand continuations, and the number carries the count, which
+    rests on the handful of scenarios the eval actually asked about. The scale
+    tops out at the section's own maximum rather than 1 — on the tail questions
+    every probability is under 5% and a 0-1 scale would render the grid blank.
     """
     import matplotlib
 
@@ -209,7 +227,6 @@ def plot_base_rates(
     counts = np.array(
         [[yes[(qid, t, h)] for t, h in windows] for qid in qids], dtype=float
     )
-    rates = counts / nscenarios
     truth = np.array(
         [
             [_mean(ps.get((qid, t, h), [])) or np.nan for t, h in windows]
@@ -217,58 +234,44 @@ def plot_base_rates(
         ]
     )
 
-    labels = [f"T{t}+{h}" for t, h in windows]
+    labels = [window_label(t, h) for t, h in windows]
     outdir.mkdir(parents=True, exist_ok=True)
-    height = 0.30 * len(qids) + 2.6
-    fig, axes = plt.subplots(
-        1,
-        2,
-        figsize=(1.05 * len(windows) + 2.6, height),
-        sharey=True,
-    )
-    # The suptitle is three lines. Reserved here rather than by a later
-    # subplots_adjust, which would undo the room colorbar(ax=axes) takes and
-    # let the bar sit on the right panel's last column.
-    fig.subplots_adjust(top=1 - 0.85 / height, bottom=0.20, left=0.06, right=0.90)
+    height = 0.15 * len(qids) + 1.3
+    fig, ax = plt.subplots(figsize=(1.05 * len(windows) + 2.6, height))
+    # The suptitle is two lines. Reserved here rather than by a later
+    # subplots_adjust, which would undo the room the colorbar takes.
+    fig.subplots_adjust(top=1 - 0.62 / height, bottom=0.26, left=0.07, right=0.90)
 
-    # Realized cells are annotated with the raw count, not the rate: out of 19
-    # scenarios "4" is the honest reading and ".211" implies a precision the
-    # 19 scenarios do not carry. The shade is the rate either way.
-    panels = [
-        (rates, counts, f"realized: Yes out of {nscenarios} scenarios", "{:.0f}"),
-        (truth, truth, "ground-truth P(Yes) from continuations", "{:.3f}"),
-    ]
-    vmax = max(float(np.nanmax(rates)), float(np.nanmax(truth)))
-    for ax, (shade, annot, title, fmt) in zip(axes, panels):
-        im = ax.imshow(shade, cmap="Reds", vmin=0.0, vmax=vmax, aspect="auto")
-        for i in range(len(qids)):
-            for j in range(len(windows)):
-                value = annot[i, j]
-                if np.isnan(value):
-                    continue
-                # ".036" rather than "0.036" in the P(Yes) panel: nothing
-                # exceeds 1, so the leading zero is width with no information.
-                text = fmt.format(value).removeprefix("0")
-                color = "white" if shade[i, j] > 0.55 * vmax else "black"
-                ax.text(
-                    j, i, text, ha="center", va="center", fontsize=6, color=color
-                )
-        ax.set_xticks(range(len(windows)), labels, fontsize=7, rotation=45, ha="right")
-        ax.set_yticks(range(len(qids)), qids, fontsize=7)
-        ax.tick_params(length=0)
-        ax.set_title(title, fontsize=9)
+    vmax = float(np.nanmax(truth))
+    im = ax.imshow(truth, cmap="Reds", vmin=0.0, vmax=vmax, aspect="auto")
+    for i in range(len(qids)):
+        for j in range(len(windows)):
+            if np.isnan(truth[i, j]):
+                continue
+            color = "white" if truth[i, j] > 0.55 * vmax else "black"
+            ax.text(
+                j,
+                i,
+                f"{counts[i, j]:.0f}",
+                ha="center",
+                va="center",
+                fontsize=6,
+                color=color,
+            )
+    ax.set_xticks(range(len(windows)), labels, fontsize=7, rotation=45, ha="right")
+    ax.set_yticks(range(len(qids)), qids, fontsize=7)
+    ax.tick_params(length=0)
     fig.colorbar(
-        im, ax=axes, fraction=0.03, pad=0.02, label="Yes rate"
+        im, ax=ax, fraction=0.03, pad=0.02, label="probability"
     ).ax.tick_params(labelsize=7)
 
     fig.suptitle(
         f"How often each question resolved Yes — section {section}\n"
-        f"columns are windows (snapshot + horizon); both panels share one"
-        f" 0-{vmax:.2f} scale\nP(Yes) over {'/'.join(map(str, ncont))} reseeded"
-        " continuations, averaged over scenarios",
+        f"cell color is ground-truth P(Yes) over"
+        f" {'/'.join(map(str, ncont))} reseeded continuations; the number is how"
+        f" many of {nscenarios} scenarios realized Yes",
         fontsize=9,
     )
-
 
     out = outdir / f"base_rates-{section}.png"
     fig.savefig(out, dpi=150)
@@ -392,8 +395,10 @@ def print_score_horizon_table(
         sorted({c["horizon"] for c in corpus}),
         f"Mean {score.name} by model and horizon — section {section}"
         " (lower is better)",
-        "horizons are turns past the snapshot\nall* pools every horizon",
+        "columns are horizons in simulated years past the snapshot"
+        "\nall* pools every horizon",
         ".3f",
+        label_horizon=years,
     )
 
 
@@ -494,14 +499,14 @@ def plot_score_by_horizon(
         )
 
     ax.set_xlabel(
-        "Horizon (turns past the snapshot; model points spread within each tick)"
+        "Horizon in simulated years (model points spread within each tick)"
     )
     ax.set_ylabel(f"Mean {score.name} (lower is better)")
     ax.set_title(
         f"Mean {score.name} by horizon — section {section}\n"
         f"{len(model_names)} models, {len(corpus)} questions"
     )
-    ax.set_xticks(horizons)
+    ax.set_xticks(horizons, [years(h) for h in horizons])
     ax.grid(alpha=0.3, zorder=0)
     ax.margins(x=0.04)
     ax.set_ylim(bottom=0)

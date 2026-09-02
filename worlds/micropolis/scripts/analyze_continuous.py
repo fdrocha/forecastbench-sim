@@ -33,6 +33,7 @@ import argparse
 import re
 import statistics
 import sys
+from collections.abc import Callable
 from itertools import pairwise
 from pathlib import Path
 
@@ -578,11 +579,14 @@ def print_horizon_table(
     title: str,
     subtitle: str,
     fmt: str,
+    label_horizon: Callable[[int], str] = lambda h: f"H{h}",
 ) -> None:
     """Print models x horizons from (model, horizon, score) triples.
 
     `fmt` is the format spec for a cell, since normalized scores and raw CRPS
-    want different precision. Each cell carries the model's rank within its own
+    want different precision. `label_horizon` names the columns, so a caller
+    reporting in another unit — the binary report's simulated years — can
+    relabel them without a second copy of the table. Each cell carries the model's rank within its own
     column in parens, 1 being best, which is what shows a model gaining or
     losing ground as the horizon lengthens. Rows are sorted by the "all" column,
     so the table reads best-first, and a model with nothing to average sorts
@@ -616,7 +620,7 @@ def print_horizon_table(
     model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in model_names])
     # "all" is starred rather than renamed so the column stays narrow; the
     # subtitle each caller passes says what the star means.
-    labels = {"all": "all*"} | {h: f"H{h}" for h in horizons}
+    labels = {"all": "all*"} | {h: label_horizon(h) for h in horizons}
     # Wide enough for the longest cell in the table, so a metric in the hundreds
     # of thousands doesn't push its columns out of alignment.
     width = max([9] + [len(cell(key, mid)) for key in columns for mid in model_names])

@@ -507,3 +507,22 @@ def test_the_two_baselines_average_over_the_same_questions(monkeypatch):
     assert len(module.persistence_by_horizon(corpus)) == 1
     restricted = module.persistence_by_horizon(corpus, scored)
     assert restricted[48] == pytest.approx(50 / 150)
+
+
+def test_horizon_table_labels_columns_through_the_labeler():
+    """The binary report relabels horizons in simulated years."""
+    module = load_module()
+    report = module.MdReport()
+    module.print_horizon_table(
+        report,
+        [("m", 48, 0.1), ("m", 240, 0.2)],
+        ["m"],
+        [48, 240],
+        "t",
+        "s",
+        ".3f",
+        label_horizon=lambda h: f"{h // 48}y",
+    )
+    out = report.render(Path("."))
+    assert "1y" in out and "5y" in out
+    assert "H48" not in out
