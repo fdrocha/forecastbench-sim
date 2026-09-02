@@ -9,11 +9,13 @@ Prompts no models and runs no simulations.
 Every forecast f gets two scores: the Brier score (f - outcome)^2 against the
 realized answer, and the calibration error (f - p)^2 against p, the share of
 reseeded continuations that resolved Yes. The report is split into two
-sections — the mid-range A questions and the tail B questions — each with the
-same structure: the realized and ground-truth Yes rates side by side, then
-for each score a models x questions heatmap, a models x horizons table, a
-by-horizon figure and the ECI correlations, and finally a grid of per-model
-calibration scatters (f against p; log-log for the tail section). Everything goes to one Markdown report,
+sections — "Binary forecasts", the mid-range A questions, and "Tail
+probabilities", the B ones — each with the same structure: a base-rate
+heatmap, then the two scores paired within each view (a models x questions
+heatmap, a models x horizons table, a by-horizon figure and the ECI scatter),
+and finally a grid of per-model calibration scatters. The tail section draws
+its color and its scatter axes on a log scale, since its probabilities span
+two decades. Everything goes to one Markdown report,
 data/micropolis/binary/{label}/analysis-brier.md; --no-plot skips the figures.
 
 Usage:
@@ -84,8 +86,8 @@ DEFAULT_BINARY_CONFIG_PATH = CONFIG_DIR / "binary.json5"
 # averaging them together would let the tail questions dilute the mid-range
 # signal. Everything below is computed per section.
 SECTIONS = [
-    ("A", "mid-range questions (target P(Yes) ~ 10-90%)"),
-    ("B", "tail questions (target P(Yes) ~ 0.5-5%)"),
+    ("A", "Binary forecasts", "mid-range questions (target P(Yes) ~ 10-90%)"),
+    ("B", "Tail probabilities", "tail questions (target P(Yes) ~ 0.5-5%)"),
 ]
 
 
@@ -192,8 +194,10 @@ def plot_base_rates(
     corpus: list[dict],
     truths: dict[str, Truth],
     outdir: Path,
-    section: str,
+    section: str,  # display name, for titles
+    prefix: str,  # qid prefix, for figure filenames
     qids: list[str],
+    log: bool,
 ) -> Path:
     """Questions x windows: ground-truth P(Yes) as color, realized count as text.
 
@@ -236,32 +240,42 @@ def plot_base_rates(
 
     labels = [window_label(t, h) for t, h in windows]
     outdir.mkdir(parents=True, exist_ok=True)
-    # A square plot area: the grid is as tall as it is wide, whatever its row
-    # and column counts, which keeps a 16x8 section from turning into a
-    # column. Cells stay rectangular; squaring each one would make section A
-    # taller than a page. The bands are in inches, not figure fractions, so
-    # they do not grow with the figure and un-square the axes.
-    width = 0.79 * len(windows) + 1.95
-    left, right = 0.07, 0.90
-    title_in, ticks_in = 0.62, 1.15  # suptitle band; rotated x tick labels
-    height = width * (right - left) + title_in + ticks_in
+    # Square cells at a fixed size, so the axes is sized by the grid rather
+    # than stretched to the page: a 16-row section is tall and an 11-row one
+    # shorter, and both keep the same cell. The figure is only as wide as the
+    # grid plus its margins, and the axes is centered in what is left over.
+    cell = 0.515
+    label_w, bar_w, ticks_h, title_h = 0.75, 1.15, 1.15, 0.85
+    grid_w, grid_h = cell * len(windows), cell * len(qids)
+    width = max(grid_w + label_w + bar_w, 5.6)
+    height = grid_h + ticks_h + title_h
     fig, ax = plt.subplots(figsize=(width, height))
-    # The suptitle is two lines. Reserved here rather than by a later
-    # subplots_adjust, which would undo the room the colorbar takes.
+    left = (width - grid_w - bar_w) / 2 / width
     fig.subplots_adjust(
-        top=1 - title_in / height,
-        bottom=ticks_in / height,
         left=left,
-        right=right,
+        right=left + grid_w / width,
+        bottom=ticks_h / height,
+        top=1 - title_h / height,
     )
 
     vmax = float(np.nanmax(truth))
-    im = ax.imshow(truth, cmap="Reds", vmin=0.0, vmax=vmax, aspect="auto")
+    if log:
+        # A zero has no place on a log ramp; floor it at half the smallest
+        # probability a continuation count can express, as the tail
+        # calibration scatter does.
+        floor = 0.5 / min(t.n for t in truths.values())
+        shade = np.where(np.isnan(truth), np.nan, np.maximum(truth, floor))
+        norm = matplotlib.colors.LogNorm(vmin=floor, vmax=vmax)
+    else:
+        floor = 0.0
+        shade = truth
+        norm = matplotlib.colors.Normalize(vmin=0.0, vmax=vmax)
+    im = ax.imshow(shade, cmap="Reds", norm=norm, aspect="auto")
     for i in range(len(qids)):
         for j in range(len(windows)):
             if np.isnan(truth[i, j]):
                 continue
-            color = "white" if truth[i, j] > 0.55 * vmax else "black"
+            color = "white" if norm(shade[i, j]) > 0.55 else "black"
             ax.text(
                 j,
                 i,
@@ -275,18 +289,23 @@ def plot_base_rates(
     ax.set_yticks(range(len(qids)), qids, fontsize=8)
     ax.tick_params(length=0)
     fig.colorbar(
-        im, ax=ax, fraction=0.03, pad=0.02, label="probability"
+        im,
+        ax=ax,
+        fraction=0.03,
+        pad=0.04,
+        label="probability (log scale)" if log else "probability",
     ).ax.tick_params(labelsize=7)
 
+    # Wrapped to the figure's width, which is set by the grid, not the prose.
     fig.suptitle(
-        f"How often each question resolved Yes — section {section}\n"
-        f"cell color is ground-truth P(Yes) over"
-        f" {'/'.join(map(str, ncont))} reseeded continuations; the number is how"
-        f" many of {nscenarios} scenarios realized Yes",
-        fontsize=9,
+        f"How often each question resolved Yes — {section}\n"
+        f"color: ground-truth P(Yes) over {'/'.join(map(str, ncont))}"
+        " reseeded continuations\n"
+        f"number: how many of {nscenarios} scenarios realized Yes",
+        fontsize=8,
     )
 
-    out = outdir / f"base_rates-{section}.png"
+    out = outdir / f"base_rates-{prefix}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     report.image(out)
@@ -299,9 +318,10 @@ def plot_score_heatmap(
     rows: list[dict],
     model_names: list[str],
     outdir: Path,
-    section: str,
-    qids: list[str],
+    section: str,  # display name, for titles
+    prefix: str,  # qid prefix, for figure filenames
     score: Score,
+    qids: list[str],
 ) -> Path:
     """Models x questions mean score as an annotated heatmap.
 
@@ -361,19 +381,19 @@ def plot_score_heatmap(
     # The mean column pools what the rest split, so wall it off visually.
     ax.axvline(x=0.5, color="black", lw=1.2)
     ax.set_title(
-        f"Mean {score.name} by model and question — section {section}"
+        f"Mean {score.name} by model and question — {section}"
         " (lower is better)\n"
         "rows sorted best-first; mean pools every scored forecast in the section"
     )
     fig.colorbar(im, ax=ax, label=f"mean {score.name}", fraction=0.03, pad=0.02)
     fig.tight_layout()
 
-    out = outdir / f"{score.key}_heatmap-{section}.png"
+    out = outdir / f"{score.key}_heatmap-{prefix}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
 
     report.heading(
-        f"Mean {score.name} by model and question — section {section}"
+        f"Mean {score.name} by model and question — {section}"
         " (lower is better)"
     )
     report.image(out)
@@ -397,7 +417,7 @@ def print_score_horizon_table(
     corpus: list[dict],
     rows: list[dict],
     model_names: list[str],
-    section: str,
+    section: str,  # display name, for titles
     score: Score,
 ) -> None:
     """Models x horizons of mean score, via the continuous report's table shape."""
@@ -406,7 +426,7 @@ def print_score_horizon_table(
         [(r["model_id"], r["horizon"], r[score.key]) for r in rows],
         model_names,
         sorted({c["horizon"] for c in corpus}),
-        f"Mean {score.name} by model and horizon — section {section}"
+        f"Mean {score.name} by model and horizon — {section}"
         " (lower is better)",
         "columns are horizons in simulated years past the snapshot"
         "\nall* pools every horizon",
@@ -421,7 +441,8 @@ def plot_score_by_horizon(
     rows: list[dict],
     model_names: list[str],
     outdir: Path,
-    section: str,
+    section: str,  # display name, for titles
+    prefix: str,  # qid prefix, for figure filenames
     score: Score,
 ) -> Path:
     """Scatter mean score against horizon, one series per model.
@@ -516,7 +537,7 @@ def plot_score_by_horizon(
     )
     ax.set_ylabel(f"Mean {score.name} (lower is better)")
     ax.set_title(
-        f"Mean {score.name} by horizon — section {section}\n"
+        f"Mean {score.name} by horizon — {section}\n"
         f"{len(model_names)} models, {len(corpus)} questions"
     )
     ax.set_xticks(horizons, [years(h) for h in horizons])
@@ -538,7 +559,7 @@ def plot_score_by_horizon(
     )
     fig.tight_layout()
 
-    out = outdir / f"{score.key}_by_horizon-{section}.png"
+    out = outdir / f"{score.key}_by_horizon-{prefix}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     report.image(out)
@@ -551,7 +572,8 @@ def plot_eci_vs_score(
     rows: list[dict],
     model_names: list[str],
     outdir: Path,
-    section: str,
+    section: str,  # display name, for titles
+    prefix: str,  # qid prefix, for figure filenames
     score: Score,
 ) -> Path | None:
     """Scatter each model's ECI against its mean score for the section.
@@ -588,7 +610,7 @@ def plot_eci_vs_score(
     r, p_r = stats.pearsonr(ecis, values)
 
     direction = "pro-g" if rho < 0 else "anti-g"
-    report.heading(f"ECI vs mean {score.name} — section {section} (Spearman)")
+    report.heading(f"ECI vs mean {score.name} — {section} (Spearman)")
     lines = [
         f"rho={rho:+.3f}  p={p_rho:.4f} {stars_for(p_rho):<4} ({direction}, n={len(points)})",
         f"Pearson r={r:+.3f}  p={p_r:.4f} {stars_for(p_r)}",
@@ -620,7 +642,7 @@ def plot_eci_vs_score(
     ax.set_xlabel("ECI (Epoch capability index)")
     ax.set_ylabel(f"Mean {score.name} (lower is better)")
     ax.set_title(
-        f"Forecast skill vs. ECI — section {section}, {score.name}"
+        f"Forecast skill vs. ECI — {section}, {score.name}"
         f"  ({len(points)} models, {len(corpus)} questions)"
     )
     ax.grid(alpha=0.3, zorder=0)
@@ -630,66 +652,7 @@ def plot_eci_vs_score(
     fig.canvas.draw()
     place_labels(fig, ax, [n for _, _, n in points], ecis, values)
 
-    out = outdir / f"eci_vs_{score.key}-{section}.png"
-    fig.savefig(out, dpi=150)
-    plt.close(fig)
-    report.image(out)
-    return out
-
-
-def plot_eci_correlation_by_horizon_binary(
-    report: MdReport,
-    corpus: list[dict],
-    rows: list[dict],
-    model_names: list[str],
-    outdir: Path,
-    section: str,
-    score: Score,
-) -> Path | None:
-    """Plot the ECI x score Spearman correlation against horizon.
-
-    The single scatter pools every horizon into one coefficient; this asks
-    whether capability predicts forecast skill more or less strongly as the
-    question gets harder. Returns None when too few models carry an ECI score.
-    """
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    by_horizon = score_by_model_and_horizon(rows, score)
-    results = correlate_by_horizon(eci_by_name(model_names), by_horizon, with_ci=True)
-    if not results:
-        report.text(
-            f"ECI x {score.name} by horizon ({section}): too few models with an"
-            " ECI score; skipping the plot."
-        )
-        return None
-
-    report.heading(
-        f"ECI x {score.name} correlation by horizon — section {section} (Spearman)"
-    )
-    report.text(format_horizon_correlations(results))
-
-    outdir.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(9, 6))
-    draw_horizon_correlation_axes(
-        ax,
-        [("ECI", PLOT_BLUE, results)],
-        "Does capability predict forecast skill at every horizon?\n"
-        f"section {section}, {score.name}: {results[0][3]} models with an ECI"
-        f" score, {len(corpus)} questions",
-    )
-    ax.set_ylabel(f"Spearman ρ of ECI vs. mean {score.name}")
-    ax.legend(
-        handles=significance_handles(PLOT_BLUE, plt) + band_handles(PLOT_BLUE, plt),
-        loc="upper right",
-        fontsize=9,
-        framealpha=0.9,
-    )
-    fig.tight_layout()
-
-    out = outdir / f"eci_correlation_by_horizon-{score.key}-{section}.png"
+    out = outdir / f"eci_vs_{score.key}-{prefix}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     report.image(out)
@@ -702,7 +665,8 @@ def plot_predictors_correlation_by_horizon_binary(
     rows: list[dict],
     model_names: list[str],
     outdir: Path,
-    section: str,
+    section: str,  # display name, for titles
+    prefix: str,  # qid prefix, for figure filenames
     score: Score,
 ) -> Path | None:
     """Compare ECI and knowledge-eval score as predictors of forecast skill.
@@ -751,7 +715,7 @@ def plot_predictors_correlation_by_horizon_binary(
         return None
 
     report.heading(
-        f"Predictors of {score.name} by horizon — section {section}"
+        f"Predictors of {score.name} by horizon — {section}"
         f" (Spearman, {len(shared)} shared models)"
     )
     lines = []
@@ -772,7 +736,7 @@ def plot_predictors_correlation_by_horizon_binary(
         ax,
         series,
         "What predicts forecast skill: general capability or world knowledge?\n"
-        f"section {section}, {score.name}: {len(shared)} models with both"
+        f"{score.name}, {section}: {len(shared)} models with both"
         f" scores, {len(corpus)} questions",
     )
     ax.set_ylabel(f"Spearman ρ vs. mean {score.name}")
@@ -787,7 +751,7 @@ def plot_predictors_correlation_by_horizon_binary(
     )
     fig.tight_layout()
 
-    out = outdir / f"predictors_correlation_by_horizon-{score.key}-{section}.png"
+    out = outdir / f"predictors_correlation_by_horizon-{score.key}-{prefix}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     report.image(out)
@@ -800,7 +764,8 @@ def plot_calibration(
     rows: list[dict],
     model_names: list[str],
     outdir: Path,
-    section: str,
+    section: str,  # display name, for titles
+    prefix: str,  # qid prefix, for figure filenames
     log: bool,
 ) -> Path:
     """One scatter per model of forecast f against ground-truth p, in two columns.
@@ -871,17 +836,17 @@ def plot_calibration(
         row[0].set_ylabel("forecast P(Yes)")
     scale = "log-log; zeros drawn at half a continuation" if log else "linear"
     fig.suptitle(
-        f"Calibration: forecast vs. ground truth — section {section} ({scale})\n"
+        f"Calibration: forecast vs. ground truth — {section} ({scale})\n"
         "dashed diagonal is perfect calibration; panels sorted best-first",
         y=0.995,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.98))
 
-    out = outdir / f"calibration_scatter-{section}.png"
+    out = outdir / f"calibration_scatter-{prefix}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
 
-    report.heading(f"Calibration plots — section {section}")
+    report.heading(f"Calibration plots — {section}")
     report.text(
         "Each panel scatters a model's forecasts against the share of reseeded"
         " continuations that resolved Yes; the dashed diagonal is perfect"
@@ -945,56 +910,55 @@ def main() -> None:
         + "\n".join(f"- {s.name}: {s.definition}" for s in SCORES)
     )
     written: list[Path] = []
-    for prefix, description in SECTIONS:
+    for prefix, section, description in SECTIONS:
         qids = [q for q in QUESTION_IDS if q.startswith(prefix)]
         section_corpus = [c for c in corpus if c["qid"].startswith(prefix)]
         if not section_corpus:
             continue
         rows = score_forecasts_binary(section_corpus, responses, models, truths)
+        # The prefix of every per-score call below, spelled once.
+        common = (report, section_corpus, rows, models, outdir, section, prefix)
 
-        report.heading(f"Section {prefix} — {description}", level=1)
+        report.heading(f"{section} — {description}", level=1)
         if args.plot:
             written.append(
                 plot_base_rates(
-                    report, section_corpus, truths, outdir, prefix, qids
+                    report,
+                    section_corpus,
+                    truths,
+                    outdir,
+                    section,
+                    prefix,
+                    qids,
+                    log=(prefix == "B"),
                 )
             )
 
+        # The two scores are shown side by side per view rather than in two
+        # separate runs of every view: the pair invites comparison — where a
+        # model's Brier and its calibration error disagree is the interesting
+        # cell — and that reads far better adjacent than a page apart.
+        if args.plot:
+            for score in SCORES:
+                written.append(plot_score_heatmap(*common, score, qids))
         for score in SCORES:
-            report.heading(f"Section {prefix} — {score.name}", level=1)
-            if args.plot:
-                written.append(
-                    plot_score_heatmap(
-                        report, section_corpus, rows, models, outdir, prefix, qids, score
-                    )
-                )
             print_score_horizon_table(
-                report, section_corpus, rows, models, prefix, score
+                report, section_corpus, rows, models, section, score
             )
-            if args.plot:
-                written.append(
-                    plot_score_by_horizon(
-                        report, section_corpus, rows, models, outdir, prefix, score
-                    )
-                )
+        if args.plot:
+            for score in SCORES:
+                written.append(plot_score_by_horizon(*common, score))
+            for score in SCORES:
                 written += [
                     p
                     for p in [
-                        plot_eci_vs_score(
-                            report, section_corpus, rows, models, outdir, prefix, score
-                        ),
-                        plot_eci_correlation_by_horizon_binary(
-                            report, section_corpus, rows, models, outdir, prefix, score
-                        ),
-                        plot_predictors_correlation_by_horizon_binary(
-                            report, section_corpus, rows, models, outdir, prefix, score
-                        ),
+                        plot_eci_vs_score(*common, score),
+                        plot_predictors_correlation_by_horizon_binary(*common, score),
                     ]
                     if p is not None
                 ]
 
-        if args.plot:
-            report.heading(f"Section {prefix} — calibration plots", level=1)
+            report.heading(f"{section} — calibration plots", level=1)
             written.append(
                 plot_calibration(
                     report,
@@ -1002,6 +966,7 @@ def main() -> None:
                     rows,
                     models,
                     outdir,
+                    section,
                     prefix,
                     log=(prefix == "B"),
                 )
