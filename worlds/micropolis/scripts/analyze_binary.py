@@ -244,10 +244,18 @@ def plot_base_rates(
     # than stretched to the page: a 16-row section is tall and an 11-row one
     # shorter, and both keep the same cell. The figure is only as wide as the
     # grid plus its margins, and the axes is centered in what is left over.
-    cell = 0.515
-    label_w, bar_w, ticks_h, title_h = 0.75, 1.15, 1.15, 0.85
+    # Every length here is in inches and scaled together, so `scale` shrinks
+    # the whole figure without changing its proportions.
+    scale = 0.6
+    cell = 0.515 * scale
+    label_w, bar_w, ticks_h, title_h = (
+        0.75 * scale,
+        1.15 * scale,
+        1.15 * scale,
+        0.85 * scale,
+    )
     grid_w, grid_h = cell * len(windows), cell * len(qids)
-    width = max(grid_w + label_w + bar_w, 5.6)
+    width = max(grid_w + label_w + bar_w, 5.6 * scale)
     height = grid_h + ticks_h + title_h
     fig, ax = plt.subplots(figsize=(width, height))
     left = (width - grid_w - bar_w) / 2 / width
@@ -282,19 +290,25 @@ def plot_base_rates(
                 f"{counts[i, j]:.0f}",
                 ha="center",
                 va="center",
-                fontsize=8,
+                fontsize=8 * scale,
                 color=color,
             )
-    ax.set_xticks(range(len(windows)), labels, fontsize=8, rotation=45, ha="right")
-    ax.set_yticks(range(len(qids)), qids, fontsize=8)
+    ax.set_xticks(
+        range(len(windows)), labels, fontsize=8 * scale, rotation=45, ha="right"
+    )
+    ax.set_yticks(range(len(qids)), qids, fontsize=8 * scale)
     ax.tick_params(length=0)
-    fig.colorbar(
+    bar = fig.colorbar(
         im,
         ax=ax,
         fraction=0.03,
         pad=0.04,
         label="probability (log scale)" if log else "probability",
-    ).ax.tick_params(labelsize=7)
+    )
+    bar.ax.tick_params(labelsize=7 * scale)
+    # The label wears the default axis-label size, which does not scale with
+    # the rest and would tower over the shrunk grid.
+    bar.ax.yaxis.label.set_size(8 * scale)
 
     # Wrapped to the figure's width, which is set by the grid, not the prose.
     fig.suptitle(
@@ -302,7 +316,7 @@ def plot_base_rates(
         f"color: ground-truth P(Yes) over {'/'.join(map(str, ncont))}"
         " reseeded continuations\n"
         f"number: how many of {nscenarios} scenarios realized Yes",
-        fontsize=8,
+        fontsize=8 * scale,
     )
 
     out = outdir / f"base_rates-{prefix}.png"
