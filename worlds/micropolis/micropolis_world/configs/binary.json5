@@ -40,9 +40,8 @@
   // derive their own length from snapshot_turns + horizons.
   "turns": 2400,
 
-  // Snapshots at game-years 20 and 30, horizons 5 and 10 game-years out.
-  "snapshot_turns": [960, 1440],
-  "horizons": [240, 480],
+  "snapshot_turns": [960, 1440], // 20 and 30 years
+  "horizons": [144, 240, 336, 480], // 3, 5, 7 and 10 years
 
   "history_freq": 24,
   "preamble_path": "preamble-binary.txt",

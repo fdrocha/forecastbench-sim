@@ -1,4 +1,5 @@
-You MUST provide a probability for every question UNDER ALL CIRCUMSTANCES. If for some reason you can't answer, estimate 0.5, but always return a number between 0 and 1.
+You MUST provide a probability for every question UNDER ALL CIRCUMSTANCES.  Always return a number between 0 and 1.
+Avoid responding with exactly 0 or 1, unless you are ABSOLUTELY SURE that the event is impossible or certain.
 
 You may analyze the data, but you MUST end your response with your probabilities in this exact format:
 <<<PROBABILITIES>>>
