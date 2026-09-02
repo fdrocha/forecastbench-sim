@@ -926,10 +926,11 @@ def plot_calibration(
     prefix: str,  # qid prefix, for figure filenames
     log: bool,
 ) -> Path:
-    """One scatter per model of forecast f against ground-truth p, in three columns.
+    """One scatter per model of ground-truth p against forecast f, in three columns.
 
-    The diagonal is perfect calibration; points above it are overconfident
-    Yes, below it overconfident No. The tail section is drawn log-log since
+    The diagonal is perfect calibration; points below it are overconfident
+    Yes — the model said more than happened — and points above it
+    overconfident No. The tail section is drawn log-log since
     its probabilities span two decades, and there a zero — a question no
     continuation resolved Yes, or a model that answered 0 anyway — is clipped
     to half a continuation's worth so it stays on the page rather than
@@ -970,8 +971,8 @@ def plot_calibration(
         clipped = sum(1 for r in mine if r["forecast"] <= 0 or r["truth"].p <= 0)
         ax.plot([lo, hi], [lo, hi], color="#888888", lw=1, ls="--", zorder=1)
         ax.scatter(
-            [clip(r["truth"].p) for r in mine],
             [clip(r["forecast"]) for r in mine],
+            [clip(r["truth"].p) for r in mine],
             s=14,
             alpha=0.45,
             color=PLOT_BLUE,
@@ -980,16 +981,16 @@ def plot_calibration(
         )
         # The binned average: within each band of forecast probability, where
         # did the truth actually land? A line tracking the diagonal is a
-        # calibrated model; one flatter than it is a model whose confidence
-        # moves less than reality does.
+        # calibrated model; one flatter than it is a model whose probabilities
+        # move more than reality does.
         bins = calibration_bins(
             [(r["forecast"], r["truth"].p) for r in mine], NCAL_BINS, log, floor
         )
         if bins:
             ax.errorbar(
-                [p for _, p, _ in bins],
                 [f for f, _, _ in bins],
-                xerr=[e for _, _, e in bins],
+                [p for _, p, _ in bins],
+                yerr=[e for _, _, e in bins],
                 color="#c2432d",
                 lw=1.6,
                 marker="o",
@@ -1020,9 +1021,9 @@ def plot_calibration(
     for col in range(ncols):
         column = [axes[r][col] for r in range(nrows) if axes[r][col].get_visible()]
         if column:
-            column[-1].set_xlabel("ground-truth P(Yes)", fontsize=8)
+            column[-1].set_xlabel("forecast P(Yes)", fontsize=8)
     for row in axes:
-        row[0].set_ylabel("forecast P(Yes)", fontsize=8)
+        row[0].set_ylabel("ground-truth P(Yes)", fontsize=8)
     handles, labels = axes[0][0].get_legend_handles_labels()
     if handles:
         fig.legend(
@@ -1031,7 +1032,7 @@ def plot_calibration(
         )
     scale = "log-log; zeros drawn at half a continuation" if log else "linear"
     fig.suptitle(
-        f"Calibration: forecast vs. ground truth — {section} ({scale})\n"
+        f"Calibration: ground truth vs. forecast — {section} ({scale})\n"
         "dashed diagonal is perfect calibration; panels sorted best-first",
         y=0.995,
     )
@@ -1043,8 +1044,8 @@ def plot_calibration(
 
     report.heading(f"Calibration plots — {section}")
     report.text(
-        "Each panel scatters a model's forecasts against the share of reseeded"
-        " continuations that resolved Yes; the dashed diagonal is perfect"
+        "Each panel scatters the share of reseeded continuations that resolved"
+        " Yes against the model's forecast; the dashed diagonal is perfect"
         f" calibration. The red line bins the forecasts into {NCAL_BINS} equal"
         + (" log-width" if log else " width")
         + " bands by forecast probability and plots the mean ground truth in"
