@@ -1,0 +1,33 @@
+// Pinned model registry, loaded by openrouter_completion.py at import.
+// Keys are OpenRouter slugs; each value is a ModelSpec:
+//   endpoint       FULL provider slug, e.g. "deepinfra/turbo". A base slug
+//                  matches every variant.
+//   quantizations  e.g. ["fp8"]; omit/null for first-party proprietary
+//   ignore         variants to exclude when pinning a provider's default
+//                  endpoint by base slug
+//   sampling       {} where the model rejects sampling params
+//                  (o-series, Claude w/ thinking)
+{
+  "deepseek/deepseek-r1": {
+    endpoint: "deepinfra",
+    quantizations: ["fp8"],
+    ignore: ["deepinfra/turbo"],
+    sampling: {temperature: 0.6, top_p: 0.95, seed: 1234},
+  },
+  "qwen/qwen3-235b-a22b": {
+    endpoint: "together",
+    quantizations: ["fp8"],
+    // Qwen thinking-mode recommended sampling differs from instruct mode.
+    sampling: {temperature: 0.6, top_p: 0.95, top_k: 20, seed: 1234},
+  },
+  "anthropic/claude-haiku-4.5": {
+    endpoint: "anthropic",
+  },
+  "google/gemini-2.5-flash": {
+    endpoint: "google-ai-studio",
+    sampling: {temperature: 0.7, top_p: 0.95},
+  },
+  "openai/o4-mini": {
+    endpoint: "openai", // not azure; "openai/fast" is a tier
+  },
+}

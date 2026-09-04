@@ -1905,6 +1905,7 @@ version = "0.1.0"
 source = { editable = "worlds/micropolis" }
 dependencies = [
     { name = "fbsim-core" },
+    { name = "httpx" },
     { name = "json5" },
     { name = "matplotlib" },
     { name = "numpy" },
@@ -1920,6 +1921,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fbsim-core", editable = "packages/fbsim-core" },
+    { name = "httpx" },
     { name = "json5" },
     { name = "matplotlib" },
     { name = "numpy" },
@@ -3016,18 +3018,18 @@ name = "ray"
 version = "2.6.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiosignal", marker = "python_full_version < '3.13'" },
-    { name = "click", marker = "python_full_version < '3.13'" },
-    { name = "filelock", marker = "python_full_version < '3.13'" },
-    { name = "frozenlist", marker = "python_full_version < '3.13'" },
-    { name = "grpcio", marker = "python_full_version < '3.13'" },
-    { name = "jsonschema", marker = "python_full_version < '3.13'" },
-    { name = "msgpack", marker = "python_full_version < '3.13'" },
-    { name = "numpy", marker = "python_full_version < '3.13'" },
-    { name = "packaging", marker = "python_full_version < '3.13'" },
-    { name = "protobuf", marker = "python_full_version < '3.13'" },
-    { name = "pyyaml", marker = "python_full_version < '3.13'" },
-    { name = "requests", marker = "python_full_version < '3.13'" },
+    { name = "aiosignal" },
+    { name = "click" },
+    { name = "filelock" },
+    { name = "frozenlist" },
+    { name = "grpcio" },
+    { name = "jsonschema" },
+    { name = "msgpack" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "protobuf" },
+    { name = "pyyaml" },
+    { name = "requests" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0c/50/710aafe36916386ddcf4d6a75ebc363d93c94334af8473ddc032d82de0bf/ray-2.6.3-cp311-cp311-macosx_10_15_x86_64.whl", hash = "sha256:bdeacaafcbb97e5f1c3c3349e7fcc0c40f691cea2bf057027c5491ea1ac929b0", size = 59045820, upload-time = "2023-08-15T16:39:33.837Z" },

@@ -4,6 +4,7 @@ numpy
 scipy
 matplotlib
 python-dotenv>=1.0.1
+httpx
 
 [dev]
 pytest
