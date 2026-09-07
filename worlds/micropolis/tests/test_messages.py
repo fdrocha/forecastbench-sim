@@ -37,9 +37,13 @@ def test_colors_when_stderr_is_a_terminal(monkeypatch):
     msg.warn("warned")
     msg.error("errored")
     out = tty.getvalue()
-    assert f"{msg.RED}[warning] warned{msg.RESET}" in out
-    # Errors are bold, so they stand out from warnings in a long run.
-    assert f"{msg.BOLD_RED}[error] errored{msg.RESET}" in out
+    assert f"{msg.YELLOW}[warning] warned{msg.RESET}" in out
+    assert f"{msg.RED}[error] errored{msg.RESET}" in out
+
+
+def test_warnings_and_errors_are_different_colors():
+    """The whole point of the split: told apart without reading the prefix."""
+    assert msg.YELLOW != msg.RED
 
 
 def test_no_color_env_var_is_respected(monkeypatch):
@@ -56,3 +60,14 @@ def test_plain_carries_no_prefix_for_continuation_lines(capsys):
     err = capsys.readouterr().err
     assert err.strip() == "model <- prompt.txt"
     assert "[error]" not in err and "[warning]" not in err
+
+
+def test_plain_takes_the_color_of_the_block_it_belongs_to(monkeypatch):
+    tty = FakeTTY()
+    monkeypatch.setattr("sys.stderr", tty)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    msg.plain("  under an error")
+    msg.plain("  under a warning", msg.YELLOW)
+    out = tty.getvalue()
+    assert f"{msg.RED}  under an error{msg.RESET}" in out
+    assert f"{msg.YELLOW}  under a warning{msg.RESET}" in out
