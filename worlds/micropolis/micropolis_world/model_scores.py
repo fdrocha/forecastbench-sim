@@ -9,17 +9,17 @@ score this repo did not measure itself:
               interval. Real-world forecasting ability, against which this
               world's simulated forecasting is the thing being validated.
 
-The file also carries the model's name as OpenRouter and ForecastBench spell it,
-which nothing here reads — they are there so a row can be traced back to the
-leaderboard it was copied from.
+The file also carries the model's name as OpenRouter (Name) and ForecastBench
+(FBName) spell it, which nothing here reads — they are there so a row can be
+traced back to the leaderboard it was copied from.
 
-Models are joined on LiteLLMSlug, the id the eval configs and the response cache
+Models are joined on slug, the id the eval configs and the response cache
 use, so a row without one takes part in no analysis. That is deliberate rather
 than an oversight to route around: a near-miss slug ("gemini-3.1-flash-lite" for
 a row recording "gemini-3.1-flash-lite-preview") is a different model checkpoint
 with a different score, and guessing that the two are the same would silently
 attribute one's benchmark number to the other's forecasts. Filling in the blank
-LiteLLMSlug in the CSV is the way to bring such a model in.
+slug in the CSV is the way to bring such a model in.
 
 A missing cell is a missing score, not a zero: ECI, FBOverall and the interval
 are each None when blank, and callers drop the model from that particular
@@ -89,7 +89,7 @@ def load_scores() -> dict[str, ModelScores]:
     out: dict[str, ModelScores] = {}
     with SCORES_PATH.open(newline="") as f:
         for row in csv.DictReader(f):
-            slug = (row.get("LiteLLMSlug") or "").strip()
+            slug = (row.get("slug") or "").strip()
             if not slug:
                 continue
             name = slug.split("/", 1)[-1]
@@ -182,7 +182,7 @@ def write_scores_csv(
 
     joined = set()
     for row in rows:
-        slug = (row.get("LiteLLMSlug") or "").strip()
+        slug = (row.get("slug") or "").strip()
         name = slug.split("/", 1)[-1] if slug else ""
         stats = stats_by_name.get(name)
         if stats is not None:
@@ -191,7 +191,7 @@ def write_scores_csv(
     for model_id in sorted(mp_stats):
         name = model_id.split("/", 1)[-1]
         if name not in joined:
-            rows.append({"LiteLLMSlug": model_id} | score_cells(stats_by_name[name]))
+            rows.append({"slug": model_id} | score_cells(stats_by_name[name]))
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:

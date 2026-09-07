@@ -115,7 +115,7 @@ and the structural constraints (§5). Read it before touching resolution.
 - Model ids are **bare OpenRouter slugs** (`provider/name`, e.g.
   `anthropic/claude-haiku-4.5`, `deepseek/deepseek-chat` — no `openrouter/` prefix, no dated
   aliases); filenames slugify `/` → `_`. The same spelling is the canonical id everywhere:
-  configs, `model_specs.json5`, cache filenames, and the `LiteLLMSlug` column of
+  configs, `model_specs.json5`, cache filenames, and the `slug` column of
   `model_scores.csv` that external scores join on — a blank slug there means the model is
   excluded, and near-miss slugs must never be guessed at. `llm_backend.to_model_id` is
   therefore the identity under OpenRouter; it is the litellm block that has to map back
