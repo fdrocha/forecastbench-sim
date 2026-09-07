@@ -24,5 +24,18 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 include = ["micropolis_world*"]
 
+# The package's data files, which the code reads by path at runtime and so must
+# ship in the wheel. configs/ and datafiles/ carry no __init__.py, so they are
+# not packages of their own — they are reached as subdirectory globs of
+# micropolis_world, which is.
+[tool.setuptools.package-data]
+micropolis_world = [
+    "*.json5",
+    "configs/*.json5",
+    "datafiles/*.txt",
+    "datafiles/*.csv",
+]
+"micropolis_world.knowledge_eval" = ["*.txt"]
+
 [tool.uv.sources]
 fbsim-core = { workspace = true }
