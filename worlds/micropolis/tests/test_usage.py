@@ -141,6 +141,21 @@ def test_unpriced_response_is_none_and_never_raises():
     assert cost_from_response(response, "openai/definitely-not-a-real-model") is None
 
 
+def test_truncation_warning_goes_to_stderr(capsys):
+    """A warning must not land on stdout, where the report is written."""
+    g.warn_if_truncated("openai/gpt-5", "length")
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "[warning]" in captured.err
+    assert "openai/gpt-5" in captured.err
+
+
+def test_no_truncation_warning_on_a_normal_finish(capsys):
+    g.warn_if_truncated("openai/gpt-5", "stop")
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == ""
+
+
 def test_records_the_serving_provider_from_hidden_params():
     """OpenRouter says which upstream endpoint answered; keep it."""
     response = make_response()

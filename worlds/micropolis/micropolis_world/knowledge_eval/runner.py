@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from .. import messages as msg
 from .. import module_globals as g
 from ..module_globals import warn_if_truncated
 from ..prompting import PromptJob, format_eta, format_latency, run_prompts
@@ -301,7 +302,7 @@ def get_model_answers(
             if not result.ok:
                 err = result.error
                 failures.append((model_name, err))
-                print(
+                msg.error(
                     f"[{done}/{len(jobs)}] {model_name}: "
                     f"request FAILED: {type(err).__name__}: {err}{eta}"
                 )
@@ -326,9 +327,7 @@ def get_model_answers(
             warn_if_truncated(model_name, resp.finish_reason)
 
             if raw is None or not raw.strip():
-                print(
-                    f"  [warning] {model_name} returned a blank response; not caching"
-                )
+                msg.warn(f"{model_name} returned a blank response; not caching")
                 continue
 
             out_path = response_path(model_name, phash)
@@ -349,12 +348,12 @@ def get_model_answers(
             summary += f" + {nunpriced} unpriced call(s)"
         print(summary)
         if failures:
-            print(
+            msg.error(
                 f"{len(failures)} call(s) failed (not cached; "
                 "re-run this script to retry them):"
             )
             for model_name, err in failures:
-                print(f"  {model_name}: {type(err).__name__}: {err}")
+                msg.plain(f"  {model_name}: {type(err).__name__}: {err}")
 
     return data
 

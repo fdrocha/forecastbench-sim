@@ -112,6 +112,11 @@ and the structural constraints (§5). Read it before touching resolution.
   the model's `model_specs.json5` entry; configs and `PromptJob` have no such key.
 - **Output goes to a Markdown report**, accumulated via `continuous_eval.MdReport` and stamped
   with both this repo's and the engine checkout's commit; stdout gets only paths.
+- **Warnings and errors go to stderr, in red, via `messages.warn`/`error`/`plain`** — never
+  `print`. A prompting run scrolls hundreds of progress lines, so a failed call has to stand
+  out and has to be separable from the report by redirection. `plain` is for the detail lines
+  under a summary. Color is dropped when stderr is not a tty or `NO_COLOR` is set, so a
+  redirected log carries no escape sequences.
 - Model ids are **bare OpenRouter slugs** (`provider/name`, e.g.
   `anthropic/claude-haiku-4.5`, `deepseek/deepseek-chat` — no `openrouter/` prefix, no dated
   aliases); filenames slugify `/` → `_`. The same spelling is the canonical id everywhere:

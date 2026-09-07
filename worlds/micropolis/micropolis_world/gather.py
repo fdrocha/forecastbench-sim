@@ -18,6 +18,7 @@ from pathlib import Path
 from fbsim_core.evaluation.models import get_models
 
 from . import module_globals as g
+from . import messages as msg
 from .knowledge_eval.runner import prompt_hash
 from .prompting import (
     PromptJob,
@@ -271,7 +272,7 @@ def gather_raw_responses(
             if not result.ok:
                 failures.append(result)
                 err = result.error
-                print(f"{prefix}  FAILED: {type(err).__name__}: {err}{eta}", flush=True)
+                msg.error(f"{prefix}  FAILED: {type(err).__name__}: {err}{eta}")
                 continue
             resp = result.response
             # How long this one call took, next to what it cost: a batch that
@@ -318,12 +319,12 @@ def gather_raw_responses(
             total += f" + {nunpriced[model_name]} unpriced call(s)"
         print(f"  {model_name}: {total}")
     if failures:
-        print(
+        msg.error(
             f"{len(failures)} call(s) failed (not cached; "
             "re-run this script to retry them):"
         )
         for result in failures:
             bid, model_name = result.job.key
-            print(f"  {model_name} <- {ppaths[bid]}")
-            print(f"    {type(result.error).__name__}: {result.error}")
+            msg.plain(f"  {model_name} <- {ppaths[bid]}")
+            msg.plain(f"    {type(result.error).__name__}: {result.error}")
     return batches, raws

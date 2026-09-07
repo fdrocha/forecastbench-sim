@@ -6,6 +6,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from . import messages as msg
 from .usage import LLMResponse, usage_from_response
 
 PKG_DIR = Path(__file__).resolve().parent.parent  # forecastbench-sim/worlds/micropolis
@@ -101,11 +102,11 @@ def warn_if_truncated(model_id: str, finish_reason: str | None) -> None:
     model_specs.json5, or the provider default when it has none.
     """
     if finish_reason == "length":
-        print(
-            f"  [warning] {model_id} hit its output-token cap before "
-            "finishing. Raise max_tokens in the model's model_specs.json5 "
-            "entry; for a reasoning model the cap covers thinking as well as "
-            "the answer, so it can be spent before any answer is written."
+        msg.warn(
+            f"{model_id} hit its output-token cap before finishing. Raise "
+            "max_tokens in the model's model_specs.json5 entry; for a "
+            "reasoning model the cap covers thinking as well as the answer, "
+            "so it can be spent before any answer is written."
         )
 
 

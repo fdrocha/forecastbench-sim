@@ -25,6 +25,7 @@ from typing import Any
 
 import json5
 
+from . import messages as msg
 from . import module_globals as g
 
 CONFIG_DIR = Path(__file__).resolve().parent / "configs"
@@ -477,7 +478,7 @@ def load_config(args: argparse.Namespace) -> Config:
     try:
         return Config.load(args.config)
     except ConfigError as e:
-        print(f"[error] {e}", file=sys.stderr)
+        msg.error(str(e))
         sys.exit(1)
 
 
@@ -494,7 +495,7 @@ def load_configs(args: argparse.Namespace) -> list[Config]:
         try:
             configs.append(Config.load(path))
         except ConfigError as e:
-            print(f"[error] {e}", file=sys.stderr)
+            msg.error(str(e))
             sys.exit(1)
     return configs
 
@@ -512,7 +513,7 @@ def main_with_config(main: Callable[[], None]) -> Callable[[], None]:
         try:
             main()
         except ConfigError as e:
-            print(f"[error] {e}", file=sys.stderr)
+            msg.error(str(e))
             sys.exit(1)
 
     return wrapper

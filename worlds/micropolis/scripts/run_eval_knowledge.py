@@ -19,6 +19,7 @@ each provider offers.
 import argparse
 
 import micropolis_world.module_globals as g
+from micropolis_world import messages as msg
 from micropolis_world.config import (
     CONFIG_DIR,
     add_config_args,
@@ -64,7 +65,7 @@ def main() -> None:
 
     missing = [m for m in models if m not in answers]
     if missing:
-        print(f"No response from: {', '.join(missing)}")
+        msg.warn(f"no response from: {', '.join(missing)}")
     print(f"Responses saved under {CACHE_DIR}")
     print("\nTo score them, run scripts/analyze_knowledge.py")
 
