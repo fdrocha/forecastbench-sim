@@ -180,7 +180,7 @@ def gather_raw_responses(
     *,
     paths: EvalPaths,
     build_prompt: Callable[[str, list[dict]], str],
-    provider_limits: dict[str, int] | None = None,
+    concurrency: int | None = None,
     questions_per_prompt: int = -1,
 ) -> tuple[dict[str, list[dict]], RawResponses]:
     """Prompt each model on each batch of questions, reusing cached responses.
@@ -198,8 +198,8 @@ def gather_raw_responses(
     cached even when unparseable, since retrying greedy decoding would return
     the same text.
 
-    All uncached (batch, model) calls run concurrently, capped per provider by
-    run_prompts, and each response is written to its cache file the moment it
+    All uncached (batch, model) calls run concurrently under run_prompts's
+    global cap, and each response is written to its cache file the moment it
     lands, so an interrupted run keeps what it already paid for. A failed call
     is reported and skipped rather than aborting the run — nothing is cached
     for it, so re-running the script retries exactly the failures.
@@ -264,7 +264,7 @@ def gather_raw_responses(
         # its cost the way the serial version's was.
         done = 0
         start = time.perf_counter()
-        async for result in run_prompts(jobs, limits=provider_limits):
+        async for result in run_prompts(jobs, limit=concurrency):
             done += 1
             eta = format_eta(start, done, len(jobs))
             bid, model_name = result.job.key

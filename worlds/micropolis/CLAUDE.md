@@ -27,7 +27,7 @@ a parser → `data.json` → the `analyze_*` / `plot_*` scripts.
 and snapshot turn share a report, so they are asked in one numbered prompt),
 `EvalPaths` (the content-addressed cache layout, instantiated per eval as
 `continuous_eval.PATHS` / `binary_eval.PATHS`), `gather_raw_responses` (cache-hit split,
-`prompting.run_prompts` async fan-out with per-provider semaphores, write-on-landing, cost
+`prompting.run_prompts` async fan-out under one global concurrency cap, write-on-landing, cost
 accounting) and `write_dataset`. It stops at raw response text; **parsing is per eval**,
 which is where the two genuinely differ. Do not import `continuous_eval` from `gather` —
 that cycles.

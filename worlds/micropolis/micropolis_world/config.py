@@ -182,28 +182,20 @@ class Config:
             )
         return value
 
-    def get_provider_concurrency(self) -> dict[str, int] | None:
-        """The optional 'provider_concurrency' map, or None when unset.
+    def get_concurrency(self) -> int | None:
+        """The optional 'concurrency' key, or None when unset.
 
-        Maps provider class names ("AnthropicProvider", ...) to the maximum
-        concurrent API calls for that provider; entries are merged over
-        prompting.DEFAULT_PROVIDER_LIMITS, so a config only names the providers
-        it wants to change. None (the usual case) means the defaults apply.
+        The maximum number of API calls in flight at once, across every model
+        — one global cap, since every call leaves through the same gateway.
+        None (the usual case) means prompting.DEFAULT_CONCURRENCY applies.
         """
-        if "provider_concurrency" not in self.data:
+        if "concurrency" not in self.data:
             return None
-        value = self.data["provider_concurrency"]
-        if (
-            not isinstance(value, dict)
-            or not all(isinstance(k, str) for k in value)
-            or any(
-                isinstance(v, bool) or not isinstance(v, int) or v < 1
-                for v in value.values()
-            )
-        ):
+        value = self.data["concurrency"]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise ConfigError(
-                f"parameter 'provider_concurrency' in {self.path} must map "
-                f"provider class names to positive integers, got {value!r}"
+                f"parameter 'concurrency' in {self.path} must be a positive "
+                f"integer, got {value!r}"
             )
         return value
 

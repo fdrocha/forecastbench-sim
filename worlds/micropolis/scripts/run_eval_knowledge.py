@@ -55,9 +55,7 @@ def main() -> None:
     print(f"{len(statements)} statements, {len(models)} model(s)\n")
 
     g.ensure_api_keys()
-    answers = get_model_answers(
-        models, provider_limits=cfg.get_provider_concurrency()
-    )
+    answers = get_model_answers(models, concurrency=cfg.get_concurrency())
 
     print(f"\n{'=' * 70}")
     print(f"Gathered answers from {len(answers)} of {len(models)} model(s)")

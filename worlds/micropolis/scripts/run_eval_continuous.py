@@ -8,8 +8,8 @@ their forecasts to data/micropolis/continuous/data.json.
 Questions that share a game report — same scenario and snapshot turn — are
 asked together in one numbered prompt, so the report is paid for once per
 batch instead of once per question. The uncached batch calls all run
-concurrently, capped per provider (see micropolis_world/prompting.py; a
-config's "provider_concurrency" map adjusts the caps), with one progress line
+concurrently, up to a global cap (see micropolis_world/prompting.py; a
+config's "concurrency" key adjusts it), with one progress line
 printed as each response lands and the response written to disk right then. Each batch's prompt and raw responses are
 cached in data/micropolis/continuous/cache/{batch_id}/ as prompt-{hash}.txt
 and one response-{model}-{hash}.txt per model, where {hash} is the first 8
@@ -73,7 +73,7 @@ DEFAULT_CONTINUOUS_CONFIG_PATH = CONFIG_DIR / "continuous.json5"
 def gather_responses(
     corpus: list[dict],
     model_names: list[str],
-    provider_limits: dict[str, int] | None = None,
+    concurrency: int | None = None,
     preamble_path: Path | None = None,
     epilogue_path: Path | None = None,
     question_tagging: str = QUESTION_TAGGING_NUMERIC,
@@ -93,7 +93,7 @@ def gather_responses(
         build_prompt=lambda context, questions: build_batch_prompt_continuous(
             context, questions, preamble_path, epilogue_path, question_tagging
         ),
-        provider_limits=provider_limits,
+        concurrency=concurrency,
         questions_per_prompt=questions_per_prompt,
     )
 
@@ -196,7 +196,7 @@ def main() -> None:
     responses = gather_responses(
         corpus,
         models,
-        cfg.get_provider_concurrency(),
+        cfg.get_concurrency(),
         preamble_path,
         epilogue_path,
         question_tagging,

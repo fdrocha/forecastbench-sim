@@ -223,7 +223,7 @@ def parse_response(text: str | None) -> list[Answer]:
 
 def get_model_answers(
     models: list[str],
-    provider_limits: dict[str, int] | None = None,
+    concurrency: int | None = None,
 ) -> dict[str, list[Answer]]:
     """Administer the statement test to each model and parse the replies.
 
@@ -233,8 +233,8 @@ def get_model_answers(
     carries the prompt hash, editing the statements simply misses the cache
     instead of reusing answers to different questions.
 
-    The uncached models are all prompted concurrently, capped per provider by
-    run_prompts (`provider_limits` adjusts the caps), and each response is
+    The uncached models are all prompted concurrently under run_prompts's
+    global cap (`concurrency` overrides it), and each response is
     written to its cache file as it lands. There is one call per model, so
     every model's block of output still prints whole, in completion order,
     after the cached models' blocks.
@@ -295,7 +295,7 @@ def get_model_answers(
         # here in the single consumer task, so nothing needs a lock.
         done = 0
         start = time.perf_counter()
-        async for result in run_prompts(jobs, limits=provider_limits):
+        async for result in run_prompts(jobs, limit=concurrency):
             done += 1
             eta = format_eta(start, done, len(jobs))
             model_name = result.job.key

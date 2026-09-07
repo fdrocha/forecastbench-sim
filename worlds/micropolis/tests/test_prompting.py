@@ -18,6 +18,7 @@ from test_usage import make_response
 
 from micropolis_world import llm_backend
 from micropolis_world.prompting import (
+    DEFAULT_CONCURRENCY,
     PromptJob,
     PromptResult,
     format_eta,
@@ -235,35 +236,50 @@ def test_passes_the_message_list_through_verbatim(calls):
 # --- run_prompts --------------------------------------------------------------
 
 
-def test_caps_in_flight_calls_per_provider_not_globally(monkeypatch):
-    in_flight = {"openai": 0, "anthropic": 0}
-    max_seen = {"openai": 0, "anthropic": 0}
-    both_at_once = False
+def test_caps_in_flight_calls_globally_across_providers(monkeypatch):
+    in_flight = 0
+    max_seen = 0
 
     async def fake_acompletion(**kwargs):
-        nonlocal both_at_once
-        provider = kwargs["model"].split("/")[0]
-        in_flight[provider] += 1
-        max_seen[provider] = max(max_seen[provider], in_flight[provider])
-        if all(in_flight.values()):
-            both_at_once = True
+        nonlocal in_flight, max_seen
+        in_flight += 1
+        max_seen = max(max_seen, in_flight)
         await asyncio.sleep(0.01)
-        in_flight[provider] -= 1
+        in_flight -= 1
         return make_response()
 
     monkeypatch.setattr(llm_backend, "acompletion", fake_acompletion)
 
     jobs = [job("openai/gpt-4o", content=f"q{i}") for i in range(4)] + [
-        job("anthropic/claude-sonnet-4-5", content=f"q{i}") for i in range(2)
+        job("anthropic/claude-sonnet-4-5", content=f"q{i}") for i in range(4)
     ]
-    results = collect(jobs, limits={"OpenAIProvider": 2, "AnthropicProvider": 1})
+    results = collect(jobs, limit=2)
 
     assert len(results) == len(jobs)
-    assert max_seen["openai"] <= 2
-    assert max_seen["anthropic"] <= 1
-    # The caps are per provider, not a shared global: a saturated OpenAI
-    # semaphore must not have kept Anthropic waiting.
-    assert both_at_once
+    # The cap is one global budget, not per provider: mixing providers must not
+    # multiply how many calls are in flight at once.
+    assert max_seen <= 2
+
+
+def test_default_concurrency_applies_when_no_limit_given(monkeypatch):
+    in_flight = 0
+    max_seen = 0
+
+    async def fake_acompletion(**kwargs):
+        nonlocal in_flight, max_seen
+        in_flight += 1
+        max_seen = max(max_seen, in_flight)
+        await asyncio.sleep(0.01)
+        in_flight -= 1
+        return make_response()
+
+    monkeypatch.setattr(llm_backend, "acompletion", fake_acompletion)
+
+    jobs = [job("openai/gpt-4o", content=f"q{i}") for i in range(DEFAULT_CONCURRENCY + 6)]
+    results = collect(jobs)
+
+    assert len(results) == len(jobs)
+    assert max_seen <= DEFAULT_CONCURRENCY
 
 
 def test_yields_in_completion_order_each_job_once(monkeypatch):

@@ -55,7 +55,7 @@ DEFAULT_BINARY_CONFIG_PATH = CONFIG_DIR / "binary.json5"
 def gather_responses_binary(
     corpus: list[dict],
     model_names: list[str],
-    provider_limits: dict[str, int] | None = None,
+    concurrency: int | None = None,
     preamble_path: Path | None = None,
     epilogue_path: Path | None = None,
     questions_per_prompt: int = -1,
@@ -74,7 +74,7 @@ def gather_responses_binary(
         build_prompt=lambda context, questions: build_batch_prompt_binary(
             context, questions, preamble_path, epilogue_path
         ),
-        provider_limits=provider_limits,
+        concurrency=concurrency,
         questions_per_prompt=questions_per_prompt,
     )
 
@@ -176,7 +176,7 @@ def main() -> None:
     responses = gather_responses_binary(
         corpus,
         models,
-        cfg.get_provider_concurrency(),
+        cfg.get_concurrency(),
         preamble_path,
         epilogue_path,
         questions_per_prompt,

@@ -1,11 +1,9 @@
-"""Concurrent LLM prompting: per-provider rate limiting and async fan-out.
+"""Concurrent LLM prompting: global rate limiting and async fan-out.
 
 The scripts that prompt many models build a list of PromptJobs and consume
 run_prompts() with `async for`, so the network calls overlap while every disk
 write and print happens serially in the consumer — no locks, no interleaved
-output. The per-provider semaphore pattern is adapted from
-worlds/freeciv/freeciv_world/evaluation/rate_limiter.py (copied, not imported:
-freeciv is a sibling world, not a dependency).
+output.
 
 Kept backend-free at import time, like usage.py: the one function that needs
 an LLM client imports llm_backend lazily, so scoring-only code can import this
@@ -14,7 +12,7 @@ module's dataclasses without pulling one in.
 prompt_model_async takes a full message list rather than a prompt string, so a
 future multi-turn caller just appends assistant/user turns and calls it again;
 run_prompts is only the single-shot fan-out convenience built on top of it and
-ProviderRateLimiter, both of which are public for exactly that reason.
+ConcurrencyLimiter, both of which are public for exactly that reason.
 """
 
 import asyncio
@@ -27,25 +25,14 @@ from typing import Any
 
 from .usage import LLMResponse, usage_from_response
 
-# Max concurrent in-flight calls per provider. A little above freeciv's
-# deliberately conservative numbers: 429s are retried with backoff (see
-# DEFAULT_NUM_RETRIES), so these only need to keep the retry loop from being
-# the common case, and a config's "provider_concurrency" map can override any
-# of them. Keyed by the model's provider_cls string.
-#
-# Under an OpenRouter-style gateway every call leaves through one host, so
-# these no longer describe a per-provider quota; they are kept because the
-# upstream providers still rate-limit independently and the id prefix still
-# partitions them sensibly.
-DEFAULT_PROVIDER_LIMITS: dict[str, int] = {
-    "OpenAIProvider": 16,
-    "AnthropicProvider": 16,
-    "GoogleProvider": 16,
-    "TogetherProvider": 4,
-    "MistralProvider": 2,
-    "XAIProvider": 2,
-}
-DEFAULT_UNKNOWN_LIMIT = 2
+# Max concurrent in-flight calls, across every model. One global cap rather
+# than a per-provider one because every call leaves through OpenRouter: the
+# binding limit is the gateway's in-flight budget (the dollar value of all
+# simultaneously open requests on the account), which a per-provider map
+# cannot express — its caps summed to their total, and exhausting that budget
+# fails a call with an HTTP 402 the retry loop does not catch. A config's
+# "concurrency" key overrides this.
+DEFAULT_CONCURRENCY = 16
 
 # Retries after the first attempt. prompt_model_async owns the retry loop:
 # litellm's own retry paths (its tenacity wrapper and the provider SDK's
@@ -102,31 +89,32 @@ def format_latency(latency_ms: float | None, retries: int = 0) -> str:
     return took
 
 
-class ProviderRateLimiter:
-    """Per-provider concurrency caps as lazily created asyncio.Semaphores.
+class ConcurrencyLimiter:
+    """One global cap on in-flight calls, as a lazily created asyncio.Semaphore.
 
-    Keyed on LiteLLMModel.provider_cls, so every model of one provider shares
-    one cap — five OpenAI models with a limit of 4 still make at most 4
-    concurrent OpenAI calls. Semaphores are created on first use because they
-    must be instantiated inside the running event loop.
+    Every model shares the single semaphore, because every call leaves through
+    the same gateway and it is the gateway's in-flight budget that binds. The
+    semaphore is created on first use because it must be instantiated inside
+    the running event loop.
     """
 
-    def __init__(self, limits: dict[str, int] | None = None):
-        self._limits = {**DEFAULT_PROVIDER_LIMITS, **(limits or {})}
-        self._semaphores: dict[str, asyncio.Semaphore] = {}
+    def __init__(self, limit: int | None = None):
+        self._limit = DEFAULT_CONCURRENCY if limit is None else limit
+        self._semaphore: asyncio.Semaphore | None = None
 
-    def limit(self, provider_cls: str) -> int:
-        """The concurrency cap for a provider class name."""
-        return self._limits.get(provider_cls, DEFAULT_UNKNOWN_LIMIT)
+    @property
+    def limit(self) -> int:
+        """The concurrency cap."""
+        return self._limit
 
-    def semaphore(self, provider_cls: str) -> asyncio.Semaphore:
-        """The (lazily created) semaphore for a provider class name."""
-        if provider_cls not in self._semaphores:
-            self._semaphores[provider_cls] = asyncio.Semaphore(self.limit(provider_cls))
-        return self._semaphores[provider_cls]
+    def semaphore(self) -> asyncio.Semaphore:
+        """The (lazily created) semaphore shared by every call."""
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(self._limit)
+        return self._semaphore
 
     def __repr__(self) -> str:
-        return f"ProviderRateLimiter(limits={self._limits})"
+        return f"ConcurrencyLimiter(limit={self._limit})"
 
 
 async def prompt_model_async(
@@ -158,8 +146,8 @@ async def prompt_model_async(
     The output cap is not set here: it is a per-endpoint limit, so it belongs
     to the backend's model registry rather than to a caller.
 
-    `model` is duck-typed (.id, .provider_cls) so importing this module never
-    imports fbsim-core.
+    `model` is duck-typed (.id) so importing this module never imports
+    fbsim-core.
     """
     # Imported here so tests can monkeypatch the backend's acompletion; the
     # name is resolved per call. See test_prompting.py's `calls` fixture for
@@ -260,29 +248,28 @@ class PromptResult:
 async def run_prompts(
     jobs: list[PromptJob],
     *,
-    limits: dict[str, int] | None = None,
+    limit: int | None = None,
     num_retries: int = DEFAULT_NUM_RETRIES,
     timeout: float = DEFAULT_TIMEOUT_S,
 ) -> AsyncIterator[PromptResult]:
     """Run every job concurrently, yielding results in completion order.
 
-    Calls to the same provider are capped by a shared ProviderRateLimiter
-    (`limits` overrides individual defaults). The semaphore is held across
-    prompt_model_async's retries, so a provider in 429 territory stays
-    throttled while it backs off rather than being hit by the next waiting
-    call.
+    At most `limit` calls (default DEFAULT_CONCURRENCY) are ever in flight,
+    counted across every model. The semaphore is held across
+    prompt_model_async's retries, so a throttled run stays throttled while it
+    backs off rather than being hit by the next waiting call.
 
     Yields one PromptResult per job as each finishes. Only Exception is
     captured into results — CancelledError and KeyboardInterrupt propagate, so
     Ctrl-C still stops the run; the finally block then cancels whatever is
     still in flight.
     """
-    limiter = ProviderRateLimiter(limits)
+    limiter = ConcurrencyLimiter(limit)
     # We shuffle the list of jobs, so we get better time estimates sooner
     random.shuffle(jobs)
 
     async def worker(job: PromptJob) -> PromptResult:
-        async with limiter.semaphore(job.model.provider_cls):
+        async with limiter.semaphore():
             try:
                 response = await prompt_model_async(
                     job.model,
