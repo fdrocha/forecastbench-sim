@@ -20,13 +20,9 @@ and the report's own path are printed to stdout.
 Usage:
     scripts/analyze_continuous.py                   # configs/continuous.json5
     scripts/analyze_continuous.py subset.json5
-    scripts/analyze_continuous.py --per-metric
     scripts/analyze_continuous.py --no-plot
     scripts/analyze_continuous.py --cities kyoto --disasters false
     scripts/analyze_continuous.py --models openai/gpt-5.6-sol --label myrun
-
-The per-metric horizon tables are one table per metric and so are the bulk of the
-output; --per-metric opts into them.
 """
 
 import argparse
@@ -1728,48 +1724,10 @@ def plot_horizon_figures(
     ]
 
 
-def print_per_metric_horizon_tables(
-    report: MdReport, corpus: list[dict], responses: Responses, model_names: list[str]
-) -> None:
-    """One models x horizons table of raw CRPS per metric.
-
-    The normalized table above averages metrics together, which hides how each
-    one behaves; these keep them apart. Each table is in its own metric's units,
-    so it compares models and horizons within itself but never against another
-    table — that is what the normalized one is for.
-    """
-    rows = score_forecasts(corpus, responses, model_names)
-    horizons = sorted({c["horizon"] for c in corpus})
-
-    for metric in metrics_in_order(corpus):
-        label = str(g.METRIC_LABELS.get(metric, metric))
-        scored = [
-            (r["model_id"], r["horizon"], r["crps"])
-            for r in rows
-            if r["metric"] == metric
-        ]
-        print_horizon_table(
-            report,
-            scored,
-            model_names,
-            horizons,
-            f"Mean CRPS by model and horizon — {label} (lower is better)",
-            f"in {label} units, not normalized; horizons are turns past the snapshot"
-            f"\nall* {READ_OFF_NOTE}",
-            ",.1f",
-        )
-
-
 @main_with_config
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     add_config_args(ap, default=DEFAULT_CONTINUOUS_CONFIG_PATH)
-    ap.add_argument(
-        "--per-metric",
-        action="store_true",
-        help="Also print one CRPS by model and horizon table per metric, in that "
-        "metric's own units",
-    )
     ap.add_argument(
         "--no-plot",
         dest="plot",
@@ -1820,10 +1778,6 @@ def main() -> None:
     print_crps_table(report, corpus, responses, models)
     print_normalized_crps_table(report, corpus, responses, models)
     print_normalized_horizon_table(report, corpus, responses, models)
-    if args.per_metric:
-        print_per_metric_horizon_tables(report, corpus, responses, models)
-    else:
-        report.text("Per-metric horizon tables omitted; pass --per-metric for them.")
 
     if args.plot:
         eci_plots = [
