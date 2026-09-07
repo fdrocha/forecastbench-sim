@@ -1,8 +1,9 @@
 """Unit tests for aggregating past API usage.
 
-Covers the provider split, the sums, the table layout, and how a call that was
-never made is distinguished from one whose cost was never recorded. Nothing
-here calls a model; the only I/O is sidecars written into tmp_path.
+Covers the provider split, the sums, the table layout, the multi-provider
+warning, and how a call that was never made is distinguished from one whose
+cost was never recorded. Nothing here calls a model; the only I/O is sidecars
+written into tmp_path.
 """
 
 from micropolis_world.usage import CallUsage, save_usage
@@ -11,10 +12,12 @@ from micropolis_world.usage_report import (
     by_model,
     by_provider,
     collect_for_batches,
+    format_provider_warning,
     format_table,
     grand_total,
     merge,
     provider_of,
+    providers_by_model,
 )
 
 
@@ -260,3 +263,57 @@ def test_merging_nothing_is_empty(tmp_path):
     assert total.usages == []
     assert total.missing == 0
     assert total.unprompted == 0
+
+
+# --- serving provider -------------------------------------------------------
+
+
+def test_counts_calls_per_serving_provider():
+    got = providers_by_model(
+        [
+            usage(provider="Google AI Studio"),
+            usage(provider="Google AI Studio"),
+            usage(provider="Google Vertex"),
+        ]
+    )
+    assert got == {
+        "anthropic/claude-haiku-4-5": {"Google AI Studio": 2, "Google Vertex": 1}
+    }
+
+
+def test_no_warning_when_every_model_had_one_provider():
+    warning = format_provider_warning(
+        [
+            usage(model_id="a/one", provider="Alpha"),
+            usage(model_id="a/one", provider="Alpha"),
+            usage(model_id="b/two", provider="Beta"),
+        ]
+    )
+    assert warning == ""
+
+
+def test_warns_naming_the_split_model_and_its_providers():
+    warning = format_provider_warning(
+        [
+            usage(model_id="a/one", provider="Alpha"),
+            usage(model_id="a/one", provider="Beta"),
+            usage(model_id="a/one", provider="Beta"),
+            usage(model_id="b/two", provider="Gamma"),
+        ]
+    )
+    assert "1 model(s)" in warning
+    assert "a/one" in warning
+    # Busiest provider first, with its call count.
+    assert "Beta (2), Alpha (1)" in warning
+    # The model that was served consistently is not named.
+    assert "b/two" not in warning
+
+
+def test_unrecorded_provider_is_not_a_second_provider():
+    """Sidecars predating the field have None; that is not a split."""
+    assert providers_by_model([usage(), usage()]) == {}
+    assert format_provider_warning([usage(), usage(provider="Alpha")]) == ""
+
+
+def test_blank_provider_is_treated_as_unrecorded():
+    assert format_provider_warning([usage(provider=""), usage(provider="Alpha")]) == ""

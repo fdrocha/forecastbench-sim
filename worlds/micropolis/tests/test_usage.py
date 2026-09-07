@@ -141,6 +141,28 @@ def test_unpriced_response_is_none_and_never_raises():
     assert cost_from_response(response, "openai/definitely-not-a-real-model") is None
 
 
+def test_records_the_serving_provider_from_hidden_params():
+    """OpenRouter says which upstream endpoint answered; keep it."""
+    response = make_response()
+    response._hidden_params = {"provider": "Google AI Studio"}
+    assert usage_from_response(response, "google/gemini-2.5-flash").provider == (
+        "Google AI Studio"
+    )
+
+
+def test_provider_is_none_when_the_backend_does_not_report_one():
+    """LiteLLM never does, and OpenRouter can send "" — both mean unknown."""
+    assert usage_from_response(make_response(), "openai/gpt-4o").provider is None
+    blank = make_response()
+    blank._hidden_params = {"provider": ""}
+    assert usage_from_response(blank, "openai/gpt-4o").provider is None
+
+
+def test_provider_roundtrips_through_the_sidecar_record():
+    usage = CallUsage(model_id="openai/gpt-4o", provider="OpenAI")
+    assert CallUsage.from_dict(usage.to_dict()).provider == "OpenAI"
+
+
 def test_unpriced_response_still_reports_its_tokens():
     response = make_response(model="definitely-not-a-real-model")
     got = usage_from_response(response, "openai/definitely-not-a-real-model")

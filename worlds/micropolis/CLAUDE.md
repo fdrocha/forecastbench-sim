@@ -168,7 +168,10 @@ about the engine, own cache under `data/micropolis/knowledge_eval/`):
 - `analyze_knowledge.py` — score them and correlate with ECI.
 
 Cost accounting: `analyze_usage.py` — sums the usage sidecars, either for what given configs
-imply or for a `--glob` of sidecar paths.
+imply or for a `--glob` of sidecar paths. Each sidecar also records `provider`, the upstream
+endpoint the gateway routed to (null when unreported), and the report warns when one model id
+was served by more than one — those endpoints can differ in quantization and speed, so the
+calls may not be comparable. Pin one with an `endpoint` in `model_specs.json5`.
 
 ## Tests
 

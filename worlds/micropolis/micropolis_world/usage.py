@@ -40,6 +40,12 @@ class CallUsage:
             provider prompt cache. None when not reported.
         cost_usd: What the call cost, or None if the model has no price entry.
         latency_ms: Wall-clock time spent in the API call.
+        provider: Which upstream endpoint actually served the call, as the
+            gateway reported it (e.g. "Google AI Studio"). None when the
+            backend doesn't say — LiteLLM talks to one provider per model, so
+            it never does. Recorded because a slug can be served by several
+            providers at different quantizations and speeds, which shows up as
+            otherwise unexplained variance between calls to "the same" model.
     """
 
     model_id: str
@@ -52,6 +58,7 @@ class CallUsage:
     cache_write_tokens: int | None = None
     cost_usd: float | None = None
     latency_ms: float | None = None
+    provider: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """The usage as plain JSON-serializable data."""
@@ -214,6 +221,12 @@ def usage_from_response(
     completion_details = getattr(usage, "completion_tokens_details", None)
     prompt_details = getattr(usage, "prompt_tokens_details", None)
 
+    # Empty string as well as absent reads as "not reported": OpenRouter's
+    # `provider` is "" on the rare reply that omits it, and a blank would
+    # otherwise become its own bucket in the per-model provider check.
+    hidden = getattr(response, "_hidden_params", None)
+    provider = (hidden or {}).get("provider") if isinstance(hidden, dict) else None
+
     input_tokens = getattr(usage, "prompt_tokens", 0) or 0
     output_tokens = getattr(usage, "completion_tokens", 0) or 0
     # total_tokens can be absent or 0 unless the provider sent it, so fall back
@@ -233,4 +246,5 @@ def usage_from_response(
         ),
         cost_usd=cost_from_response(response, model_id),
         latency_ms=latency_ms,
+        provider=provider or None,
     )

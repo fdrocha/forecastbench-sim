@@ -3,8 +3,8 @@
 Every kept model response has a usage-{model}-{hash}.json beside it recording
 what that call cost (see continuous_eval.usage_path and knowledge_eval.runner's
 equivalent). This module sums those records into per-provider and per-model
-tables. It reads only what is already on disk, so it costs nothing and works
-offline.
+tables, and flags any model that more than one upstream provider served. It
+reads only what is already on disk, so it costs nothing and works offline.
 
 Backs scripts/analyze_usage.py.
 """
@@ -83,6 +83,53 @@ def by_provider(usages: list[CallUsage]) -> dict[str, Totals]:
 
 def by_model(usages: list[CallUsage]) -> dict[str, Totals]:
     return aggregate(usages, lambda u: u.model_id)
+
+
+def providers_by_model(usages: list[CallUsage]) -> dict[str, dict[str, int]]:
+    """Per model id, how many calls each serving provider answered.
+
+    Calls with no recorded provider are left out entirely rather than bucketed
+    under a placeholder: every sidecar written before the field existed has
+    None, and counting those as a distinct provider would report a split on
+    every model in an older cache.
+    """
+    out: dict[str, dict[str, int]] = {}
+    for usage in usages:
+        if usage.provider:
+            counts = out.setdefault(usage.model_id, {})
+            counts[usage.provider] = counts.get(usage.provider, 0) + 1
+    return out
+
+
+def format_provider_warning(usages: list[CallUsage]) -> str:
+    """A warning naming each model served by more than one provider, or "".
+
+    A single slug answered by several endpoints is worth flagging: they can
+    differ in quantization, context handling and speed, so calls pooled under
+    one model id may not be comparable. It is not an error — OpenRouter routes
+    by availability unless an entry in model_specs.json5 pins the endpoint —
+    so this reports and does not raise.
+
+    Carries its own leading newline and is "" when nothing is split, so a
+    caller can print it unconditionally.
+    """
+    split = {m: c for m, c in providers_by_model(usages).items() if len(c) > 1}
+    if not split:
+        return ""
+    lines = [
+        f"\n[warning] {len(split)} model(s) were served by more than one "
+        f"provider; calls under one model id may not be comparable:"
+    ]
+    for model_id in sorted(split):
+        served = ", ".join(
+            f"{provider} ({n})"
+            for provider, n in sorted(
+                split[model_id].items(), key=lambda kv: (-kv[1], kv[0])
+            )
+        )
+        lines.append(f"  {model_id}: {served}")
+    lines.append("  Pin one with an `endpoint` in model_specs.json5.")
+    return "\n".join(lines)
 
 
 def grand_total(buckets: dict[str, Totals]) -> Totals:

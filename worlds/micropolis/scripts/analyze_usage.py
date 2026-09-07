@@ -248,6 +248,11 @@ def main() -> None:
             ) + ")"
         print(f"{collected.unprompted} batch/model pairs not yet prompted{by_eval}")
 
+    # After the totals: it is a caveat on the tables above, not a failure.
+    provider_warning = ur.format_provider_warning(collected.usages)
+    if provider_warning:
+        print(provider_warning)
+
     total = ur.grand_total(ur.by_provider(collected.usages))
     if total.unpriced:
         # Excluded from the cost column above, so the total is a floor.
