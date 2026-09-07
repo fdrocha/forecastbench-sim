@@ -1800,6 +1800,12 @@ def main() -> None:
         action="store_false",
         help="Skip writing the normalized CRPS by horizon scatter plot",
     )
+    ap.add_argument(
+        "--incomplete",
+        action="store_true",
+        help="Score only the questions gathered for every selected model, "
+        "instead of failing when the dataset is missing forecasts",
+    )
     args = ap.parse_args()
 
     cfg = load_config(args)
@@ -1821,6 +1827,7 @@ def main() -> None:
             cities=args.cities,
             disasters=args.disasters,
             models=args.models,
+            incomplete=args.incomplete,
         )
     except (FileNotFoundError, DatasetError) as e:
         sys.exit(f"[error] {e}")

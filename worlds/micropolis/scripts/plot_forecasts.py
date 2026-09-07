@@ -326,6 +326,12 @@ def plot_forecasts(
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     add_config_args(ap, default=DEFAULT_CONFIG_PATH)
+    ap.add_argument(
+        "--incomplete",
+        action="store_true",
+        help="Score only the questions gathered for every selected model, "
+        "instead of failing when the dataset is missing forecasts",
+    )
     args = ap.parse_args()
 
     cfg = load_config(args)
@@ -347,6 +353,7 @@ def main() -> None:
             cities=args.cities,
             disasters=args.disasters,
             models=args.models,
+            incomplete=args.incomplete,
         )
     except (FileNotFoundError, DatasetError) as e:
         sys.exit(f"[error] {e}")

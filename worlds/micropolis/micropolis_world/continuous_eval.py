@@ -11,11 +11,13 @@ import json
 import os
 import re
 import subprocess
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
 from fbsim_core.metrics import compute_crps
 
+from . import messages as msg
 from . import module_globals as g
 from .city_sim import CitySimulation
 from .config import Config, scenarios_from
@@ -326,6 +328,7 @@ def select_for_config(
     disasters: list[bool] | None = None,
     models: list[str] | None = None,
     rerun_hint: str = "scripts/run_eval_continuous.py",
+    incomplete: bool = False,
 ) -> tuple[list[dict], Responses, list[str]]:
     """Narrow a dataset to what `cfg` asks for, or fail saying what is missing.
 
@@ -338,6 +341,19 @@ def select_for_config(
     arguments in a row are easy to pass in the wrong order. `rerun_hint` names
     the gathering script in the error messages — the binary eval reuses this
     with its own script.
+
+    `incomplete` downgrades the never-gathered rows from an error to a warning
+    and keeps every (question, model) pair that *was* gathered, for testing the
+    analysis scripts against a run still missing batches. The selection is then
+    ragged: each model is scored on the questions it answered, so per-model
+    aggregates cover different question sets and are not strictly comparable
+    with one another. The warning says so and lists each model's coverage. This
+    is a testing aid, not a reporting mode.
+
+    It does not relax the coverage check above: a model, city or horizon the
+    dataset knows nothing about is a config/dataset mismatch rather than sparse
+    data. A selected model with no gathered forecast at all is likewise an
+    error, since every figure it appears in would be empty.
     """
     wanted_models = cfg.get_models(models)
     wanted_scenarios = scenario_ids_from(cfg, seed, cities, disasters)
@@ -384,21 +400,55 @@ def select_for_config(
         for model_id in wanted_models
         if ResponseId(model_id, c["question_id"]) not in responses
     ]
-    if ungathered:
+    if ungathered and not incomplete:
         shown = ", ".join(f"{m} / {q}" for m, q in ungathered[:3])
         more = f" (+{len(ungathered) - 3} more)" if len(ungathered) > 3 else ""
         raise DatasetError(
             f"the dataset is missing {len(ungathered)} forecast(s) the config asks "
             f"for: {shown}{more}\n"
-            f"  re-run {rerun_hint} with this config to gather them"
+            f"  re-run {rerun_hint} with this config to gather them\n"
+            f"  or pass --incomplete to score only the fully gathered questions"
         )
+    if ungathered:
+        # Every pair that was gathered is kept, so the selection is ragged:
+        # each model is scored on the questions it actually answered. That is
+        # what makes this a testing aid and not a reporting mode — per-model
+        # aggregates are then means over different question sets, so the
+        # columns are not strictly comparable with each other. The per-model
+        # counts below are printed for exactly that reason.
+        by_model = Counter(m for m, _ in ungathered)
+        nq = len(selected_corpus)
+        msg.warn(
+            f"--incomplete: {len(ungathered)} of {nq * len(wanted_models)} "
+            f"(question, model) pair(s) were never gathered; scoring the rest. "
+            "Per-model figures cover different question sets and are not "
+            "directly comparable."
+        )
+        for model_id in wanted_models:
+            n = by_model.get(model_id, 0)
+            if n:
+                msg.plain(
+                    f"  {model_id}: {nq - n} of {nq} question(s)", color=msg.YELLOW
+                )
+        msg.plain(
+            f"  re-run {rerun_hint} with this config to gather them",
+            color=msg.YELLOW,
+        )
+        starved = [m for m in wanted_models if by_model.get(m, 0) >= nq]
+        if starved:
+            raise DatasetError(
+                "no forecast at all was gathered for: " + ", ".join(starved) + "\n"
+                f"  re-run {rerun_hint} with this config, or drop them from --models"
+            )
 
+    # Absent pairs are skipped rather than indexed, so an --incomplete
+    # selection can be ragged; without the flag the loop above has already
+    # proved every pair is present.
     selected_responses = {
-        ResponseId(model_id, c["question_id"]): responses[
-            ResponseId(model_id, c["question_id"])
-        ]
+        rid: responses[rid]
         for c in selected_corpus
         for model_id in wanted_models
+        if (rid := ResponseId(model_id, c["question_id"])) in responses
     }
     return selected_corpus, selected_responses, wanted_models
 

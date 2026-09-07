@@ -198,10 +198,11 @@ def response_counts(
 
     A pair with a cached response that could not be parsed is present in the
     dataset with null percentiles, so it counts toward the first number and not
-    the second. A pair never gathered at all has no row — but select_for_config
-    has already refused to return a selection containing one, so within a scored
-    config every pair here is cached and the gap between the two numbers is
-    exactly the unparseable responses.
+    the second. A pair never gathered at all has no row and is skipped, so the
+    gap between the two numbers is exactly the unparseable responses. Normally
+    there are no such pairs — select_for_config refuses a selection containing
+    one — but under its `incomplete` flag there can be, and then `asked` is
+    below the full grid and differs per model.
     """
     asked = parsed = 0
     for c in corpus:
@@ -856,7 +857,11 @@ def intersect_models(
 
 
 def load_and_score(
-    config_path: str, seed_override: int | None, models: list[str] | None, kind: str
+    config_path: str,
+    seed_override: int | None,
+    models: list[str] | None,
+    kind: str,
+    incomplete: bool = False,
 ) -> tuple[str, list[dict], dict[str, int], dict]:
     """One config's (label, scored rows, dropped tally, selection).
 
@@ -874,7 +879,7 @@ def load_and_score(
     label = cfg.get_label(None)
     corpus, responses, model_names = load_dataset(data_path(label))
     corpus, responses, model_names = select_for_config(
-        corpus, responses, model_names, cfg, seed, models=models
+        corpus, responses, model_names, cfg, seed, models=models, incomplete=incomplete
     )
     rows, dropped = score_skill(corpus, responses, model_names, seed, kind)
     selection = {
@@ -939,6 +944,12 @@ def main() -> None:
         action="store_false",
         help="Skip writing the figures",
     )
+    ap.add_argument(
+        "--incomplete",
+        action="store_true",
+        help="Score only the questions gathered for every selected model, "
+        "instead of failing when the dataset is missing forecasts",
+    )
     args = ap.parse_args()
 
     per_config: dict[str, list[dict]] = {}
@@ -947,7 +958,7 @@ def main() -> None:
     for path in args.configs:
         try:
             label, rows, dropped, selection = load_and_score(
-                path, args.seed, args.models, args.baseline
+                path, args.seed, args.models, args.baseline, args.incomplete
             )
         except (FileNotFoundError, DatasetError, ConfigError) as e:
             sys.exit(f"[error] {path}: {e}")

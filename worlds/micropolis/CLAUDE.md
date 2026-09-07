@@ -100,7 +100,13 @@ and the structural constraints (§5). Read it before touching resolution.
 - **Analysis is offline.** The `analyze_*`/`plot_*` scripts read only `data.json` and cached
   sim logs — no prompting, no re-simulating, no API keys. Keep it that way; it makes them
   free to re-run. `select_for_config` narrows a gathered dataset to a config's slice and
-  *errors* on anything missing rather than silently reporting less.
+  *errors* on anything missing rather than silently reporting less. `--incomplete` (on every
+  `analyze_*`/`plot_forecasts` script) downgrades that to a warning and keeps every
+  (question, model) pair that was gathered, listing each model's coverage. **A testing aid
+  for exercising the scripts before a gather finishes, not a reporting mode**: the selection
+  is ragged, so per-model figures cover different question sets and are not comparable with
+  each other. It does not relax the coverage check — a model, city or horizon absent from the
+  dataset is still an error, as is a selected model with no forecasts at all.
 - **One import boundary for the LLM client: `llm_backend`.** It re-exports
   `completion`/`acompletion`/`completion_cost`, the five transient-error classes the retry
   loop catches, and `to_model_id` (config id → the live backend's model id). OpenRouter

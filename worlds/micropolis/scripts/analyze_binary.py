@@ -1063,6 +1063,12 @@ def main() -> None:
         action="store_false",
         help="Skip writing the figures",
     )
+    ap.add_argument(
+        "--incomplete",
+        action="store_true",
+        help="Score only the questions gathered for every selected model, "
+        "instead of failing when the dataset is missing forecasts",
+    )
     args = ap.parse_args()
 
     cfg = load_config(args)
@@ -1082,6 +1088,7 @@ def main() -> None:
             disasters=args.disasters,
             models=args.models,
             rerun_hint="scripts/run_eval_binary.py",
+            incomplete=args.incomplete,
         )
         truths = load_truths(corpus)
     except (FileNotFoundError, DatasetError) as e:
