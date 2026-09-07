@@ -236,10 +236,7 @@ def plot_base_rates(
         [[yes[(qid, t, h)] for t, h in windows] for qid in qids], dtype=float
     )
     truth = np.array(
-        [
-            [_mean(ps.get((qid, t, h), [])) or np.nan for t, h in windows]
-            for qid in qids
-        ]
+        [[_mean(ps.get((qid, t, h), [])) or np.nan for t, h in windows] for qid in qids]
     )
 
     labels = [window_label(t, h) for t, h in windows]
@@ -361,9 +358,7 @@ def plot_score_heatmap(
         scores.setdefault((r["model_id"], r["qid"]), []).append(r[score.key])
     means = {k: _mean(v) for k, v in scores.items()}
     overall = score_by_model(rows, model_names, score)
-    ordered = sorted(
-        model_names, key=lambda m: (m not in overall, overall.get(m, 0.0))
-    )
+    ordered = sorted(model_names, key=lambda m: (m not in overall, overall.get(m, 0.0)))
 
     columns = ["mean"] + qids
     data = np.full((len(ordered), len(columns)), np.nan)
@@ -411,8 +406,7 @@ def plot_score_heatmap(
     plt.close(fig)
 
     report.heading(
-        f"Mean {score.name} by model and question — {section}"
-        " (lower is better)"
+        f"Mean {score.name} by model and question — {section} (lower is better)"
     )
     report.image(out)
 
@@ -456,9 +450,7 @@ def plot_score_bars(
     import matplotlib.pyplot as plt
 
     brier, calibration = SCORES
-    by_score = {
-        score.key: score_by_model(rows, model_names, score) for score in SCORES
-    }
+    by_score = {score.key: score_by_model(rows, model_names, score) for score in SCORES}
     # Sorted by calibration error, best first; a model with nothing to average
     # sorts last rather than crashing the compare.
     ordered = sorted(
@@ -474,9 +466,7 @@ def plot_score_bars(
     # labels do not collide.
     width = max(0.62 * len(ordered) + 2.2, 9.0)
     panel_h = width / 4
-    fig, axes = plt.subplots(
-        2, 1, figsize=(width, 2 * panel_h + 1.5), sharex=True
-    )
+    fig, axes = plt.subplots(2, 1, figsize=(width, 2 * panel_h + 1.5), sharex=True)
 
     for ax, score in zip(axes, SCORES):
         values = [by_score[score.key].get(m) for m in ordered]
@@ -578,9 +568,7 @@ def plot_scores_by_horizon(
     # calibration error to match the bar figure above.
     calibration = SCORES[1]
     overall = score_by_model(rows, model_names, calibration)
-    ordered = sorted(
-        model_names, key=lambda m: (m not in overall, overall.get(m, 0.0))
-    )
+    ordered = sorted(model_names, key=lambda m: (m not in overall, overall.get(m, 0.0)))
     colors = {m: palette(i % n_colors) for i, m in enumerate(model_names)}
 
     # Models bunch tightly, so spread each one's points across a slice of the
@@ -963,7 +951,7 @@ def plot_calibration(
         sharex=True,
         sharey=True,
     )
-    for ax in axes.flat[len(ordered):]:
+    for ax in axes.flat[len(ordered) :]:
         ax.set_visible(False)
 
     for ax, model_id in zip(axes.flat, ordered):
@@ -1027,7 +1015,11 @@ def plot_calibration(
     handles, labels = axes[0][0].get_legend_handles_labels()
     if handles:
         fig.legend(
-            handles, labels, loc="lower right", fontsize=8, framealpha=0.9,
+            handles,
+            labels,
+            loc="lower right",
+            fontsize=8,
+            framealpha=0.9,
             bbox_to_anchor=(0.99, 0.01),
         )
     scale = "log-log; zeros drawn at half a continuation" if log else "linear"

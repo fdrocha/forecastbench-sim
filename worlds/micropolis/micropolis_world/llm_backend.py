@@ -19,7 +19,7 @@ and does the real work under LiteLLM.
 REQUIRED_ENV_KEYS = ("OPENROUTER_API_KEY",)
 
 # --- OpenRouter (live) -----------------------------------------------------
-from .openrouter_completion import (  # noqa: E402, F401
+from .openrouter_completion import (
     APIConnectionError,
     AuthenticationError,
     InternalServerError,
@@ -34,7 +34,7 @@ from .openrouter_completion import (  # noqa: E402, F401
 
 # --- LiteLLM (to switch back, comment out the block above and uncomment this,
 # and set REQUIRED_ENV_KEYS = () since load_api_keys_from_gcp covers it)
-# from litellm import (  # noqa: F401
+# from litellm import (
 #     APIConnectionError,
 #     AuthenticationError,
 #     InternalServerError,
@@ -73,3 +73,20 @@ from .openrouter_completion import (  # noqa: E402, F401
 #     if model_id.startswith("google/"):
 #         return f"gemini/{model_id[len('google/'):]}"
 #     return model_id
+
+
+# The re-exports themselves: this module is a pass-through, so the names it
+# imports are its public surface rather than unused imports. Both backend
+# blocks above provide exactly these, which is what makes the swap a swap.
+__all__ = (
+    "APIConnectionError",
+    "AuthenticationError",
+    "InternalServerError",
+    "RateLimitError",
+    "ServiceUnavailableError",
+    "Timeout",
+    "acompletion",
+    "completion",
+    "completion_cost",
+    "to_model_id",
+)

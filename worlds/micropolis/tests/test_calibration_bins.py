@@ -56,9 +56,7 @@ def test_standard_error_is_sd_over_sqrt_n_and_zero_for_a_lone_point():
     # sd of {0.4, 0.6} with ddof=1 is 0.1414..., over sqrt(2) is 0.1.
     assert sem == pytest.approx(0.1)
 
-    [(_, _, lone_sem)] = module.calibration_bins(
-        [(0.5, 0.4)], 1, log=False, floor=0.0
-    )
+    [(_, _, lone_sem)] = module.calibration_bins([(0.5, 0.4)], 1, log=False, floor=0.0)
     assert lone_sem == 0.0
 
 

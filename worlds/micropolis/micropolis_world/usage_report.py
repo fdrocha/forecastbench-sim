@@ -117,8 +117,10 @@ def format_provider_warning(usages: list[CallUsage]) -> str:
     if not split:
         return ""
     lines = [
-        f"\n[warning] {len(split)} model(s) were served by more than one "
-        f"provider; calls under one model id may not be comparable:"
+        (
+            f"\n[warning] {len(split)} model(s) were served by more than one "
+            f"provider; calls under one model id may not be comparable:"
+        )
     ]
     for model_id in sorted(split):
         served = ", ".join(

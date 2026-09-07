@@ -21,12 +21,12 @@ from micropolis_world.ground_truth import (
     consume_stream,
     covers,
     cross_check_trunk,
-    write_lines,
     ground_truth_lines,
     load_truths,
     merge_shards,
     producer_command,
     seed_shards,
+    write_lines,
 )
 
 CITY = "kyoto"
@@ -245,13 +245,14 @@ def test_cross_check_trunk(tmp_path, monkeypatch):
     path = sim.get_data_file_path("log")
     path.parent.mkdir(parents=True)
     with open(path, "w") as f:
-        for r in result.trunk_log[: S // 2]:
-            f.write(json.dumps(r) + "\n")
+        f.writelines(json.dumps(r) + "\n" for r in result.trunk_log[: S // 2])
     assert "ends there" in cross_check_trunk(result.trunk_log, sim)
 
     with open(path, "w") as f:
-        for t, r in enumerate(result.trunk_log):
-            f.write(json.dumps(dict(r, cityPop=999) if t == 5 else r) + "\n")
+        f.writelines(
+            json.dumps(dict(r, cityPop=999) if t == 5 else r) + "\n"
+            for t, r in enumerate(result.trunk_log)
+        )
     with pytest.raises(RuntimeError, match="turn 5, field 'cityPop'"):
         cross_check_trunk(result.trunk_log, sim)
 

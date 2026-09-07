@@ -17,8 +17,8 @@ from pathlib import Path
 
 from fbsim_core.evaluation.models import get_models
 
-from . import module_globals as g
 from . import messages as msg
+from . import module_globals as g
 from .knowledge_eval.runner import prompt_hash
 from .prompting import (
     PromptJob,

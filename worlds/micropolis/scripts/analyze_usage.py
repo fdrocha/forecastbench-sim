@@ -243,9 +243,11 @@ def main() -> None:
                 eval_name: sum(one[eval_name].unprompted for _, one in per_config)
                 for eval_name in ("continuous", "binary")
             }
-            by_eval = " (" + ", ".join(
-                f"{n} {eval_name}" for eval_name, n in shares.items() if n
-            ) + ")"
+            by_eval = (
+                " ("
+                + ", ".join(f"{n} {eval_name}" for eval_name, n in shares.items() if n)
+                + ")"
+            )
         print(f"{collected.unprompted} batch/model pairs not yet prompted{by_eval}")
 
     # After the totals: it is a caveat on the tables above, not a failure.
@@ -256,10 +258,7 @@ def main() -> None:
     total = ur.grand_total(ur.by_provider(collected.usages))
     if total.unpriced:
         # Excluded from the cost column above, so the total is a floor.
-        print(
-            f"{total.unpriced} call(s) had no price; "
-            "the cost above excludes them"
-        )
+        print(f"{total.unpriced} call(s) had no price; the cost above excludes them")
     print("=" * 70)
 
 

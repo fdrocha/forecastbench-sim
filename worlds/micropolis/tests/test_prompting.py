@@ -275,7 +275,9 @@ def test_default_concurrency_applies_when_no_limit_given(monkeypatch):
 
     monkeypatch.setattr(llm_backend, "acompletion", fake_acompletion)
 
-    jobs = [job("openai/gpt-4o", content=f"q{i}") for i in range(DEFAULT_CONCURRENCY + 6)]
+    jobs = [
+        job("openai/gpt-4o", content=f"q{i}") for i in range(DEFAULT_CONCURRENCY + 6)
+    ]
     results = collect(jobs)
 
     assert len(results) == len(jobs)

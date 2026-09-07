@@ -39,3 +39,9 @@ micropolis_world = [
 
 [tool.uv.sources]
 fbsim-core = { workspace = true }
+
+# run_continuations.md's Python snippets are hand-aligned illustrations, not
+# source; ruff >=0.16 formats fenced code in Markdown by default, which would
+# expand them into something less readable as documentation.
+[tool.ruff]
+extend-exclude = ["*.md"]

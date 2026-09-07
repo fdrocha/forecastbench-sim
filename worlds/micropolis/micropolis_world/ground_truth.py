@@ -273,7 +273,9 @@ def merge_shards(shards: list[ShardResult]) -> ShardResult:
     first = shards[0]
     for other in shards[1:]:
         if other.trunk_log != first.trunk_log:
-            raise StreamError("shards disagree on the trunk; the engine is not deterministic")
+            raise StreamError(
+                "shards disagree on the trunk; the engine is not deterministic"
+            )
     merged = ShardResult(
         trunk_log=first.trunk_log,
         seeds=[],
@@ -350,8 +352,7 @@ def ground_truth_lines(
 def write_lines(path: Path, lines: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
-        for line in lines:
-            f.write(json.dumps(line) + "\n")
+        f.writelines(json.dumps(line) + "\n" for line in lines)
 
 
 def load_lines(path: Path) -> list[dict]:
@@ -397,6 +398,5 @@ def covers(lines: list[dict], horizons: list[int], nseeds: int) -> bool:
     """Whether an existing file already has every horizon at >= nseeds continuations."""
     by_horizon = {line["horizon"]: line for line in lines}
     return all(
-        h in by_horizon and by_horizon[h]["n_continuations"] >= nseeds
-        for h in horizons
+        h in by_horizon and by_horizon[h]["n_continuations"] >= nseeds for h in horizons
     )

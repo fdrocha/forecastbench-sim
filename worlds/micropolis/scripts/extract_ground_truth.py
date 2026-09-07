@@ -136,9 +136,13 @@ def main() -> None:
             print(f"  {cross_check_trunk(merged.trunk_log, sim)}")
             write_lines(
                 path,
-                ground_truth_lines(sim, S, horizons, merged, fbsim_commit, engine_commit),
+                ground_truth_lines(
+                    sim, S, horizons, merged, fbsim_commit, engine_commit
+                ),
             )
-            print(f"  {merged.n} continuations in {time.perf_counter() - start:.0f}s -> {path}")
+            print(
+                f"  {merged.n} continuations in {time.perf_counter() - start:.0f}s -> {path}"
+            )
     print("=" * 70)
 
 
