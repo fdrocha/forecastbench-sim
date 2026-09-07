@@ -30,6 +30,11 @@ from . import module_globals as g
 
 CONFIG_DIR = Path(__file__).resolve().parent / "configs"
 
+# The hand-edited data beside the code: the prompt preamble/epilogue texts a
+# config names, and the model tables. Separate from configs/ so a directory
+# listing of the configs is a listing of the runnable configs.
+DATAFILES_DIR = Path(__file__).resolve().parent / "datafiles"
+
 # The orders build_corpus can emit its questions in, and so the order they are
 # numbered in each batch prompt. "turn" groups every metric for one horizon
 # together; "metric" groups every horizon for one metric together. The order is
@@ -200,7 +205,7 @@ class Config:
         return value
 
     def get_preamble_path(self) -> Path | None:
-        """The optional 'preamble_path', resolved against the config's directory.
+        """The optional 'preamble_path', resolved against DATAFILES_DIR.
 
         Names the file holding the forecasting prompt's preamble, which must
         contain a "{sources}" placeholder (see scenarios.prompt_preamble). None
@@ -209,7 +214,7 @@ class Config:
         """
         if "preamble_path" not in self.data:
             return None
-        path = self.path.parent / self.get_str("preamble_path")
+        path = DATAFILES_DIR / self.get_str("preamble_path")
         if not path.exists():
             raise ConfigError(
                 f"preamble file not found: {path} "
@@ -218,7 +223,7 @@ class Config:
         return path
 
     def get_epilogue_path(self) -> Path | None:
-        """The optional 'epilogue_path', resolved against the config's directory.
+        """The optional 'epilogue_path', resolved against DATAFILES_DIR.
 
         Names the file holding the forecasting prompt's epilogue — the answer
         format instructions after the questions — which may contain an "{n}"
@@ -228,7 +233,7 @@ class Config:
         """
         if "epilogue_path" not in self.data:
             return None
-        path = self.path.parent / self.get_str("epilogue_path")
+        path = DATAFILES_DIR / self.get_str("epilogue_path")
         if not path.exists():
             raise ConfigError(
                 f"epilogue file not found: {path} "

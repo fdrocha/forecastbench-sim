@@ -1,7 +1,7 @@
 """External benchmark scores for the models this world evaluates.
 
-Reads worlds/micropolis/model_scores.csv, which is the single source for every
-score this repo did not measure itself:
+Reads micropolis_world/datafiles/model_scores.csv, the single source for
+every score this repo did not measure itself:
 
   ECI         Epoch's capability index, a general-capability number the
               analyses correlate their own skill scores against.
@@ -31,9 +31,9 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
-# worlds/micropolis/model_scores.csv, beside the package rather than inside it:
-# it is data to be edited by hand as new leaderboard numbers land, not code.
-SCORES_PATH = Path(__file__).resolve().parent.parent / "model_scores.csv"
+# In datafiles/ with the other hand-maintained tables: it is data to be edited
+# by hand as new leaderboard numbers land, not code.
+SCORES_PATH = Path(__file__).resolve().parent / "datafiles" / "model_scores.csv"
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,7 @@ from fbsim_core.questions.schema import QuestionInstance
 from . import module_globals as g
 from .city_sim import CitySimulation, to_world
 from .config import (
-    CONFIG_DIR,
+    DATAFILES_DIR,
     QUESTION_TAGGING_NUMERIC,
     QUESTION_TAGGING_SEMANTIC,
     QUESTION_TAGGINGS,
@@ -33,25 +33,25 @@ CITY_ENTITY_ID = 0
 # file rather than a string literal so a prompt variant is a new file plus one
 # config key, with no code change; the text must contain "{sources}", which
 # prompt_preamble fills in.
-DEFAULT_PREAMBLE_PATH = CONFIG_DIR / "preamble1.txt"
+DEFAULT_PREAMBLE_PATH = DATAFILES_DIR / "preamble1.txt"
 
 # The epilogue a run uses when its config names no "epilogue_path". Held as a
 # file for the same reason as the preamble; the text may contain "{n}", which
 # read_epilogue fills in with the number of questions in the batch.
-DEFAULT_EPILOGUE_PATH = CONFIG_DIR / "epilogue1.txt"
+DEFAULT_EPILOGUE_PATH = DATAFILES_DIR / "epilogue1.txt"
 
 # The epilogue a semantic-tagging run uses when its config names no
 # "epilogue_path": the default one shows "Q1:" answer lines, which are not what
 # a semantic prompt asks for.
-DEFAULT_SEMANTIC_EPILOGUE_PATH = CONFIG_DIR / "epilogue2.txt"
+DEFAULT_SEMANTIC_EPILOGUE_PATH = DATAFILES_DIR / "epilogue2.txt"
 
 # Separates a semantic question's tag from its text. An em dash rather than a
 # hyphen so it cannot be confused with a minus sign in the question itself.
 SEMANTIC_TAG_SEPARATOR = " — "
 
 # Defaults for the binary yes/no eval's prompt, mirroring the continuous pair.
-DEFAULT_BINARY_PREAMBLE_PATH = CONFIG_DIR / "preamble-binary.txt"
-DEFAULT_BINARY_EPILOGUE_PATH = CONFIG_DIR / "epilogue-binary.txt"
+DEFAULT_BINARY_PREAMBLE_PATH = DATAFILES_DIR / "preamble-binary.txt"
+DEFAULT_BINARY_EPILOGUE_PATH = DATAFILES_DIR / "epilogue-binary.txt"
 
 # The answer-block marker a binary response is asked for; accepts the singular
 # form too, matching FreeCiv's parser tolerance.

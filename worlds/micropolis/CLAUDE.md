@@ -2,9 +2,10 @@
 
 Validates simulated forecasting against real-world forecasting ability: LLMs forecast from a
 text report of a Micropolis run, and their skill is correlated against external benchmarks
-(ECI, ForecastBench) held in `model_scores.csv`. Two evals share that report: the
-**continuous** one asks for p10–p90 percentiles of city metrics (scored by CRPS), the
-**binary** one asks for a single P(Yes) on 27 yes/no questions (to be scored by Brier).
+(ECI, ForecastBench) held in `micropolis_world/datafiles/model_scores.csv`.
+Two evals share that report: the **continuous** one asks for p10–p90 percentiles
+of city metrics (scored by CRPS), the **binary** one asks for a single P(Yes)
+on 27 yes/no questions (to be scored by Brier).
 
 ## Layout
 
@@ -79,7 +80,9 @@ and the structural constraints (§5). Read it before touching resolution.
   `get_*_or(...)` so configs written earlier keep working. One config can carry the union of
   every script's keys.
 - **A prompt variant is a config plus a text file, not a code change** — see
-  `configs/preamble*.txt`, `epilogue*.txt`, `prompt-*.json5`.
+  `datafiles/preamble*.txt`, `datafiles/epilogue*.txt`, `configs/prompt-*.json5`.
+  A config's `preamble_path`/`epilogue_path` is resolved against
+  `micropolis_world/datafiles/`, not against the config's own directory.
 - **The response cache is content-addressed and never invalidated.** Prompts, raw responses
   and usage sidecars live in `{continuous,binary}/cache/{batch_id}/…-{prompt_hash}.txt|json`,
   shared across labels; a new variant adds files beside the old ones. A cached response is
