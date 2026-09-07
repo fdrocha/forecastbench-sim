@@ -89,7 +89,7 @@ def gather_responses(
     the binary eval. What is continuous-specific is the prompt this asks for
     and the percentile sets read back out of it.
     """
-    batches, raws = gather_raw_responses(
+    batches, raws, rpaths = gather_raw_responses(
         corpus,
         model_names,
         paths=PATHS,
@@ -114,12 +114,18 @@ def gather_responses(
             raw = raws[(bid, model_name)]
             # The same question_id appears once per model, so name both.
             labels = [f"{model_name} {q['question_id']}" for q in questions]
+            # The cache file the text came from, so a warning about an
+            # unusable forecast points at the response to go read.
+            source = rpaths[(bid, model_name)]
             if question_tagging == QUESTION_TAGGING_SEMANTIC:
                 percentile_sets = parse_batch_percentiles_semantic(
-                    raw, labels, [q["semantic_tag"] for q in questions]
+                    raw,
+                    labels,
+                    [q["semantic_tag"] for q in questions],
+                    source=source,
                 )
             else:
-                percentile_sets = parse_batch_percentiles(raw, labels)
+                percentile_sets = parse_batch_percentiles(raw, labels, source=source)
             for q, percentiles in zip(questions, percentile_sets):
                 responses[ResponseId(model_name, q["question_id"])] = Response(
                     actual=q["value"],

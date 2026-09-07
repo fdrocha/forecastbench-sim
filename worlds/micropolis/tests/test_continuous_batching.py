@@ -138,6 +138,39 @@ class TestParseBatchPercentiles:
         parsed = parse_batch_percentiles(response, LABELS, quiet=True)
         assert parsed == [None, None, None]
 
+    def test_restated_format_block_in_reasoning_is_ignored(self):
+        # A reasoning model reminding itself of the output format mid-thought
+        # emits a whole placeholder block. The real answers come after it, so
+        # the last block wins; taking the first read "p10=X" as the answer and
+        # reported every question unanswered.
+        response = (
+            "Let me think about the population trend.\n"
+            "Format:\n"
+            "<<<PERCENTILES>>>\n"
+            "Q1: p10=X, p25=Y, p50=Z, p75=A, p90=B\n"
+            "...\n"
+            "<<<END>>>\n"
+            "Okay, ready to write.\n"
+            "<<<PERCENTILES>>>\n"
+            f"Q1: {as_line(SET1)}\n"
+            f"Q2: {as_line(SET2)}\n"
+            f"Q3: {as_line(SET3)}\n"
+            "<<<END>>>"
+        )
+        assert parse_batch_percentiles(response, LABELS) == [SET1, SET2, SET3]
+
+    def test_lone_end_marker_keeps_everything_above_it(self):
+        # No opening tag: the answers are prose above a stray <<<END>>>, so the
+        # fallback has to span the whole text, not stop at the first line.
+        response = (
+            "Reasoning about the report.\n"
+            f"Q1: {as_line(SET1)}\n"
+            f"Q2: {as_line(SET2)}\n"
+            f"Q3: {as_line(SET3)}\n"
+            "<<<END>>>"
+        )
+        assert parse_batch_percentiles(response, LABELS) == [SET1, SET2, SET3]
+
     def test_real_model_response_fixture(self):
         # A real batched response, captured verbatim from claude-haiku-4-5 on
         # the bruce_nodisasters_seed42_T240 batch (9 questions, all answered).

@@ -303,8 +303,20 @@ def build_batch_prompt_binary(
 {read_epilogue(len(questions), epilogue_path or DEFAULT_BINARY_EPILOGUE_PATH)}"""
 
 
+def _at(source: str | Path | None) -> str:
+    """The trailing " <- /path/to/response.txt" a parse warning ends with.
+
+    Empty when the caller did not name a source, so a warning from a test or
+    an ad-hoc call still reads correctly.
+    """
+    return f" <- {source}" if source else ""
+
+
 def _validate_monotonic(
-    percentiles: dict[str, float], label: str, quiet: bool
+    percentiles: dict[str, float],
+    label: str,
+    quiet: bool,
+    source: str | Path | None = None,
 ) -> dict[str, float] | None:
     """Return the percentiles if non-decreasing, else warn and return None.
 
@@ -318,7 +330,8 @@ def _validate_monotonic(
         if not quiet:
             pairs = ", ".join(f"{k}={percentiles[k]:g}" for k in PERCENTILE_KEYS)
             print(
-                f"  {label}: percentiles not in increasing order, discarding: {pairs}"
+                f"  {label}: percentiles not in increasing order, "
+                f"discarding: {pairs}{_at(source)}"
             )
         return None
     return percentiles
@@ -367,15 +380,34 @@ def _extract_answer_block(response: str, marker_re: str = r"PERCENTILES?") -> st
     the closing tag, having written the answers as ordinary prose above it, so
     fall back to everything before a lone <<<END>>> and finally to the whole
     response.
+
+    The *last* delimited block wins, not the first. A reasoning model often
+    restates the requested format mid-thought ("Format:\n<<<PERCENTILES>>>\nQ1:
+    p10=X, ...\n<<<END>>>"), and taking the first match hands the parser that
+    placeholder instead of the real answers below it — every question then
+    reads as unanswered. This is the same convention the numbered-line passes
+    use, where a later restatement overwrites an earlier one.
     """
-    delimiter_match = re.search(
-        rf"<<<{marker_re}>>>(.*?)<<<END>>>", response, re.DOTALL | re.IGNORECASE
-    ) or re.search(r"(.*?)<<<END>>>", response, re.DOTALL | re.IGNORECASE)
+    matches = list(
+        re.finditer(
+            rf"<<<{marker_re}>>>(.*?)<<<END>>>", response, re.DOTALL | re.IGNORECASE
+        )
+    )
+    # The lone-<<<END>>> fallback captures everything before the closing tag,
+    # so its last match is the one spanning the most text, not the least.
+    delimiter_match = (
+        matches[-1]
+        if matches
+        else re.search(r"(.*)<<<END>>>", response, re.DOTALL | re.IGNORECASE)
+    )
     return delimiter_match.group(1).strip() if delimiter_match else response
 
 
 def parse_percentiles(
-    response: str | None, label: str = "response", quiet: bool = False
+    response: str | None,
+    label: str = "response",
+    quiet: bool = False,
+    source: str | Path | None = None,
 ) -> dict[str, float] | None:
     """Extract one p10/p25/p50/p75/p90 set from a model response.
 
@@ -392,7 +424,7 @@ def parse_percentiles(
     """
     if not response:
         if not quiet:
-            print(f"  {label}: empty model response")
+            print(f"  {label}: empty model response{_at(source)}")
         return None
 
     content = _extract_answer_block(response)
@@ -404,23 +436,24 @@ def parse_percentiles(
             val = json.loads(json_match.group())
             result = {k: float(val[k]) for k in PERCENTILE_KEYS if k in val}
             if len(result) == len(PERCENTILE_KEYS):
-                return _validate_monotonic(result, label, quiet)
+                return _validate_monotonic(result, label, quiet, source)
         except (json.JSONDecodeError, ValueError, TypeError):
             pass
 
     result = _scan_labeled_percentiles(content)
     if result is not None:
-        return _validate_monotonic(result, label, quiet)
+        return _validate_monotonic(result, label, quiet, source)
 
     # Last resort: five bare numbers on one line, in ascending percentile order.
     for line in content.strip().split("\n"):
         bare = _scan_bare_percentiles(line)
         if bare is not None:
-            return _validate_monotonic(bare, label, quiet)
+            return _validate_monotonic(bare, label, quiet, source)
 
     if not quiet:
         print(
-            f"  {label}: unable to parse percentiles from model response: {response!r}"
+            f"  {label}: unable to parse percentiles from "
+            f"model response: {response!r}{_at(source)}"
         )
     return None
 
@@ -457,6 +490,7 @@ def parse_batch_percentiles_semantic(
     labels: list[str],
     tags: list[str],
     quiet: bool = False,
+    source: str | Path | None = None,
 ) -> list[dict[str, float] | None]:
     """Extract one p10..p90 set per question from a semantically tagged response.
 
@@ -473,12 +507,13 @@ def parse_batch_percentiles_semantic(
     format gives no trustworthy way to tell which question it meant. Each set
     is validated by _validate_monotonic, and every question left without a
     usable one gets a warning naming its label (unless `quiet`).
+    Every warning ends with `source`, the response file the text came from, so a rejection in a long run can be opened directly.
     """
     n = len(labels)
     results: list[dict[str, float] | None] = [None] * n
     if not response:
         if not quiet:
-            print(f"  {labels[0]} (+{n - 1} more): empty model response")
+            print(f"  {labels[0]} (+{n - 1} more): empty model response{_at(source)}")
         return results
 
     # Built per call rather than cached: the same tag can only appear once in a
@@ -497,18 +532,24 @@ def parse_batch_percentiles_semantic(
         parsed = _scan_labeled_percentiles(line[m.end() :])
         if parsed is not None:
             answered[idx] = True
-            results[idx] = _validate_monotonic(parsed, labels[idx], quiet)
+            results[idx] = _validate_monotonic(parsed, labels[idx], quiet, source)
 
     if not quiet:
         # _validate_monotonic already explained the answered-but-invalid ones.
         for i in range(n):
             if not answered[i]:
-                print(f"  {labels[i]}: no percentiles found in batched response")
+                print(
+                    f"  {labels[i]}: no percentiles found in "
+                    f"batched response{_at(source)}"
+                )
     return results
 
 
 def parse_batch_percentiles(
-    response: str | None, labels: list[str], quiet: bool = False
+    response: str | None,
+    labels: list[str],
+    quiet: bool = False,
+    source: str | Path | None = None,
 ) -> list[dict[str, float] | None]:
     """Extract one p10..p90 set per question from a batched model response.
 
@@ -521,18 +562,21 @@ def parse_batch_percentiles(
     of appearance instead. Each set is validated by _validate_monotonic like
     a single-question one, and every question left without a usable set gets
     a warning naming its label (unless `quiet`).
+    Every warning ends with `source`, the response file the text came from, so a rejection in a long run can be opened directly.
     """
     n = len(labels)
     # A single-question prompt asks for the unnumbered single-question format,
     # so read it back with the single-question parser, which also accepts
     # formats (JSON, whole-block scans) that would be ambiguous in a batch.
     if n == 1:
-        return [parse_percentiles(response, label=labels[0], quiet=quiet)]
+        return [
+            parse_percentiles(response, label=labels[0], quiet=quiet, source=source)
+        ]
 
     results: list[dict[str, float] | None] = [None] * n
     if not response:
         if not quiet:
-            print(f"  {labels[0]} (+{n - 1} more): empty model response")
+            print(f"  {labels[0]} (+{n - 1} more): empty model response{_at(source)}")
         return results
 
     lines = [
@@ -559,7 +603,7 @@ def parse_batch_percentiles(
             parsed = _scan_bare_percentiles(rest)
         if parsed is not None:
             answered[idx] = True
-            results[idx] = _validate_monotonic(parsed, labels[idx], quiet)
+            results[idx] = _validate_monotonic(parsed, labels[idx], quiet, source)
 
     # Positional fallback, only when nothing was numbered: each line holding a
     # full labeled set answers the next question in order. Not tried after a
@@ -572,14 +616,17 @@ def parse_batch_percentiles(
             parsed = _scan_labeled_percentiles(line)
             if parsed is not None:
                 answered[pos] = True
-                results[pos] = _validate_monotonic(parsed, labels[pos], quiet)
+                results[pos] = _validate_monotonic(parsed, labels[pos], quiet, source)
                 pos += 1
 
     if not quiet:
         # _validate_monotonic already explained the answered-but-invalid ones.
         for i in range(n):
             if not answered[i]:
-                print(f"  {labels[i]}: no percentiles found in batched response")
+                print(
+                    f"  {labels[i]}: no percentiles found in "
+                    f"batched response{_at(source)}"
+                )
     return results
 
 
@@ -604,7 +651,9 @@ def _scan_probability(text: str) -> float | None:
     return value / 100 if m.group(2) else value
 
 
-def _validate_probability(value: float, label: str, quiet: bool) -> float | None:
+def _validate_probability(
+    value: float, label: str, quiet: bool, source: str | Path | None = None
+) -> float | None:
     """Return `value` if it is in [0, 1], else warn and return None.
 
     A bare number outside the range is rejected rather than clamped — the
@@ -614,12 +663,17 @@ def _validate_probability(value: float, label: str, quiet: bool) -> float | None
     if 0.0 <= value <= 1.0:
         return value
     if not quiet:
-        print(f"  {label}: probability {value:g} outside [0, 1], discarding")
+        print(
+            f"  {label}: probability {value:g} outside [0, 1], discarding{_at(source)}"
+        )
     return None
 
 
 def parse_probability(
-    response: str | None, label: str = "response", quiet: bool = False
+    response: str | None,
+    label: str = "response",
+    quiet: bool = False,
+    source: str | Path | None = None,
 ) -> float | None:
     """Extract one P(Yes) from a single-question model response.
 
@@ -631,7 +685,7 @@ def parse_probability(
     """
     if not response:
         if not quiet:
-            print(f"  {label}: empty model response")
+            print(f"  {label}: empty model response{_at(source)}")
         return None
     content = _extract_answer_block(response, _PROBABILITIES_MARKER_RE)
     for line in content.split("\n"):
@@ -642,14 +696,20 @@ def parse_probability(
         text = line[m.end() :] if m and m.group(1) == "1" else line
         value = _scan_probability(text)
         if value is not None:
-            return _validate_probability(value, label, quiet)
+            return _validate_probability(value, label, quiet, source)
     if not quiet:
-        print(f"  {label}: unable to parse a probability from response: {response!r}")
+        print(
+            f"  {label}: unable to parse a probability from "
+            f"response: {response!r}{_at(source)}"
+        )
     return None
 
 
 def parse_batch_probabilities(
-    response: str | None, labels: list[str], quiet: bool = False
+    response: str | None,
+    labels: list[str],
+    quiet: bool = False,
+    source: str | Path | None = None,
 ) -> list[float | None]:
     """Extract one P(Yes) per question from a batched model response.
 
@@ -664,18 +724,20 @@ def parse_batch_probabilities(
     appearance.
     Out-of-range values are rejected by _validate_probability, and every
     question left without a usable answer gets a warning naming its label
-    (unless `quiet`).
+    (unless `quiet`). Every warning ends with `source`, the response file the text came from, so a rejection in a long run can be opened directly.
     """
     n = len(labels)
     # A single-question prompt asks for the unnumbered single-question format,
     # so read it back with the single-question parser.
     if n == 1:
-        return [parse_probability(response, label=labels[0], quiet=quiet)]
+        return [
+            parse_probability(response, label=labels[0], quiet=quiet, source=source)
+        ]
 
     results: list[float | None] = [None] * n
     if not response:
         if not quiet:
-            print(f"  {labels[0]} (+{n - 1} more): empty model response")
+            print(f"  {labels[0]} (+{n - 1} more): empty model response{_at(source)}")
         return results
 
     block = _extract_answer_block(response, _PROBABILITIES_MARKER_RE)
@@ -701,7 +763,7 @@ def parse_batch_probabilities(
         value = _scan_probability(line[m.end() :])
         if value is not None:
             answered[idx] = True
-            results[idx] = _validate_probability(value, labels[idx], quiet)
+            results[idx] = _validate_probability(value, labels[idx], quiet, source)
 
     # Positional fallback, only when nothing was numbered: each line that is
     # nothing but one probability answers the next question in order. A line
@@ -716,12 +778,15 @@ def parse_batch_probabilities(
             value = _scan_probability(line)
             if value is not None:
                 answered[pos] = True
-                results[pos] = _validate_probability(value, labels[pos], quiet)
+                results[pos] = _validate_probability(value, labels[pos], quiet, source)
                 pos += 1
 
     if not quiet:
         # _validate_probability already explained the answered-but-invalid ones.
         for i in range(n):
             if not answered[i]:
-                print(f"  {labels[i]}: no probability found in batched response")
+                print(
+                    f"  {labels[i]}: no probability found in "
+                    f"batched response{_at(source)}"
+                )
     return results

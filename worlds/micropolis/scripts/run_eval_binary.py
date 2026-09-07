@@ -71,7 +71,7 @@ def gather_responses_binary(
     the continuous eval. What is binary-specific is the prompt this asks for
     and the P(Yes) read back out of it.
     """
-    batches, raws = gather_raw_responses(
+    batches, raws, rpaths = gather_raw_responses(
         corpus,
         model_names,
         paths=PATHS,
@@ -93,7 +93,11 @@ def gather_responses_binary(
                 continue
             raw = raws[(bid, model_name)]
             labels = [f"{model_name} {q['question_id']}" for q in questions]
-            probabilities = parse_batch_probabilities(raw, labels)
+            # The cache file the text came from, so a warning about an
+            # unusable forecast points at the response to go read.
+            probabilities = parse_batch_probabilities(
+                raw, labels, source=rpaths[(bid, model_name)]
+            )
             for q, probability in zip(questions, probabilities):
                 responses[ResponseId(model_name, q["question_id"])] = BinaryResponse(
                     actual=q["answer"],

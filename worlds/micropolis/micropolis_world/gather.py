@@ -34,6 +34,11 @@ from .usage import save_usage
 # which is right, since re-running retries exactly the failures.
 RawResponses = dict[tuple[str, str], str | None]
 
+# The cache file each (batch_id, model_name) response was read from or written
+# to. Every key is present, cached or not: a parse warning names the file the
+# text would be in, which is also where a miss would land.
+ResponsePaths = dict[tuple[str, str], Path]
+
 
 def batch_id_for(question: dict) -> str:
     """The batch a corpus question is prompted in.
@@ -183,11 +188,13 @@ def gather_raw_responses(
     concurrency: int | None = None,
     questions_per_prompt: int = -1,
     cache_only: bool = False,
-) -> tuple[dict[str, list[dict]], RawResponses]:
+) -> tuple[dict[str, list[dict]], RawResponses, ResponsePaths]:
     """Prompt each model on each batch of questions, reusing cached responses.
 
     Returns the batches (so the caller can parse each one's answers back onto
-    its questions) and the raw text each (batch, model) produced.
+    its questions), the raw text each (batch, model) produced, and the cache
+    file that text lives in — which the caller names in its parse warnings, so
+    an unusable forecast can be traced to the response that caused it.
 
     `build_prompt` turns one batch's shared game report and its questions into
     the prompt asking them. Cache files are named with that prompt's hash, so a
@@ -326,7 +333,7 @@ def gather_raw_responses(
     # cached model reports $0.00 rather than what it originally cost. A
     # cache-only run pays for nothing at all, so it prints no totals.
     if cache_only:
-        return batches, raws
+        return batches, raws, rpaths
 
     print("Per-model totals for this run:")
     for model_name in model_names:
@@ -343,4 +350,4 @@ def gather_raw_responses(
             bid, model_name = result.job.key
             msg.plain(f"  {model_name} <- {ppaths[bid]}")
             msg.plain(f"    {type(result.error).__name__}: {result.error}")
-    return batches, raws
+    return batches, raws, rpaths

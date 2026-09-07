@@ -156,6 +156,19 @@ class TestExtractAnswerBlock:
         block = _extract_answer_block(response, r"PROBABILIT(?:Y|IES)")
         assert "Q1: 0.5" in block
 
+    def test_last_block_wins(self):
+        # A reasoning model that restates the output format mid-thought emits a
+        # placeholder block before the real one; the answers are in the last.
+        response = (
+            "Format reminder:\n"
+            "<<<PROBABILITIES>>>\nQ1: 0.XX\n<<<END>>>\n"
+            "Now the real answer.\n"
+            "<<<PROBABILITIES>>>\nQ1: 0.65\n<<<END>>>"
+        )
+        block = _extract_answer_block(response, r"PROBABILIT(?:Y|IES)")
+        assert block == "Q1: 0.65"
+        assert parse_batch_probabilities(response, LABELS[:1]) == [0.65]
+
 
 class TestBuildBatchPromptBinary:
     def test_prompt_structure(self):
