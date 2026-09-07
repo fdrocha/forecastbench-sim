@@ -26,7 +26,7 @@ Scoring and plotting read that file:
     scripts/plot_forecasts.py        trajectories with forecasts overlaid
 
 Usage:
-    scripts/run_eval_continuous.py
+    scripts/run_eval_continuous.py                  # configs/continuous.json5
     scripts/run_eval_continuous.py my_config.json --seed 7
     scripts/run_eval_continuous.py my_config.json --dry-run
     scripts/run_eval_continuous.py --models openai/gpt-4o xai/grok-4-0709
@@ -42,6 +42,7 @@ from pathlib import Path
 
 import micropolis_world.module_globals as g
 from micropolis_world.config import (
+    CONFIG_DIR,
     QUESTION_TAGGING_NUMERIC,
     QUESTION_TAGGING_SEMANTIC,
     QUESTIONS_SORT_TURN,
@@ -65,6 +66,8 @@ from micropolis_world.scenarios import (
     parse_batch_percentiles,
     parse_batch_percentiles_semantic,
 )
+
+DEFAULT_CONTINUOUS_CONFIG_PATH = CONFIG_DIR / "continuous.json5"
 
 
 def gather_responses(
@@ -125,7 +128,7 @@ def gather_responses(
 @main_with_config
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    add_config_args(ap)
+    add_config_args(ap, default=DEFAULT_CONTINUOUS_CONFIG_PATH)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 

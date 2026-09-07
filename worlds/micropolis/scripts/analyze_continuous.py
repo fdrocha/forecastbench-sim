@@ -18,7 +18,7 @@ the knowledge-eval score. --no-plot skips the figures. Only the paths written
 and the report's own path are printed to stdout.
 
 Usage:
-    scripts/analyze_continuous.py
+    scripts/analyze_continuous.py                   # configs/continuous.json5
     scripts/analyze_continuous.py subset.json5
     scripts/analyze_continuous.py --per-metric
     scripts/analyze_continuous.py --no-plot
@@ -41,6 +41,7 @@ from fbsim_core.metrics import compute_crps
 import micropolis_world.module_globals as g
 from micropolis_world import model_scores
 from micropolis_world.config import (
+    CONFIG_DIR,
     add_config_args,
     load_config,
     main_with_config,
@@ -60,6 +61,8 @@ from micropolis_world.continuous_eval import (
     select_for_config,
 )
 from micropolis_world.plot_labels import place_labels
+
+DEFAULT_CONTINUOUS_CONFIG_PATH = CONFIG_DIR / "continuous.json5"
 
 # The nearest horizon asks for a value the snapshot report already prints, so it
 # is a comprehension check — did the model read the report and follow the answer
@@ -1784,7 +1787,7 @@ def print_per_metric_horizon_tables(
 @main_with_config
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    add_config_args(ap)
+    add_config_args(ap, default=DEFAULT_CONTINUOUS_CONFIG_PATH)
     ap.add_argument(
         "--per-metric",
         action="store_true",

@@ -139,7 +139,9 @@ Simulation / inspection:
   `run_eval_binary.py` run, not by its `--dry-run`.
 - `check_determinism.py` — repeat a scenario at one seed and diff the outputs.
 
-Continuous forecasting eval (percentiles, `data/micropolis/continuous/`):
+Continuous forecasting eval (percentiles, `data/micropolis/continuous/`). The first three
+default to `configs/continuous.json5`; `analyze_skill_by_config.py` requires its configs and
+`plot_forecasts.py` has its own:
 - `run_eval_continuous.py` — prompts models; writes `data.json`.
 - `analyze_continuous.py` — CRPS tables/figures, normalized by |actual|.
 - `analyze_baseline_skill.py` — same forecasts scored against a naive (`plain`/`sigma`)

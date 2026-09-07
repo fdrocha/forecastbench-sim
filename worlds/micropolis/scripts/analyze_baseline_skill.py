@@ -65,7 +65,7 @@ suffix, so running both never overwrites the other's files. Only the paths
 written and the report's own path are printed to stdout.
 
 Usage:
-    scripts/analyze_baseline_skill.py
+    scripts/analyze_baseline_skill.py               # configs/continuous.json5
     scripts/analyze_baseline_skill.py --baseline sigma
     scripts/analyze_baseline_skill.py my_config.json5 --no-plot
 """
@@ -81,6 +81,7 @@ from scipy import stats
 
 from micropolis_world import model_scores
 from micropolis_world.config import (
+    CONFIG_DIR,
     add_config_args,
     load_config,
     main_with_config,
@@ -109,6 +110,8 @@ from analyze_continuous import (
     historical_sigma,
     is_forecast,
 )
+
+DEFAULT_CONTINUOUS_CONFIG_PATH = CONFIG_DIR / "continuous.json5"
 
 
 def out_dir(label: str) -> Path:
@@ -1246,7 +1249,7 @@ def plot_score_heatmap(
 @main_with_config
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    add_config_args(ap)
+    add_config_args(ap, default=DEFAULT_CONTINUOUS_CONFIG_PATH)
     ap.add_argument(
         "--baseline",
         choices=sorted(BASELINES),
