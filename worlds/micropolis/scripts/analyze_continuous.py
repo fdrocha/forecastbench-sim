@@ -378,10 +378,14 @@ def print_crps_table(
     """Append models x metrics, each cell the mean CRPS over that model's forecasts.
 
     Raw CRPS is in each metric's own units, so it compares models down a column
-    but never across columns. The "norm" column is the mean of CRPS/|actual|
-    over the normalizable metrics, which is unitless and so can be averaged
-    across them; rows are sorted by it. A "questions" column gives the number of
-    parsed forecasts behind each row, out of the whole corpus.
+    but never across columns. Rows are ordered by the mean of CRPS/|actual| over
+    the normalizable metrics — unitless, and so the one summary that can be
+    averaged across them — but that figure is not shown here; the normalized
+    table below breaks it out per metric. A "questions" column gives the number
+    of parsed forecasts behind each row, out of the whole corpus.
+
+    Metric labels drop the "average " that g.METRIC_LABELS carries, which is
+    just noise repeated across four of the column heads in a table this wide.
 
     Every cell pools the horizons, so the read-off horizon is dropped first and
     the counts are out of the remaining questions.
@@ -413,7 +417,9 @@ def print_crps_table(
         for model_id in model_names
     }
 
-    labels = {m: str(g.METRIC_LABELS.get(m, m)) for m in metrics}
+    labels = {
+        m: str(g.METRIC_LABELS.get(m, m)).removeprefix("average ") for m in metrics
+    }
     model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in model_names])
     widths = {m: max(len(labels[m]), 12) for m in metrics}
 
@@ -428,8 +434,6 @@ def print_crps_table(
     questions_width = max(
         len(questions_col), max(len(f"{u}/{len(corpus)}") for u in used.values())
     )
-    norm_col = "norm"
-    norm_width = max(len(norm_col), 7)
 
     # Sorted by normalized CRPS, so the table reads best-first. Models with no
     # normalizable forecast at all sort last rather than crashing the compare.
@@ -439,25 +443,30 @@ def print_crps_table(
 
     normalized_metrics = [m for m in metrics if m not in UNNORMALIZED_METRICS]
     report.heading("Mean CRPS by model and metric (lower is better)")
+    unnormalized = [labels[m] for m in metrics if m in UNNORMALIZED_METRICS]
+    # Only mentioned when such a metric is actually in the table; which metrics
+    # the config asks for decides that, and naming none of them rendered as
+    # "(excludes , whose actual is sometimes 0)".
+    excluded = (
+        f" (excludes {', '.join(unnormalized)}, whose actual is sometimes 0)"
+        if unnormalized
+        else ""
+    )
     report.text(
         f"pooled over every forecast horizon; {READ_OFF_NOTE}\n\n"
-        f"norm = mean CRPS/|actual| over {', '.join(labels[m] for m in normalized_metrics)}"
-        f" (excludes {', '.join(labels[m] for m in metrics if m in UNNORMALIZED_METRICS)},"
-        " whose actual is sometimes 0)"
+        "ordered by mean CRPS/|actual| over "
+        f"{', '.join(labels[m] for m in normalized_metrics)}{excluded}"
     )
     header = (
         f"{'Model':<{model_col}}  {questions_col:>{questions_width}}  "
-        f"{norm_col:>{norm_width}}  "
         + "  ".join(f"{labels[m]:>{widths[m]}}" for m in metrics)
     )
     lines = [header, "-" * len(header)]
 
     for model_id in ordered:
-        norm = normalized[model_id]
         row = [
             f"{model_id.split('/')[-1]:<{model_col}}",
             f"{f'{used[model_id]}/{len(corpus)}':>{questions_width}}",
-            f"{'n/a' if norm is None else f'{norm:.3f}':>{norm_width}}",
         ]
         for m in metrics:
             mean = means.get((model_id, m))
