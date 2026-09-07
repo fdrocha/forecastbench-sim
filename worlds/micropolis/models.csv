@@ -1,0 +1,27 @@
+name,slug,supports_reasoning,supported_efforts,default_effort,lowest_effort
+Meta: Llama 4 Scout,meta-llama/llama-4-scout,false,,,
+DeepSeek: DeepSeek V3,deepseek/deepseek-chat,false,,,
+OpenAI: GPT-4.1,openai/gpt-4.1,false,,,
+Qwen: Qwen3 235B A22B,qwen/qwen3-235b-a22b,true,,,
+Google: Gemini 2.5 Flash,google/gemini-2.5-flash,true,,,
+MoonshotAI: Kimi K2,moonshotai/kimi-k2,false,,,
+OpenAI: GPT-5 Nano,openai/gpt-5-nano,true,"high,medium,low,minimal",medium,minimal
+Anthropic: Claude Haiku 4.5,anthropic/claude-haiku-4.5,true,,,
+Qwen: Qwen3.5-Flash,qwen/qwen3.5-flash-02-23,true,,,
+Google: Gemini 3.1 Flash Lite Preview,google/gemini-3.1-flash-lite-preview,true,"high,medium,low,minimal",minimal,minimal
+OpenAI: GPT-5 Mini,openai/gpt-5-mini,true,"high,medium,low,minimal",medium,minimal
+OpenAI: o4 Mini,openai/o4-mini,true,"high,medium,low",medium,low
+OpenAI: GPT-5.4 Nano,openai/gpt-5.4-nano,true,"xhigh,high,medium,low,none",medium,low
+OpenAI: o3,openai/o3,true,"high,medium,low",medium,low
+OpenAI: GPT-5,openai/gpt-5,true,"high,medium,low,minimal",medium,minimal
+Google: Gemini 3 Flash Preview,google/gemini-3-flash-preview,true,"high,medium,low,minimal",medium,minimal
+DeepSeek: DeepSeek V4 Flash 0731,deepseek/deepseek-v4-flash-0731,true,"max,high,low",high,low
+Anthropic: Claude Sonnet 5,anthropic/claude-sonnet-5,true,"max,xhigh,high,medium,low",high,low
+OpenAI: GPT-5.6 Luna,openai/gpt-5.6-luna,true,"max,xhigh,high,medium,low,none",medium,low
+Google: Gemini 3.7 Flash,google/gemini-3.7-flash,true,"high,medium,low",medium,low
+OpenAI: GPT-5.5,openai/gpt-5.5,true,"xhigh,high,medium,low,none",medium,low
+OpenAI: GPT-5.6 Sol,openai/gpt-5.6-sol,true,"max,xhigh,high,medium,low,none",medium,low
+Claude Opus 5,anthropic/claude-opus-5,true,"max,xhigh,high,medium,low",high,low
+Anthropic: Claude Fable,anthropic/claude-fable-5,true,"max,xhigh,high,medium,low",high,low
+OpenAI: GPT 4.1 Nano,openai/gpt-4.1-nano,false,,,
+OpenAI: GPT 4.1. Mini,openai/gpt-4.1-mini,false,,,

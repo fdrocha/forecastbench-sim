@@ -1,33 +1,121 @@
-// Pinned model registry, loaded by openrouter_completion.py at import.
-// Keys are OpenRouter slugs; each value is a ModelSpec:
-//   endpoint       FULL provider slug, e.g. "deepinfra/turbo". A base slug
-//                  matches every variant.
-//   quantizations  e.g. ["fp8"]; omit/null for first-party proprietary
-//   ignore         variants to exclude when pinning a provider's default
-//                  endpoint by base slug
-//   sampling       {} where the model rejects sampling params
-//                  (o-series, Claude w/ thinking)
+// Model registry, loaded by openrouter_completion.py at import.
+// Keys are OpenRouter slugs; each value is a ModelSpec. EVERY field is
+// optional, and nothing here is validated against the OpenRouter API:
+//   endpoint        FULL provider slug, e.g. "deepinfra/turbo"; pins the
+//                   request to that provider. A base slug matches every variant.
+//   quantizations   e.g. ["fp8"]
+//   ignore          provider variants to exclude
+//   sampling        body defaults (temperature, top_p, ...). None are set
+//                   below: models run at each provider's own defaults.
+//                   Some endpoints (o-series, Claude w/ thinking) reject
+//                   sampling params outright.
+//   reasoning_effort        -> reasoning.effort, e.g. "high"
+//   reasoning_budget_tokens -> reasoning.max_tokens; an error together
+//                             with reasoning_effort
+//
+// Every slug in models.csv has an entry here.
 {
-  "deepseek/deepseek-r1": {
+  // --- open weights: pin the quantization too, so the artifact is fixed ---
+  "meta-llama/llama-4-scout": {
     endpoint: "deepinfra",
     quantizations: ["fp8"],
-    ignore: ["deepinfra/turbo"],
-    sampling: {temperature: 0.6, top_p: 0.95, seed: 1234},
+  },
+  "deepseek/deepseek-chat": {
+    endpoint: "deepinfra",
+    quantizations: ["fp4"],
+  },
+  "moonshotai/kimi-k2": {
+    endpoint: "novita",
+    quantizations: ["fp8"],
   },
   "qwen/qwen3-235b-a22b": {
-    endpoint: "together",
+    endpoint: "alibaba",
+  },
+  "qwen/qwen3.5-flash-02-23": {
+    endpoint: "alibaba",
+  },
+  "deepseek/deepseek-v4-flash-0731": {
+    // 29 endpoints, so pin the exact tag rather than a base slug.
+    endpoint: "deepinfra/fp8",
     quantizations: ["fp8"],
-    // Qwen thinking-mode recommended sampling differs from instruct mode.
-    sampling: {temperature: 0.6, top_p: 0.95, top_k: 20, seed: 1234},
   },
-  "anthropic/claude-haiku-4.5": {
-    endpoint: "anthropic",
+
+  // --- OpenAI: "openai" is first-party; /flex, /fast and /default are tiers ---
+  "openai/gpt-4.1": {
+    endpoint: "openai",
   },
-  "google/gemini-2.5-flash": {
-    endpoint: "google-ai-studio",
-    sampling: {temperature: 0.7, top_p: 0.95},
+  "openai/gpt-4.1-mini": {
+    endpoint: "openai",
+  },
+  "openai/gpt-4.1-nano": {
+    endpoint: "openai",
   },
   "openai/o4-mini": {
     endpoint: "openai", // not azure; "openai/fast" is a tier
+    ignore: ["openai/fast"], // TODO: make sure this is right
+  },
+  "openai/o3": {
+    endpoint: "openai",
+    ignore: ["openai/fast"],
+  },
+  "openai/gpt-5": {
+    endpoint: "openai/default", // the only openai-tier endpoint offered
+  },
+  "openai/gpt-5-mini": {
+    endpoint: "openai",
+    ignore: ["openai/flex"],
+  },
+  "openai/gpt-5-nano": {
+    endpoint: "openai",
+    ignore: ["openai/flex"],
+  },
+  "openai/gpt-5.4-nano": {
+    endpoint: "openai",
+    ignore: ["openai/flex"],
+  },
+  "openai/gpt-5.5": {
+    endpoint: "openai",
+    ignore: ["openai/flex", "openai/fast"],
+  },
+  "openai/gpt-5.6-luna": {
+    endpoint: "openai",
+    ignore: ["openai/flex", "openai/fast"],
+  },
+  "openai/gpt-5.6-sol": {
+    endpoint: "openai",
+    ignore: ["openai/flex", "openai/fast"],
+  },
+
+  // --- Google: google-ai-studio, not vertex; /flex and /priority are tiers ---
+  "google/gemini-2.5-flash": {
+    endpoint: "google-ai-studio",
+    ignore: ["google-ai-studio/flex", "google-ai-studio/priority"],
+  },
+  "google/gemini-3-flash-preview": {
+    endpoint: "google-ai-studio",
+    ignore: ["google-ai-studio/flex", "google-ai-studio/priority"],
+  },
+  "google/gemini-3.1-flash-lite-preview": {
+    endpoint: "google-ai-studio",
+    ignore: ["google-ai-studio/flex", "google-ai-studio/priority"],
+  },
+  "google/gemini-3.7-flash": {
+    endpoint: "google-ai-studio",
+    ignore: ["google-ai-studio/flex", "google-ai-studio/priority"],
+  },
+
+  // --- Anthropic: first-party ---
+  "anthropic/claude-haiku-4.5": {
+    endpoint: "anthropic",
+  },
+  "anthropic/claude-sonnet-5": {
+    endpoint: "anthropic",
+  },
+  "anthropic/claude-opus-5": {
+    endpoint: "anthropic",
+    ignore: ["anthropic/fast"],
+  },
+  "anthropic/claude-fable-5": {
+    endpoint: "anthropic",
   },
 }
