@@ -66,5 +66,5 @@
   // config that wants the balance reported and asked about must say false.
   "censorCityFunds": true,
 
-  "models": "models-base.json5",
+  "models": "models-jaeho.json5",
 }
