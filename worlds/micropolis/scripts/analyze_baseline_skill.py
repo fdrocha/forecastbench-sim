@@ -1,9 +1,10 @@
 #!/usr/bin/env -S uv run python3
-"""Score the continuous eval against a naive baseline instead of against |actual|.
+"""Score the continuous eval against a naive baseline instead of against a scale.
 
-scripts/analyze_continuous.py normalizes CRPS by |actual|, which answers "how
-large is the error relative to the thing being forecast". That number has no
-zero point: 0.09 is only good or bad relative to how hard the question was. This
+scripts/analyze_continuous.py normalizes CRPS by a per-metric scale, which
+answers "how large is the error on the scale the metric moves over". That number
+has no zero point: 0.09 is only good or bad relative to how hard the question
+was. This
 script divides by the CRPS of a naive baseline forecast instead, so the scale
 carries its own meaning — below 1 beats the baseline, above 1 loses to it.
 
@@ -34,7 +35,7 @@ nailed the answer cannot swamp a mean the way it would under an arithmetic one.
 
 This is not a rescaling of the other script's numbers. The denominator varies
 per question, so the reweighting reorders the models, and city funds is included
-here, having been excluded there only because |actual| is sometimes 0. Read the
+here, having been excluded there only for want of a scale to divide by. Read the
 two as different analyses of the same forecasts.
 
 The read-off horizon is excluded throughout: it is a comprehension check, the
@@ -116,7 +117,7 @@ DEFAULT_CONTINUOUS_CONFIG_PATH = CONFIG_DIR / "continuous.json5"
 
 def out_dir(label: str) -> Path:
     # Plots go in their own directory so this analysis never overwrites a figure
-    # from the |actual|-normalized one, which stays as it was.
+    # from the scale-normalized one, which stays as it was.
     return plots_path(label) / "with_baseline"
 
 

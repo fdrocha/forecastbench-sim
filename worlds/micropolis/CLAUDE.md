@@ -137,8 +137,8 @@ and the structural constraints (§5). Read it before touching resolution.
   therefore the identity under OpenRouter; it is the litellm block that has to map back
   (passthrough prefix, dated aliases, `gemini/` for `google/`).
 - Scoring choices that must not be reinvented per script: horizon 0 is a read-off, not a
-  forecast, and is excluded from aggregates; `totalFunds` is excluded from |actual|-normalized
-  CRPS; skill (`CRPS_model / CRPS_baseline`) is aggregated as a geometric mean with t-based
+  forecast, and is excluded from aggregates; `totalFunds` has no scale and so is excluded
+  from normalized CRPS; skill (`CRPS_model / CRPS_baseline`) is aggregated as a geometric mean with t-based
   CIs clustered on (scenario, snapshot turn). `analyze_skill_by_config.py` →
   `analyze_baseline_skill.py` → `analyze_continuous.py` import each other via
   `sys.path.insert` for exactly this reason.
@@ -159,7 +159,10 @@ Continuous forecasting eval (percentiles, `data/micropolis/continuous/`). The fi
 default to `configs/continuous.json5`; `analyze_skill_by_config.py` requires its configs and
 `plot_forecasts.py` has its own:
 - `run_eval_continuous.py` — prompts models; writes `data.json`.
-- `analyze_continuous.py` — CRPS tables/figures, normalized by |actual|.
+- `analyze_continuous.py` — CRPS tables/figures, normalized by a per-metric scale.
+  `--norm global` (the default) divides by a fixed scale per metric
+  (`continuous_eval.GLOBAL_SCALES`), so a cell is comparable across scenarios,
+  snapshots and horizons; `--norm local`/`baseline` are named but not implemented.
 - `analyze_baseline_skill.py` — same forecasts scored against a naive (`plain`/`sigma`)
   no-change baseline, so 1.0 is the meaningful zero point.
 - `analyze_skill_by_config.py` — that skill compared across several configs (many-config

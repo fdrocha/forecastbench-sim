@@ -11,7 +11,14 @@ from pathlib import Path
 
 import pytest
 
+from micropolis_world.continuous_eval import GLOBAL_SCALES, make_normalizer
+
 SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
+
+# The baselines are normalized through whatever --norm the run picked, so the
+# tests below pass the default one and read its scale rather than restating it.
+NORM = make_normalizer("global")
+POP_SCALE = GLOBAL_SCALES["cityPop"]
 
 
 def load_module():
@@ -265,9 +272,9 @@ def test_horizon_table_keeps_the_read_off_as_its_own_column():
 def _persistence_corpus():
     """Two horizons of one metric, with a known snapshot value at the read-off.
 
-    cityPop reads 100 at the snapshot, 150 at H48 and 50 at H96, so persistence
-    is off by 50/150 and 50/50 respectively — two different ratios, so a helper
-    that divided by the wrong operand would not pass by coincidence.
+    cityPop reads 100 at the snapshot, 150 at H48 and 400 at H96, so persistence
+    is off by 50 and 300 — two different errors over one shared scale, so a
+    helper that divided by the wrong operand would not pass by coincidence.
     """
     return [
         {
@@ -277,15 +284,16 @@ def _persistence_corpus():
             "horizon": h,
             "value": v,
         }
-        for h, v in [(0, 100), (48, 150), (96, 50)]
+        for h, v in [(0, 100), (48, 150), (96, 400)]
     ]
 
 
-def test_persistence_normalizes_by_the_actual_not_the_snapshot():
+def test_persistence_normalizes_by_the_metric_scale():
+    """The snapshot error over the metric's scale, not over either value."""
     module = load_module()
-    baseline = module.persistence_by_horizon(_persistence_corpus())
-    assert baseline[48] == pytest.approx(50 / 150)
-    assert baseline[96] == pytest.approx(50 / 50)
+    baseline = module.persistence_by_horizon(_persistence_corpus(), NORM)
+    assert baseline[48] == pytest.approx(50 / POP_SCALE)
+    assert baseline[96] == pytest.approx(300 / POP_SCALE)
 
 
 def test_persistence_omits_the_read_off_horizon():
@@ -309,10 +317,10 @@ def test_persistence_omits_the_read_off_horizon():
         # so scoring it would land on a nonzero ratio and show up in the result.
         for h, v in [(0, 100), (0, 200), (48, 150)]
     ]
-    assert module.READ_OFF_HORIZON not in module.persistence_by_horizon(corpus)
+    assert module.READ_OFF_HORIZON not in module.persistence_by_horizon(corpus, NORM)
 
 
-def test_persistence_skips_metrics_excluded_from_normalization():
+def test_persistence_skips_metrics_with_no_scale():
     module = load_module()
     corpus = [
         {
@@ -324,11 +332,15 @@ def test_persistence_skips_metrics_excluded_from_normalization():
         }
         for h, v in [(0, 100), (48, 150)]
     ]
-    assert module.persistence_by_horizon(corpus) == {48: None}
+    assert module.persistence_by_horizon(corpus, NORM) == {48: None}
 
 
-def test_persistence_skips_a_zero_actual():
-    """Dividing by |actual| is undefined there, as it is for the model scores."""
+def test_persistence_scores_a_zero_actual():
+    """A fixed scale is defined where the actual is 0, unlike dividing by it.
+
+    A city that empties out is a real question with a real error, and under a
+    global scale nothing has to be dropped to score it.
+    """
     module = load_module()
     corpus = [
         {
@@ -340,7 +352,9 @@ def test_persistence_skips_a_zero_actual():
         }
         for h, v in [(0, 100), (48, 0)]
     ]
-    assert module.persistence_by_horizon(corpus) == {48: None}
+    assert module.persistence_by_horizon(corpus, NORM)[48] == pytest.approx(
+        100 / POP_SCALE
+    )
 
 
 def test_persistence_reads_the_snapshot_from_its_own_scenario():
@@ -368,7 +382,7 @@ def test_persistence_reads_the_snapshot_from_its_own_scenario():
         )
     # Each run's H48 equals its own snapshot, so a correct lookup scores 0; a
     # lookup that ignored scenario_id would cross the two and score above 0.
-    assert module.persistence_by_horizon(corpus)[48] == pytest.approx(0.0)
+    assert module.persistence_by_horizon(corpus, NORM)[48] == pytest.approx(0.0)
 
 
 def _flat_history(n: int = 300) -> list[dict]:
@@ -424,8 +438,10 @@ def test_sigma_baseline_matches_persistence_when_nothing_ever_moved(monkeypatch)
         for h, v in [(0, 100), (48, 150)]
     ]
     monkeypatch.setattr(module, "scenario_history", lambda _sid, _seed: _flat_history())
-    means, scored = module.persistence_sigma_by_horizon(corpus, 42)
-    assert means[48] == pytest.approx(module.persistence_by_horizon(corpus, scored)[48])
+    means, scored = module.persistence_sigma_by_horizon(corpus, 42, NORM)
+    assert means[48] == pytest.approx(
+        module.persistence_by_horizon(corpus, NORM, scored)[48]
+    )
 
 
 def test_sigma_baseline_beats_persistence_when_the_metric_moves(monkeypatch):
@@ -444,8 +460,8 @@ def test_sigma_baseline_beats_persistence_when_the_metric_moves(monkeypatch):
     # A wandering history, so sigma is well above zero.
     history = [{"cityPop": 100 + (i % 7) * 30} for i in range(300)]
     monkeypatch.setattr(module, "scenario_history", lambda _sid, _seed: history)
-    means, scored = module.persistence_sigma_by_horizon(corpus, 42)
-    assert means[48] < module.persistence_by_horizon(corpus, scored)[48]
+    means, scored = module.persistence_sigma_by_horizon(corpus, 42, NORM)
+    assert means[48] < module.persistence_by_horizon(corpus, NORM, scored)[48]
 
 
 def test_sigma_baseline_skips_a_scenario_with_no_cached_run(monkeypatch):
@@ -462,7 +478,7 @@ def test_sigma_baseline_skips_a_scenario_with_no_cached_run(monkeypatch):
         for h, v in [(0, 100), (48, 150)]
     ]
     monkeypatch.setattr(module, "scenario_history", lambda _sid, _seed: None)
-    means, scored = module.persistence_sigma_by_horizon(corpus, 42)
+    means, scored = module.persistence_sigma_by_horizon(corpus, 42, NORM)
     assert means == {48: None}
     assert scored == set()
 
@@ -501,9 +517,9 @@ def test_the_two_baselines_average_over_the_same_questions(monkeypatch):
         "scenario_history",
         lambda sid, _seed: _flat_history() if sid == "keep" else None,
     )
-    _means, scored = module.persistence_sigma_by_horizon(corpus, 42)
+    _means, scored = module.persistence_sigma_by_horizon(corpus, 42, NORM)
     assert scored == {("keep", 240, "cityPop", 48)}
     # Unrestricted, plain persistence averages both scenarios; restricted, one.
-    assert len(module.persistence_by_horizon(corpus)) == 1
-    restricted = module.persistence_by_horizon(corpus, scored)
-    assert restricted[48] == pytest.approx(50 / 150)
+    assert len(module.persistence_by_horizon(corpus, NORM)) == 1
+    restricted = module.persistence_by_horizon(corpus, NORM, scored)
+    assert restricted[48] == pytest.approx(50 / POP_SCALE)

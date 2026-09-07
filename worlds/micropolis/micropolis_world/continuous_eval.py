@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,12 +55,95 @@ def plots_path(label: str) -> Path:
     return label_dir(label) / "plots"
 
 
-# Metrics left out of normalized CRPS. Normalizing by |actual| is undefined
-# where the actual is 0, and city funds legitimately sits at 0 for long
-# stretches — a bankrupt city stays broke — so the whole metric is excluded
-# rather than dropping the individual questions and averaging over a
-# silently different question set per scenario.
+# Metrics no normalization mode covers, so they appear in the raw CRPS tables
+# and nowhere else. City funds swings through zero and changes sign — a
+# bankrupt city stays broke — which leaves it with no scale worth dividing by
+# under any of the modes below; the whole metric is excluded rather than
+# dropping the individual questions and averaging over a silently different
+# question set per scenario. Named as well as absent from GLOBAL_SCALES so a
+# metric with no scale can be told from one whose scale was forgotten.
 UNNORMALIZED_METRICS = {"totalFunds"}
+
+# Denominators for --norm global: one fixed scale per metric, the same for
+# every question. Round numbers on the order of a metric's plausible range over
+# a run rather than anything fitted to the data, so they hold still as cities,
+# snapshots and models come and go, and a normalized cell can be compared
+# across all of them. The alternative modes divide by something the question
+# itself supplies, which makes a cell easier to interpret in isolation and
+# harder to compare.
+GLOBAL_SCALES: dict[str, float] = {
+    "cityPop": 20_000.0,
+    "trafficAverage": 20.0,
+    "pollutionAverage": 60.0,
+    "crimeAverage": 60.0,
+    "landValueAverage": 60.0,
+}
+
+# --norm's values, "global" first because it is the default.
+NORM_MODES = ("global", "local", "baseline")
+DEFAULT_NORM = "global"
+
+
+@dataclass(frozen=True)
+class Normalizer:
+    """How CRPS is divided into a unitless score, plus the prose that says so.
+
+    `scale` returns one question's denominator, or None where the question
+    cannot be normalized at all: such a forecast keeps its raw CRPS and is left
+    out of every normalized aggregate. `ratio` names the quantity on an axis or
+    in a column note and `detail` is the one line saying what the denominator
+    is, so a report never shows a normalized number without stating what it was
+    divided by — the modes are not comparable with each other.
+    """
+
+    mode: str
+    ratio: str
+    detail: str
+    scale: Callable[[dict], float | None]
+
+    def unscaled_metrics(self, corpus: list[dict]) -> list[str]:
+        """Corpus metrics this mode has no scale for and does not exclude.
+
+        A metric added to the corpus without a scale would otherwise drop out
+        of the normalized tables silently, leaving them narrower than the raw
+        ones with nothing to say why.
+        """
+        scaled = {c["metric"] for c in corpus if self.scale(c) is not None}
+        return sorted({c["metric"] for c in corpus} - UNNORMALIZED_METRICS - scaled)
+
+
+def describe_global_scales() -> str:
+    """GLOBAL_SCALES as report prose, in the table's own order."""
+    return ", ".join(
+        f"{g.METRIC_LABELS.get(m, m)} {scale:,.0f}"
+        for m, scale in GLOBAL_SCALES.items()
+    )
+
+
+def make_normalizer(mode: str) -> Normalizer:
+    """The Normalizer for a --norm mode.
+
+    Raises NotImplementedError for the modes that are named but not written
+    yet, so the flag documents where they will land rather than silently
+    falling back to another mode's numbers.
+    """
+    if mode == "global":
+        return Normalizer(
+            mode=mode,
+            ratio="CRPS/scale",
+            detail=f"a fixed per-metric scale — {describe_global_scales()}",
+            scale=lambda c: GLOBAL_SCALES.get(c["metric"]),
+        )
+    if mode == "local":
+        raise NotImplementedError(
+            "--norm local (divide by the question's own actual) is not implemented yet"
+        )
+    if mode == "baseline":
+        raise NotImplementedError(
+            "--norm baseline (divide by the baseline forecast's CRPS) is not "
+            "implemented yet; scripts/analyze_baseline_skill.py reports that ratio"
+        )
+    raise ValueError(f"unknown normalization mode: {mode!r}")
 
 
 @dataclass(frozen=True)
@@ -454,14 +538,17 @@ def select_for_config(
 
 
 def score_forecasts(
-    corpus: list[dict], responses: Responses, model_names: list[str]
+    corpus: list[dict],
+    responses: Responses,
+    model_names: list[str],
+    norm: Normalizer,
 ) -> list[dict]:
     """Score every parsed forecast, raw and normalized.
 
     One row per (model, question) that produced a usable forecast, carrying the
     metric and horizon so callers can group as they like. "normalized" is CRPS
-    over |actual|, and is None where that is undefined or the metric is
-    excluded, so a caller averaging it must skip the Nones.
+    over `norm`'s scale for that question, and is None where the question has
+    no scale, so a caller averaging it must skip the Nones.
     """
     rows = []
     for c in corpus:
@@ -470,18 +557,18 @@ def score_forecasts(
             if r is None or r.percentiles is None:
                 continue
             crps = compute_crps(r.percentiles, c["value"])
-            actual = abs(c["value"])
-            # Guard on the value rather than trusting the metric to be
-            # non-zero: which metrics can hit 0 depends on the cities in the
-            # config, and a division by zero here would be silent.
-            normalizable = c["metric"] not in UNNORMALIZED_METRICS and actual != 0
+            # A zero scale is treated as no scale: a mode reading the
+            # denominator off the question can land on 0 for a metric that
+            # happens to sit there, and dividing by it would raise several
+            # frames from the cause.
+            scale = norm.scale(c)
             rows.append(
                 {
                     "model_id": model_id,
                     "metric": c["metric"],
                     "horizon": c["horizon"],
                     "crps": crps,
-                    "normalized": crps / actual if normalizable else None,
+                    "normalized": crps / scale if scale else None,
                 }
             )
     return rows

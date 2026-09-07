@@ -1,6 +1,6 @@
 """Tests for scripts/analyze_baseline_skill.py.
 
-The score is a ratio, which brings failure modes the |actual|-normalized score
+The score is a ratio, which brings failure modes the scale-normalized score
 does not have: a zero denominator, a zero numerator, and an aggregation that
 has to be geometric rather than arithmetic for the scale to stay symmetric.
 These pin those down, along with the clustered confidence intervals — which
