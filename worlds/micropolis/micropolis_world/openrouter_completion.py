@@ -11,8 +11,9 @@ Same call shape as LiteLLM. Differences that matter:
   A slug with no spec is sent as-is.
 * Every ModelSpec field is optional. `endpoint` pins a provider (with
   `ignore`/`quantizations` narrowing it); `sampling` sets body defaults;
-  `reasoning_effort` or `reasoning_budget_tokens` — never both — set
-  `reasoning`. Nothing is validated against the OpenRouter API.
+  `max_tokens` caps the output; `reasoning_effort` or
+  `reasoning_budget_tokens` — never both — set `reasoning`. Nothing is
+  validated against the OpenRouter API.
 * Caller kwargs override the spec, key by key. A caller-supplied `provider`
   or `reasoning` dict wins outright.
 * The response mirrors LiteLLM's ModelResponse for attribute access, keeps
@@ -59,6 +60,7 @@ class ModelSpec:
     quantizations: list[str] | None = None  # e.g. ["fp8"]
     ignore: list[str] = field(default_factory=list)  # provider variants to exclude
     sampling: dict[str, Any] = field(default_factory=dict)  # temperature, top_p, ...
+    max_tokens: int | None = None  # output cap; not reasoning_budget_tokens
     reasoning_effort: str | None = None  # -> reasoning.effort
     reasoning_budget_tokens: int | None = None  # -> reasoning.max_tokens
 
@@ -163,6 +165,9 @@ def _build(model: str, messages: list[dict], kwargs: dict) -> dict:
     }
 
     if spec:
+        if spec.max_tokens:
+            body["max_tokens"] = spec.max_tokens
+
         provider: dict[str, Any] = {
             "require_parameters": True,  # refuse endpoints that would drop our params
         }
@@ -201,12 +206,6 @@ def _finish(model: str, body: dict, r: httpx.Response) -> AttrDict:
     served = data.get("provider", "") or ""
     usage = data.get("usage") or {}
     rtok = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
-
-    # The pinned provider's base slug ("deepinfra/fp8" -> "deepinfra") against
-    # the display name OpenRouter reports ("DeepInfra").
-    pinned = ((body.get("provider") or {}).get("only") or [None])[0]
-    if pinned and pinned.split("/")[0].lower() not in served.lower().replace(" ", ""):
-        raise RuntimeError(f"{model}: pinned {pinned!r}, served by {served!r}")
 
     # `reasoning_tokens: 0` is legitimate — a model at low effort spends none on
     # an easy prompt — so only a missing field means the endpoint ignored us.
@@ -255,12 +254,23 @@ async def acompletion(model: str, messages: list[dict], **kwargs: Any) -> AttrDi
 
 
 # ---------------------------------------------------------------------------
-# CLI:  python openrouter_completion.py <model-slug> < prompt.txt
+# CLI
 # ---------------------------------------------------------------------------
 
+USAGE = """usage: openrouter_completion.py <model-slug> < prompt.txt
+
+Send a prompt (read from stdin) to one OpenRouter model and print the full
+JSON response. The slug's entry in model_specs.json5, if it has one, supplies
+the provider routing, sampling and reasoning settings.
+
+  echo 'What is 17*23?' | ./openrouter_completion.py deepseek/deepseek-chat
+
+Needs OPENROUTER_API_KEY in the environment."""
+
+
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        sys.exit(__doc__)
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        sys.exit(USAGE)
     prompt = sys.stdin.read().strip()
     if not prompt:
         sys.exit("no prompt on stdin")

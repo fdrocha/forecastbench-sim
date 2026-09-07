@@ -9,36 +9,38 @@
 //                   below: models run at each provider's own defaults.
 //                   Some endpoints (o-series, Claude w/ thinking) reject
 //                   sampling params outright.
+//   max_tokens      cap on output tokens (top-level, not reasoning's own)
 //   reasoning_effort        -> reasoning.effort, e.g. "high"
 //   reasoning_budget_tokens -> reasoning.max_tokens; an error together
 //                             with reasoning_effort
 //
 // Every slug in models.csv has an entry here.
 {
-  // --- open weights: pin the quantization too, so the artifact is fixed ---
   "meta-llama/llama-4-scout": {
-    endpoint: "deepinfra",
-    quantizations: ["fp8"],
+    endpoint: "google-vertex"
   },
   "deepseek/deepseek-chat": {
-    endpoint: "deepinfra",
-    quantizations: ["fp4"],
+    endpoint: "streamlake"
+  },
+  "deepseek/deepseek-v4-flash-0731": {
+    endpoint: "streamlake/fp8",
   },
   "moonshotai/kimi-k2": {
     endpoint: "novita",
-    quantizations: ["fp8"],
+    // Without specifying this param, endpoint was erroring with "max_tokens: 100352 exceeds maximum 98304"
+    // Seems OpenRouter is supplying a default that is too large...
+    max_tokens: 90000,
+
   },
   "qwen/qwen3-235b-a22b": {
     endpoint: "alibaba",
+    // reasoning_budget_tokens: 1024,
   },
   "qwen/qwen3.5-flash-02-23": {
     endpoint: "alibaba",
+    // reasoning_budget_tokens: 1024,
   },
-  "deepseek/deepseek-v4-flash-0731": {
-    // 29 endpoints, so pin the exact tag rather than a base slug.
-    endpoint: "deepinfra/fp8",
-    quantizations: ["fp8"],
-  },
+
 
   // --- OpenAI: "openai" is first-party; /flex, /fast and /default are tiers ---
   "openai/gpt-4.1": {
@@ -51,15 +53,13 @@
     endpoint: "openai",
   },
   "openai/o4-mini": {
-    endpoint: "openai", // not azure; "openai/fast" is a tier
-    ignore: ["openai/fast"], // TODO: make sure this is right
+    endpoint: "openai",
   },
   "openai/o3": {
     endpoint: "openai",
-    ignore: ["openai/fast"],
   },
   "openai/gpt-5": {
-    endpoint: "openai/default", // the only openai-tier endpoint offered
+    endpoint: "openai/default",
   },
   "openai/gpt-5-mini": {
     endpoint: "openai",
@@ -90,6 +90,7 @@
   "google/gemini-2.5-flash": {
     endpoint: "google-ai-studio",
     ignore: ["google-ai-studio/flex", "google-ai-studio/priority"],
+//    reasoning_budget_tokens: 1024,
   },
   "google/gemini-3-flash-preview": {
     endpoint: "google-ai-studio",
@@ -107,9 +108,11 @@
   // --- Anthropic: first-party ---
   "anthropic/claude-haiku-4.5": {
     endpoint: "anthropic",
+//    reasoning_budget_tokens: 1024,
   },
   "anthropic/claude-sonnet-5": {
     endpoint: "anthropic",
+//    reasoning_effort: "low",
   },
   "anthropic/claude-opus-5": {
     endpoint: "anthropic",
