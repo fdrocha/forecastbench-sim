@@ -32,18 +32,31 @@ def ensure_api_keys() -> None:
 
     Loading is lazy and done once per process: it makes a network call per
     missing key, and the scripts that never prompt a model shouldn't pay for it.
+
+    OPENROUTER_API_KEY is not among the secrets fetched, so when the OpenRouter
+    backend is live it has to come from the environment or .env. Checked here
+    rather than left to the first call, which would fail per-request as an
+    opaque 401 after the run had already started.
     """
     global _keys_loaded
     if _keys_loaded:
         return
-    # Imported here so the simulation-only scripts don't pull in litellm.
+    # Imported here so the simulation-only scripts don't pull in an LLM client.
     from fbsim_core.evaluation.models import load_api_keys_from_gcp
 
+    from .llm_backend import REQUIRED_ENV_KEYS
+
     load_api_keys_from_gcp()
+    missing = [k for k in REQUIRED_ENV_KEYS if not os.environ.get(k)]
+    if missing:
+        raise RuntimeError(
+            f"{', '.join(missing)} not set — the active LLM backend needs it. "
+            f"Put it in {PKG_DIR / '.env'} or export it."
+        )
     _keys_loaded = True
 
 
-def prompt_model(model, prompt: str, max_tokens: int) -> LLMResponse:
+def prompt_model(model, prompt: str) -> LLMResponse:
     """Send `prompt` to `model`, returning its text, finish reason and cost.
 
     LiteLLMModel.get_response() returns only the text, discarding the two
@@ -54,16 +67,16 @@ def prompt_model(model, prompt: str, max_tokens: int) -> LLMResponse:
     silent blank. So the call is made here instead, and the whole response is
     read before it is dropped.
 
-    Sampling parameters are left unset so every model runs on its provider
-    defaults.
+    Sampling parameters and the output cap are left unset so every model runs
+    on its provider defaults; the cap is a per-endpoint limit and belongs to
+    the backend's model registry.
     """
-    # Imported here so the simulation-only scripts don't pull in litellm.
-    from litellm import completion
+    # Imported here so the simulation-only scripts don't pull in an LLM client.
+    from .llm_backend import completion, to_model_id
 
     kwargs = {
-        "model": model._litellm_model_id,
+        "model": to_model_id(model.id),
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
     }
 
     start = time.perf_counter()
@@ -78,21 +91,21 @@ def prompt_model(model, prompt: str, max_tokens: int) -> LLMResponse:
     )
 
 
-def warn_if_truncated(
-    model_id: str, finish_reason: str | None, max_tokens: int
-) -> None:
+def warn_if_truncated(model_id: str, finish_reason: str | None) -> None:
     """Warn when a reply stopped because it ran out of tokens.
 
     Worth saying explicitly: for a reasoning model the cap covers thinking as
     well as the answer, so the reply can come back empty rather than merely cut
     short, which looks like an unparseable answer instead of a budget problem.
+    The cap itself is the backend's — see the model's entry in
+    model_specs.json5, or the provider default when it has none.
     """
     if finish_reason == "length":
         print(
-            f"  [warning] {model_id} hit the {max_tokens}-token cap before "
-            "finishing. Raise max_tokens; for a reasoning model the cap "
-            "covers thinking as well as the answer, so it can be spent "
-            "before any answer is written."
+            f"  [warning] {model_id} hit its output-token cap before "
+            "finishing. Raise max_tokens in the model's model_specs.json5 "
+            "entry; for a reasoning model the cap covers thinking as well as "
+            "the answer, so it can be spent before any answer is written."
         )
 
 

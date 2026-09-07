@@ -49,14 +49,13 @@ def main() -> None:
         args.config = DEFAULT_CONFIG
     cfg = load_config(args)
     models = cfg.get_models(args.models)
-    max_tokens = cfg.get_int("max_tokens")
 
     print(f"config: {cfg.path}")
     print(f"{len(statements)} statements, {len(models)} model(s)\n")
 
     g.ensure_api_keys()
     answers = get_model_answers(
-        models, max_tokens, provider_limits=cfg.get_provider_concurrency()
+        models, provider_limits=cfg.get_provider_concurrency()
     )
 
     print(f"\n{'=' * 70}")

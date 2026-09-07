@@ -98,14 +98,28 @@ and the structural constraints (§5). Read it before touching resolution.
   sim logs — no prompting, no re-simulating, no API keys. Keep it that way; it makes them
   free to re-run. `select_for_config` narrows a gathered dataset to a config's slice and
   *errors* on anything missing rather than silently reporting less.
-- **litellm is imported lazily** (inside functions in `module_globals`, `usage`, `prompting`)
-  so simulation- and scoring-only code never pulls it in. Tests monkeypatch through those
-  lazy imports.
+- **One import boundary for the LLM client: `llm_backend`.** It re-exports
+  `completion`/`acompletion`/`completion_cost`, the five transient-error classes the retry
+  loop catches, and `to_model_id` (config id → the live backend's model id). OpenRouter
+  (`openrouter_completion`, whose per-model routing lives in `model_specs.json5`) is live;
+  litellm is a commented block in the same file, so switching back is flipping which block
+  is uncommented — never import either client directly. It is still imported lazily (inside
+  functions in `module_globals`, `usage`, `prompting`) so simulation- and scoring-only code
+  never pulls it in, and tests monkeypatch `llm_backend.acompletion`/`completion` through
+  those lazy imports. `tests/conftest.py` blocks httpx outright, so a stub aimed at the wrong
+  target fails instead of quietly calling the real API.
+- **No caller sets `max_tokens`.** The output cap is a per-endpoint limit, so it belongs to
+  the model's `model_specs.json5` entry; configs and `PromptJob` have no such key.
 - **Output goes to a Markdown report**, accumulated via `continuous_eval.MdReport` and stamped
   with both this repo's and the engine checkout's commit; stdout gets only paths.
-- Model ids are `provider/name`; filenames slugify `/` → `_`. External scores join on
-  `LiteLLMSlug` in `model_scores.csv` — a blank slug means the model is excluded, and
-  near-miss slugs must never be guessed at.
+- Model ids are **bare OpenRouter slugs** (`provider/name`, e.g.
+  `anthropic/claude-haiku-4.5`, `deepseek/deepseek-chat` — no `openrouter/` prefix, no dated
+  aliases); filenames slugify `/` → `_`. The same spelling is the canonical id everywhere:
+  configs, `model_specs.json5`, cache filenames, and the `LiteLLMSlug` column of
+  `model_scores.csv` that external scores join on — a blank slug there means the model is
+  excluded, and near-miss slugs must never be guessed at. `llm_backend.to_model_id` is
+  therefore the identity under OpenRouter; it is the litellm block that has to map back
+  (passthrough prefix, dated aliases, `gemini/` for `google/`).
 - Scoring choices that must not be reinvented per script: horizon 0 is a read-off, not a
   forecast, and is excluded from aggregates; `totalFunds` is excluded from |actual|-normalized
   CRPS; skill (`CRPS_model / CRPS_baseline`) is aggregated as a geometric mean with t-based

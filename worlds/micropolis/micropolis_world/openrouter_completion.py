@@ -15,7 +15,12 @@ Same call shape as LiteLLM. Differences that matter:
   `reasoning_budget_tokens` — never both — set `reasoning`. Nothing is
   validated against the OpenRouter API.
 * Caller kwargs override the spec, key by key. A caller-supplied `provider`
-  or `reasoning` dict wins outright.
+  or `reasoning` dict wins outright. No caller passes `max_tokens`: the output
+  cap is the spec's business, since it is a per-endpoint limit.
+* Errors are LiteLLM's class names (`RateLimitError`, `InternalServerError`,
+  ...) so one retry loop serves both backends; `to_model_id` is the identity
+  here, since ids are already slugs. Import both through `llm_backend`, not
+  from here.
 * The response mirrors LiteLLM's ModelResponse for attribute access, keeps
   every OpenRouter field in place (`provider`, `usage.cost`, ...), and puts
   provenance under `_hidden_params`.
@@ -46,6 +51,85 @@ def _headers(api_key: str | None = None) -> dict[str, str]:
     if not key:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
     return {"Authorization": f"Bearer {key}"}
+
+
+# ---------------------------------------------------------------------------
+# Errors. Named and shaped like LiteLLM's so the retry loop in prompting.py
+# catches the same five classes whichever backend is live. Those five are
+# retried; AuthenticationError and BadRequestError are not, since retrying a
+# bad key or a malformed request only wastes the budget.
+# ---------------------------------------------------------------------------
+
+
+class OpenRouterError(RuntimeError):
+    """Base for every error this module raises."""
+
+
+class RateLimitError(OpenRouterError):
+    """HTTP 429 — back off and retry."""
+
+
+class InternalServerError(OpenRouterError):
+    """HTTP 500/502/504, or a 200 body carrying a provider-side error."""
+
+
+class ServiceUnavailableError(OpenRouterError):
+    """HTTP 503."""
+
+
+class AuthenticationError(OpenRouterError):
+    """HTTP 401/403 — retrying will not help."""
+
+
+class BadRequestError(OpenRouterError):
+    """HTTP 400/404/422 — the request itself is wrong."""
+
+
+# httpx's own transient failures, re-exported under LiteLLM's names rather
+# than wrapped: they escape from the post() call, not from _finish().
+APIConnectionError = httpx.TransportError
+Timeout = httpx.TimeoutException
+
+# Status codes that mean "try again", mapped to the class for each.
+_RETRYABLE = {
+    429: RateLimitError,
+    500: InternalServerError,
+    502: InternalServerError,
+    503: ServiceUnavailableError,
+    504: InternalServerError,
+}
+
+
+def _raise_for_status(model: str, r: httpx.Response) -> None:
+    """Turn an error response into the matching exception class."""
+    code = r.status_code
+    if code < 400:
+        return
+    detail = f"{model}: HTTP {code}: {r.text}"
+    if code in _RETRYABLE:
+        raise _RETRYABLE[code](detail)
+    if code in (401, 403):
+        raise AuthenticationError(detail)
+    if code in (400, 404, 422):
+        raise BadRequestError(detail)
+    raise OpenRouterError(detail)
+
+
+# ---------------------------------------------------------------------------
+# Model ids. Configs and model_scores.csv spell models as bare OpenRouter
+# slugs, so nothing needs translating — but the hook stays, because the other
+# backend does need it and one of the two has to be the identity.
+# ---------------------------------------------------------------------------
+
+
+def to_model_id(model_id: str) -> str:
+    """The OpenRouter slug for a config's model id — already one, verbatim.
+
+    Configs, model_scores.csv and the cache filenames all use bare slugs, so
+    a model id reaches the API unchanged. An id OpenRouter doesn't know fails
+    as a 400 at call time rather than being silently rewritten.
+    """
+    return model_id
 
 
 # ---------------------------------------------------------------------------
@@ -132,9 +216,16 @@ class AttrDict(dict):
         return json.dumps(self.model_dump(), **kw)
 
 
-def completion_cost(completion_response: Any = None) -> float:
-    """LiteLLM-shaped; here it just reads OpenRouter's billed cost off the response.
-    Only supports being called with completion_response."""
+def completion_cost(
+    completion_response: Any = None, model: str | None = None, **_: Any
+) -> float:
+    """OpenRouter's billed cost for a response, in USD.
+
+    LiteLLM-shaped, including raising when the cost can't be determined —
+    usage.cost_from_response() relies on that. `model` is accepted and ignored:
+    LiteLLM needs it to pick a price-map entry, whereas this is the amount
+    OpenRouter actually charged.
+    """
     if completion_response is None:
         raise ValueError("completion_cost needs a completion_response")
     cost = (completion_response.get("usage") or {}).get("cost")
@@ -149,7 +240,17 @@ def completion_cost(completion_response: Any = None) -> float:
 # Request body.
 # ---------------------------------------------------------------------------
 
-_CONTROL = {"fetch_generation", "api_key", "timeout", "stream"}
+# Kwargs consumed here rather than forwarded. num_retries/max_retries are
+# LiteLLM's two retry knobs: callers pass 0 for both to disable them, and
+# OpenRouter would reject the unknown fields.
+_CONTROL = {
+    "fetch_generation",
+    "api_key",
+    "timeout",
+    "stream",
+    "num_retries",
+    "max_retries",
+}
 
 
 def _build(model: str, messages: list[dict], kwargs: dict) -> dict:
@@ -196,11 +297,13 @@ def _build(model: str, messages: list[dict], kwargs: dict) -> dict:
 
 
 def _finish(model: str, body: dict, r: httpx.Response) -> AttrDict:
-    if r.status_code >= 400:
-        raise RuntimeError(f"{model}: HTTP {r.status_code}: {r.text}")
+    _raise_for_status(model, r)
     data = r.json()
-    if "error" in data:  # OpenRouter can return 200 with an error body
-        raise RuntimeError(f"{model}: {data['error']}")
+    if "error" in data:
+        # OpenRouter can return 200 with an error body. Treated as transient:
+        # it is usually the upstream provider having failed mid-request, which
+        # a retry on another endpoint often gets past.
+        raise InternalServerError(f"{model}: {data['error']}")
 
     resp = AttrDict(data)
     served = data.get("provider", "") or ""
@@ -210,7 +313,7 @@ def _finish(model: str, body: dict, r: httpx.Response) -> AttrDict:
     # `reasoning_tokens: 0` is legitimate — a model at low effort spends none on
     # an easy prompt — so only a missing field means the endpoint ignored us.
     if "reasoning" in body and rtok is None:
-        raise RuntimeError(
+        raise OpenRouterError(
             f"{model}: reasoning requested but the response reports no "
             f"reasoning_tokens at all — the endpoint likely ignored it"
         )

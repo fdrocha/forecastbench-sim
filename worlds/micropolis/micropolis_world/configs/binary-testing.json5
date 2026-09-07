@@ -27,5 +27,4 @@
     "openai/gpt-4.1",
     "google/gemini-2.5-flash",
   ],
-  "max_tokens": 30000,
 }

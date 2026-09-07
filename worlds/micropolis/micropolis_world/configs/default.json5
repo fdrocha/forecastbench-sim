@@ -71,5 +71,4 @@
   "censorCityFunds": true,
 
   "models": "models-base.json5",
-  "max_tokens": 30000,
 }

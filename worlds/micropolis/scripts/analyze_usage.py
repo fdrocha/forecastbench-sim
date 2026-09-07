@@ -252,7 +252,7 @@ def main() -> None:
     if total.unpriced:
         # Excluded from the cost column above, so the total is a floor.
         print(
-            f"{total.unpriced} call(s) had no litellm price; "
+            f"{total.unpriced} call(s) had no price; "
             "the cost above excludes them"
         )
     print("=" * 70)

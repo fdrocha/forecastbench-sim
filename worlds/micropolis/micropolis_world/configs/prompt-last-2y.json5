@@ -37,8 +37,7 @@
 
   "censorCityFunds": true,
 
-  // Models to prompt (a string names a JSON5 file, relative to this one,
-  // holding the list) and the response token cap.
+  // Models to prompt: a string names a JSON5 file, relative to this one,
+  // holding the list.
   "models": "models-for-prompt-variants.json5",
-  "max_tokens": 30000,
 }

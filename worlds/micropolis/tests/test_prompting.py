@@ -1,10 +1,12 @@
 """Tests for the concurrent prompting fan-out.
 
-LiteLLM is stubbed by replacing the name prompt_model_async binds — patching
-litellm.acompletion works only because the import happens inside the function
-body, exactly like prompt_model's (see test_usage.py's `calls` fixture). All
-tests drive the async code with asyncio.run, so no async test plugin is needed
-and nothing here calls a model or needs a key.
+The client is stubbed by replacing the name prompt_model_async binds — patching
+llm_backend.acompletion works only because the import happens inside the
+function body, exactly like prompt_model's (see test_usage.py's `calls`
+fixture). Errors are raised as the backend's own classes, which is what the
+retry loop catches whichever backend llm_backend has live. All tests drive the
+async code with asyncio.run, so no async test plugin is needed and nothing here
+calls a model or needs a key.
 """
 
 import asyncio
@@ -14,6 +16,7 @@ import pytest
 from fbsim_core.evaluation.models import LiteLLMModel
 from test_usage import make_response
 
+from micropolis_world import llm_backend
 from micropolis_world.prompting import (
     PromptJob,
     PromptResult,
@@ -26,24 +29,23 @@ from micropolis_world.prompting import (
 
 @pytest.fixture
 def calls(monkeypatch):
-    """Stub litellm.acompletion, recording the kwargs each call sends."""
+    """Stub the backend's acompletion, recording the kwargs each call sends."""
     recorded = []
 
     async def fake_acompletion(**kwargs):
         recorded.append(kwargs)
         return make_response()
 
-    monkeypatch.setattr("litellm.acompletion", fake_acompletion)
+    monkeypatch.setattr(llm_backend, "acompletion", fake_acompletion)
     return recorded
 
 
-def job(model_id: str, content: str = "hi", max_tokens: int = 10) -> PromptJob:
+def job(model_id: str, content: str = "hi") -> PromptJob:
     return PromptJob(
         key=model_id,
         model=LiteLLMModel(model_id),
         model_name=model_id,
         messages=[{"role": "user", "content": content}],
-        max_tokens=max_tokens,
     )
 
 
@@ -73,12 +75,11 @@ def test_format_eta_switches_to_minutes():
 # --- prompt_model_async -------------------------------------------------------
 
 
-def test_returns_text_finish_reason_and_cost(calls):
+def test_returns_text_finish_reason_and_usage(calls):
     got = asyncio.run(
         prompt_model_async(
             LiteLLMModel("openai/gpt-4o"),
             [{"role": "user", "content": "hi"}],
-            max_tokens=10,
         )
     )
 
@@ -87,36 +88,36 @@ def test_returns_text_finish_reason_and_cost(calls):
     assert got.usage.model_id == "openai/gpt-4o"
     assert got.usage.input_tokens == 100
     assert got.usage.output_tokens == 50
-    assert got.usage.cost_usd is not None
     assert got.usage.latency_ms is not None
 
 
-def test_sends_normalized_id_and_no_sampling_params(calls):
+def test_sends_backend_id_and_no_sampling_params(calls):
     """The kwargs must match sync prompt_model's for the same model."""
-    for model_id in ["google/gemini-2.5-pro", "openai/gpt-4o", "openai/gpt-5"]:
+    model_ids = ["google/gemini-2.5-flash", "openai/gpt-4o", "openai/gpt-5"]
+    for model_id in model_ids:
         asyncio.run(
             prompt_model_async(
                 LiteLLMModel(model_id),
                 [{"role": "user", "content": "hi"}],
-                max_tokens=10,
             )
         )
 
-    # google/ is asked for; gemini/ is what LiteLLM's API expects.
-    assert calls[0]["model"] == "gemini/gemini-2.5-pro"
+    # Whatever the config spells is translated for the live backend.
+    assert [c["model"] for c in calls] == [
+        llm_backend.to_model_id(m) for m in model_ids
+    ]
     for call in calls:
         assert "temperature" not in call
-        # The cap is always sent, unlike fbsim-core's get_response.
-        assert call["max_tokens"] == 10
+        # The output cap belongs to the backend's registry, not to a caller.
+        assert "max_tokens" not in call
 
 
-def test_owns_retries_and_disables_litellm_and_sdk_retries(calls):
+def test_owns_retries_and_disables_client_and_sdk_retries(calls):
     """Both silent retry layers must be off so our warning loop sees each 429."""
     asyncio.run(
         prompt_model_async(
             LiteLLMModel("openai/gpt-4o"),
             [{"role": "user", "content": "hi"}],
-            max_tokens=10,
             num_retries=7,
             timeout=123.0,
         )
@@ -128,26 +129,21 @@ def test_owns_retries_and_disables_litellm_and_sdk_retries(calls):
 
 
 def test_retries_rate_limits_with_a_stderr_warning(monkeypatch, capsys):
-    import litellm
-
     attempts = []
 
     async def fake_acompletion(**kwargs):
         attempts.append(kwargs)
         if len(attempts) < 3:
-            raise litellm.RateLimitError(
-                "slow down", llm_provider="openai", model="gpt-4o"
-            )
+            raise llm_backend.RateLimitError("slow down")
         return make_response()
 
-    monkeypatch.setattr("litellm.acompletion", fake_acompletion)
+    monkeypatch.setattr(llm_backend, "acompletion", fake_acompletion)
     monkeypatch.setattr("micropolis_world.prompting.RATE_LIMIT_BACKOFF_BASE_S", 0.0)
 
     got = asyncio.run(
         prompt_model_async(
             LiteLLMModel("openai/gpt-4o"),
             [{"role": "user", "content": "hi"}],
-            max_tokens=10,
         )
     )
 
@@ -161,23 +157,20 @@ def test_retries_rate_limits_with_a_stderr_warning(monkeypatch, capsys):
 
 
 def test_raises_once_the_retry_budget_is_spent(monkeypatch, capsys):
-    import litellm
-
     attempts = []
 
     async def fake_acompletion(**kwargs):
         attempts.append(kwargs)
-        raise litellm.RateLimitError("slow down", llm_provider="openai", model="gpt-4o")
+        raise llm_backend.RateLimitError("slow down")
 
-    monkeypatch.setattr("litellm.acompletion", fake_acompletion)
+    monkeypatch.setattr(llm_backend, "acompletion", fake_acompletion)
     monkeypatch.setattr("micropolis_world.prompting.RATE_LIMIT_BACKOFF_BASE_S", 0.0)
 
-    with pytest.raises(litellm.RateLimitError):
+    with pytest.raises(llm_backend.RateLimitError):
         asyncio.run(
             prompt_model_async(
                 LiteLLMModel("openai/gpt-4o"),
                 [{"role": "user", "content": "hi"}],
-                max_tokens=10,
                 num_retries=2,
             )
         )
@@ -190,26 +183,21 @@ def test_raises_once_the_retry_budget_is_spent(monkeypatch, capsys):
 def test_transient_errors_retry_but_client_errors_raise_immediately(
     monkeypatch, capsys
 ):
-    import litellm
-
     attempts = []
 
     async def flaky_acompletion(**kwargs):
         attempts.append(kwargs)
         if len(attempts) == 1:
-            raise litellm.InternalServerError(
-                "oops", llm_provider="openai", model="gpt-4o"
-            )
+            raise llm_backend.InternalServerError("oops")
         return make_response()
 
-    monkeypatch.setattr("litellm.acompletion", flaky_acompletion)
+    monkeypatch.setattr(llm_backend, "acompletion", flaky_acompletion)
     monkeypatch.setattr("micropolis_world.prompting.TRANSIENT_BACKOFF_S", 0.0)
 
     got = asyncio.run(
         prompt_model_async(
             LiteLLMModel("openai/gpt-4o"),
             [{"role": "user", "content": "hi"}],
-            max_tokens=10,
         )
     )
     assert got.text == "hello"
@@ -218,19 +206,16 @@ def test_transient_errors_retry_but_client_errors_raise_immediately(
 
     async def unauthorized_acompletion(**kwargs):
         attempts.append(kwargs)
-        raise litellm.AuthenticationError(
-            "bad key", llm_provider="openai", model="gpt-4o"
-        )
+        raise llm_backend.AuthenticationError("bad key")
 
-    monkeypatch.setattr("litellm.acompletion", unauthorized_acompletion)
+    monkeypatch.setattr(llm_backend, "acompletion", unauthorized_acompletion)
     attempts.clear()
 
-    with pytest.raises(litellm.AuthenticationError):
+    with pytest.raises(llm_backend.AuthenticationError):
         asyncio.run(
             prompt_model_async(
                 LiteLLMModel("openai/gpt-4o"),
                 [{"role": "user", "content": "hi"}],
-                max_tokens=10,
             )
         )
     assert len(attempts) == 1  # no retry budget wasted on a hopeless call
@@ -243,9 +228,7 @@ def test_passes_the_message_list_through_verbatim(calls):
         {"role": "assistant", "content": "hello"},
         {"role": "user", "content": "and again"},
     ]
-    asyncio.run(
-        prompt_model_async(LiteLLMModel("openai/gpt-4o"), conversation, max_tokens=10)
-    )
+    asyncio.run(prompt_model_async(LiteLLMModel("openai/gpt-4o"), conversation))
     assert calls[0]["messages"] == conversation
 
 
@@ -268,7 +251,7 @@ def test_caps_in_flight_calls_per_provider_not_globally(monkeypatch):
         in_flight[provider] -= 1
         return make_response()
 
-    monkeypatch.setattr("litellm.acompletion", fake_acompletion)
+    monkeypatch.setattr(llm_backend, "acompletion", fake_acompletion)
 
     jobs = [job("openai/gpt-4o", content=f"q{i}") for i in range(4)] + [
         job("anthropic/claude-sonnet-4-5", content=f"q{i}") for i in range(2)
@@ -288,7 +271,7 @@ def test_yields_in_completion_order_each_job_once(monkeypatch):
         await asyncio.sleep(0.05 if kwargs["model"].startswith("openai") else 0)
         return make_response()
 
-    monkeypatch.setattr("litellm.acompletion", fake_acompletion)
+    monkeypatch.setattr(llm_backend, "acompletion", fake_acompletion)
 
     jobs = [job("openai/gpt-4o"), job("mistral/mistral-large")]
     results = collect(jobs)
@@ -302,7 +285,7 @@ def test_captures_failures_per_job_and_continues(monkeypatch):
             raise ValueError("no such model")
         return make_response()
 
-    monkeypatch.setattr("litellm.acompletion", fake_acompletion)
+    monkeypatch.setattr(llm_backend, "acompletion", fake_acompletion)
 
     results = collect([job("openai/gpt-4o"), job("xai/grok-4")])
     by_key = {r.job.key: r for r in results}
@@ -323,7 +306,6 @@ def test_first_try_success_reports_no_retries(calls):
         prompt_model_async(
             LiteLLMModel("openai/gpt-4o"),
             [{"role": "user", "content": "hi"}],
-            max_tokens=10,
         )
     )
 

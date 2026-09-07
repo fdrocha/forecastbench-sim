@@ -70,7 +70,6 @@ from micropolis_world.scenarios import (
 def gather_responses(
     corpus: list[dict],
     model_names: list[str],
-    max_tokens: int,
     provider_limits: dict[str, int] | None = None,
     preamble_path: Path | None = None,
     epilogue_path: Path | None = None,
@@ -87,7 +86,6 @@ def gather_responses(
     batches, raws = gather_raw_responses(
         corpus,
         model_names,
-        max_tokens,
         paths=PATHS,
         build_prompt=lambda context, questions: build_batch_prompt_continuous(
             context, questions, preamble_path, epilogue_path, question_tagging
@@ -195,7 +193,6 @@ def main() -> None:
     responses = gather_responses(
         corpus,
         models,
-        cfg.get_int("max_tokens"),
         cfg.get_provider_concurrency(),
         preamble_path,
         epilogue_path,

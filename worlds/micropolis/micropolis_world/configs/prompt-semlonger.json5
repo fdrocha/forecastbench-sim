@@ -50,5 +50,4 @@
   "censorCityFunds": true,
 
   "models": "models-for-prompt-variants.json5",
-  "max_tokens": 30000,
 }

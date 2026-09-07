@@ -25,10 +25,6 @@ from .statements import false_statements, honeypot_statements, true_statements
 
 SHUFFLE_SEED = 20260807
 
-# Statements are one line each; the answers are one short line each. Give enough
-# room for the whole answer block plus any preamble a chatty model adds.
-MAX_TOKENS = 8000
-
 HERE = Path(__file__).parent
 PREAMBLE_PATH = HERE / "prompt_preamble.txt"
 
@@ -226,7 +222,6 @@ def parse_response(text: str | None) -> list[Answer]:
 
 def get_model_answers(
     models: list[str],
-    max_tokens: int = MAX_TOKENS,
     provider_limits: dict[str, int] | None = None,
 ) -> dict[str, list[Answer]]:
     """Administer the statement test to each model and parse the replies.
@@ -248,10 +243,11 @@ def get_model_answers(
     replies with nothing but whitespace, is warned about and left out of both
     the result and the cache.
 
-    max_tokens must leave room for one answer line per statement; a cap that
-    truncates the reply shows up as UNPARSEABLE answers for the tail.
+    The output cap is the backend's (model_specs.json5, or the provider
+    default); it must leave room for one answer line per statement, since a cap
+    that truncates the reply shows up as UNPARSEABLE answers for the tail.
     """
-    # Imported here so the scoring-only scripts don't pull in litellm.
+    # Imported here so the scoring-only scripts don't pull in an LLM client.
     from fbsim_core.evaluation.models import get_models
 
     prompt, phash = build_prompt()
@@ -285,7 +281,6 @@ def get_model_answers(
                     model=model,
                     model_name=model_name,
                     messages=[{"role": "user", "content": prompt}],
-                    max_tokens=max_tokens,
                 )
             )
 
@@ -295,10 +290,6 @@ def get_model_answers(
 
     async def consume() -> None:
         nonlocal total_cost, nunpriced
-        # Warm litellm's slow first import in the loop that will use it, rather
-        # than paying for it under the first worker's provider semaphore.
-        import litellm  # noqa: F401
-
         # Everything below the API call — prints, cache writes, parsing — runs
         # here in the single consumer task, so nothing needs a lock.
         done = 0
@@ -332,7 +323,7 @@ def get_model_answers(
                 nunpriced += 1
             else:
                 total_cost += resp.usage.cost_usd
-            warn_if_truncated(model_name, resp.finish_reason, max_tokens)
+            warn_if_truncated(model_name, resp.finish_reason)
 
             if raw is None or not raw.strip():
                 print(
@@ -355,7 +346,7 @@ def get_model_answers(
         # What this run paid across all fresh calls; cached models cost nothing.
         summary = f"this run's {len(jobs)} call(s) cost ${total_cost:.2f}"
         if nunpriced:
-            summary += f" + {nunpriced} call(s) litellm could not price"
+            summary += f" + {nunpriced} unpriced call(s)"
         print(summary)
         if failures:
             print(

@@ -4,9 +4,9 @@ prompt_model() is the one place micropolis talks to an LLM, so it is the one
 place tokens and dollars can be read off a reply; this module holds the record
 it produces and the LiteLLM-shaped reading of it.
 
-Kept litellm-free at import time — the one function that needs litellm imports
-it lazily — so the scoring and analysis scripts can read recorded usage without
-pulling in litellm.
+Kept backend-free at import time — the one function that needs a client imports
+llm_backend lazily — so the scoring and analysis scripts can read recorded usage
+without pulling one in.
 """
 
 import json
@@ -19,8 +19,8 @@ from typing import Any
 class CallUsage:
     """Tokens and dollars for one completed LLM API call.
 
-    cost_usd is None, never 0.0, when litellm has no price-map entry for the
-    model: an unknown price must never be silently reported as free. Anything
+    cost_usd is None, never 0.0, when the backend couldn't price the call: an
+    unknown price must never be silently reported as free. Anything
     summing these has to decide what to say about the unpriced calls, and a
     None forces that decision instead of hiding it.
 
@@ -140,10 +140,11 @@ def _detail(obj: Any, *names: str) -> int | None:
     litellm's usage-detail wrappers delete their unset optional fields in
     __init__, so plain attribute access raises AttributeError rather than
     returning None, and the whole wrapper is None when nothing was reported.
-    Field names also drift between litellm versions — cache writes were
-    cache_creation_tokens before 1.96 and cache_write_tokens after — so more
-    than one name is tried and a rename degrades a field to None rather than
-    raising.
+    OpenRouter simply omits the key, which AttrDict also turns into an
+    AttributeError. Field names also drift between litellm versions — cache
+    writes were cache_creation_tokens before 1.96 and cache_write_tokens after
+    — so more than one name is tried and a rename degrades a field to None
+    rather than raising.
     """
     if obj is None:
         return None
@@ -155,24 +156,28 @@ def _detail(obj: Any, *names: str) -> int | None:
 
 
 def cost_from_response(response: Any, model_id: str | None = None) -> float | None:
-    """USD cost of a litellm response, or None if the model has no price entry.
+    """USD cost of a response, or None if the backend couldn't price it.
 
-    Never raises: litellm.completion_cost() throws for any model missing from
-    its price map, and pricing a call must not be able to fail the call that
-    was already paid for. An unpriced call reports None rather than 0.0.
+    Never raises: pricing a call must not be able to fail the call that was
+    already paid for. An unpriced call reports None rather than 0.0.
+
+    Under OpenRouter the cost is the amount actually billed, carried on the
+    response, so None is rare; under LiteLLM it is a price-map estimate and
+    None means the model has no entry.
 
     Args:
-        response: The object litellm's completion() returned.
-        model_id: The id we asked for. Passed to litellm as an extra candidate
-            name, which matters when the provider echoes back a bare
-            "gemini-2.5-pro" while the price map is keyed "gemini/gemini-2.5-pro".
+        response: The object completion() returned.
+        model_id: The id we asked for. Passed on as an extra candidate name,
+            which matters to LiteLLM when the provider echoes back a bare
+            "gemini-2.5-pro" while the price map is keyed
+            "gemini/gemini-2.5-pro". Ignored by the OpenRouter backend.
 
     Returns:
-        The cost in USD, or None if litellm can't price the model.
+        The cost in USD, or None if the backend can't price the model.
     """
-    # Only ever populated behind a LiteLLM proxy or on the batch path, not by a
-    # plain completion() call — but it's free to check and it's the only correct
-    # value when it is there.
+    # Where OpenRouter puts the billed cost, and where LiteLLM puts it behind a
+    # proxy or on the batch path. Checked first: it's the only correct value
+    # when it is there.
     hidden = getattr(response, "_hidden_params", None)
     if isinstance(hidden, dict) and hidden.get("response_cost") is not None:
         try:
@@ -180,12 +185,12 @@ def cost_from_response(response: Any, model_id: str | None = None) -> float | No
         except (TypeError, ValueError):
             pass
 
-    # Imported here so the scoring-only scripts don't pull in litellm.
-    import litellm
+    # Imported here so the scoring-only scripts don't pull in an LLM client.
+    from .llm_backend import completion_cost
 
     try:
-        cost = litellm.completion_cost(completion_response=response, model=model_id)
-    except Exception:  # noqa: BLE001 - litellm raises bare Exception for unmapped models
+        cost = completion_cost(completion_response=response, model=model_id)
+    except Exception:  # noqa: BLE001 - both backends raise when they can't price
         return None
     return None if cost is None else float(cost)
 
@@ -195,10 +200,10 @@ def usage_from_response(
     model_id: str,
     latency_ms: float | None = None,
 ) -> CallUsage:
-    """Tokens and cost for a litellm response.
+    """Tokens and cost for a completion response.
 
     Args:
-        response: The object litellm's completion() returned.
+        response: The object completion() returned.
         model_id: The id we asked for, recorded as CallUsage.model_id.
         latency_ms: Wall-clock time the call took, if measured.
 
@@ -211,7 +216,7 @@ def usage_from_response(
 
     input_tokens = getattr(usage, "prompt_tokens", 0) or 0
     output_tokens = getattr(usage, "completion_tokens", 0) or 0
-    # litellm leaves total_tokens at 0 unless the provider sent it, so fall back
+    # total_tokens can be absent or 0 unless the provider sent it, so fall back
     # to the sum rather than reporting a total that contradicts its own parts.
     total_tokens = getattr(usage, "total_tokens", 0) or 0
 

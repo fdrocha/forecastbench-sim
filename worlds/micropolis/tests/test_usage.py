@@ -2,8 +2,10 @@
 
 Fixtures are built from LiteLLM's own response types rather than hand-rolled
 stubs, so a field that LiteLLM renames or stops populating fails a test here
-instead of silently reporting None in a run. LiteLLM is stubbed by replacing
-the name prompt_model binds, so nothing here calls a model or needs a key.
+instead of silently reporting None in a run. They also stand in for the
+OpenRouter backend's AttrDict, which answers the same attribute reads. The
+client is stubbed by replacing the name prompt_model binds, so nothing here
+calls a model or needs a key.
 """
 
 import pytest
@@ -11,6 +13,7 @@ from fbsim_core.evaluation.models import LiteLLMModel
 from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
 import micropolis_world.module_globals as g
+from micropolis_world import llm_backend
 from micropolis_world.usage import CallUsage, cost_from_response, usage_from_response
 
 
@@ -39,13 +42,14 @@ def make_response(
 
 @pytest.fixture
 def calls(monkeypatch):
-    """Stub out litellm.completion, recording the kwargs prompt_model sends.
+    """Stub the backend's completion, recording the kwargs prompt_model sends.
 
-    Patching the attribute on litellm works only because prompt_model does its
-    `from litellm import completion` inside the function body, so the name is
-    resolved per call. Hoisting that import to module level would rebind it once
-    at import time and these tests would start making real API calls — which is
-    exactly what happens to fbsim-core's models.py, and why it isn't stubbed here.
+    Patching the attribute on llm_backend works only because prompt_model does
+    its `from .llm_backend import completion` inside the function body, so the
+    name is resolved per call. Hoisting that import to module level would rebind
+    it once at import time and these tests would start making real API calls —
+    which is exactly what happens to fbsim-core's models.py, and why it isn't
+    stubbed here.
     """
     recorded = []
 
@@ -53,7 +57,7 @@ def calls(monkeypatch):
         recorded.append(kwargs)
         return make_response()
 
-    monkeypatch.setattr("litellm.completion", fake_completion)
+    monkeypatch.setattr(llm_backend, "completion", fake_completion)
     return recorded
 
 
@@ -108,46 +112,41 @@ def test_total_prefers_what_the_provider_reported():
 # --- pricing ----------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "model_id, response_model",
-    [
-        ("openai/gpt-4o", "gpt-4o"),
-        ("anthropic/claude-sonnet-4-5-20250929", "claude-sonnet-4-5-20250929"),
-        # The prefix LiteLLM prices this under ("gemini/") is not the one we ask
-        # for ("google/"), which is why model_id is passed as an extra candidate.
-        ("google/gemini-2.5-pro", "gemini-2.5-pro"),
-    ],
-)
-def test_priced_models_cost_something(model_id, response_model):
-    cost = cost_from_response(make_response(model=response_model), model_id)
-    # A range, not an exact figure: LiteLLM ships its price map in-tree and
-    # updates it constantly, so pinning the number schedules a failure.
-    assert cost is not None
-    assert 0 < cost < 1
+def test_billed_cost_on_the_response_is_what_is_reported():
+    """The OpenRouter path: the amount actually charged, carried on the reply.
+
+    Also LiteLLM's proxy and batch paths, which populate the same field.
+    """
+    response = make_response()
+    response._hidden_params = {"response_cost": 0.0123}
+    assert cost_from_response(response, "openai/gpt-4o") == 0.0123
 
 
-def test_unpriced_model_is_none_and_never_raises():
-    """LiteLLM raises for a model absent from its price map; we report None.
+def test_openrouter_usage_cost_is_read_through_the_backend():
+    """completion_cost reads usage.cost off an OpenRouter-shaped response."""
+    resp = llm_backend.completion_cost(
+        completion_response={"usage": {"cost": 0.0042}}, model="openai/gpt-4o"
+    )
+    assert resp == 0.0042
+
+
+def test_unpriced_response_is_none_and_never_raises():
+    """A reply the backend can't price reports None, and does not raise.
 
     None rather than 0.0 so an unknown price is never mistaken for a free call.
+    Both backends raise here — LiteLLM for a model absent from its price map,
+    OpenRouter for a response with no cost field — and both must come back None.
     """
     response = make_response(model="definitely-not-a-real-model")
     assert cost_from_response(response, "openai/definitely-not-a-real-model") is None
 
 
-def test_unpriced_model_still_reports_its_tokens():
+def test_unpriced_response_still_reports_its_tokens():
     response = make_response(model="definitely-not-a-real-model")
     got = usage_from_response(response, "openai/definitely-not-a-real-model")
     assert got.cost_usd is None
     assert got.input_tokens == 100
     assert got.output_tokens == 50
-
-
-def test_hidden_params_cost_wins_when_present():
-    """The LiteLLM-proxy path, where the cost is precomputed on the response."""
-    response = make_response()
-    response._hidden_params = {"response_cost": 0.0123}
-    assert cost_from_response(response, "openai/gpt-4o") == 0.0123
 
 
 # --- CallUsage as a record --------------------------------------------------
@@ -208,33 +207,32 @@ def test_tokens_reports_cache_activity_when_there_was_any():
 # --- prompt_model ------------------------------------------------------------
 
 
-def test_prompt_model_returns_text_finish_reason_and_cost(calls):
-    got = g.prompt_model(LiteLLMModel("openai/gpt-4o"), "hi", max_tokens=10)
+def test_prompt_model_returns_text_finish_reason_and_usage(calls):
+    got = g.prompt_model(LiteLLMModel("openai/gpt-4o"), "hi")
 
     assert got.text == "hello"
     assert got.finish_reason == "stop"
     assert got.usage.model_id == "openai/gpt-4o"
     assert got.usage.input_tokens == 100
     assert got.usage.output_tokens == 50
-    assert got.usage.cost_usd is not None
     assert got.usage.latency_ms is not None
 
 
-def test_prompt_model_sends_the_normalized_model_id(calls):
-    """google/ is asked for; gemini/ is what LiteLLM's API expects."""
-    g.prompt_model(LiteLLMModel("google/gemini-2.5-pro"), "hi", max_tokens=10)
-    assert calls[0]["model"] == "gemini/gemini-2.5-pro"
+def test_prompt_model_sends_the_backends_model_id(calls):
+    """Whatever the config spells is translated for the live backend."""
+    g.prompt_model(LiteLLMModel("google/gemini-2.5-flash"), "hi")
+    assert calls[0]["model"] == llm_backend.to_model_id("google/gemini-2.5-flash")
 
 
-def test_prompt_model_never_sends_temperature(calls):
-    """Every model runs on its provider defaults."""
-    g.prompt_model(LiteLLMModel("openai/gpt-4o"), "hi", max_tokens=10)
-    g.prompt_model(LiteLLMModel("openai/gpt-5"), "hi", max_tokens=10)
+def test_prompt_model_sends_no_sampling_params_or_token_cap(calls):
+    """Every model runs on its provider defaults; the cap is the backend's."""
+    g.prompt_model(LiteLLMModel("openai/gpt-4o"), "hi")
+    g.prompt_model(LiteLLMModel("openai/gpt-5"), "hi")
 
     for call in calls:
         assert "temperature" not in call
-        # The cap is always sent, unlike fbsim-core's get_response.
-        assert call["max_tokens"] == 10
+        # The output cap belongs to model_specs.json5, not to a caller.
+        assert "max_tokens" not in call
 
 
 def test_prompt_model_reports_usage_for_an_empty_reply(monkeypatch):
@@ -247,11 +245,10 @@ def test_prompt_model_reports_usage_for_an_empty_reply(monkeypatch):
             usage=Usage(prompt_tokens=100, completion_tokens=4000),
         )
 
-    monkeypatch.setattr("litellm.completion", fake_completion)
-    got = g.prompt_model(LiteLLMModel("openai/gpt-4o"), "hi", max_tokens=4000)
+    monkeypatch.setattr(llm_backend, "completion", fake_completion)
+    got = g.prompt_model(LiteLLMModel("openai/gpt-4o"), "hi")
 
     assert got.text is None
     assert got.finish_reason == "length"
+    # The billed tokens are recorded even though nothing was written.
     assert got.usage.output_tokens == 4000
-    assert got.usage.cost_usd is not None
-    assert got.usage.cost_usd > 0

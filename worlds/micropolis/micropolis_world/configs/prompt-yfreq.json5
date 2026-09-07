@@ -37,8 +37,7 @@
 
   "censorCityFunds": true,
 
-  // Models to prompt, in provider/name form, and the response token cap.
+  // Models to prompt, in provider/name form.
   // See README.md for the ForecastBench, frontier and pandemic model sets.
   "models": "models-for-prompt-variants.json5",
-  "max_tokens": 30000,
 }

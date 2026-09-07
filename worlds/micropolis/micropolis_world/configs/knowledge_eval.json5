@@ -7,12 +7,11 @@
 // run_structured_mixture.py, run_trajectory_condition.py and
 // run_tutorial_conditions.py.
 //
-// Only "models", "max_tokens" and the optional "provider_concurrency" are read
-// by run_eval_knowledge.py; the rest of the keys are here so this file also
+// Only "models" and the optional "provider_concurrency" are read by
+// run_eval_knowledge.py; the rest of the keys are here so this file also
 // works with the other micropolis scripts.
 // analyze_knowledge.py also reads "models", to recover the provider/name ids
 // that the cached response filenames have flattened.
 {
   "models": "models-base.json5",
-  "max_tokens": 60000,
 }

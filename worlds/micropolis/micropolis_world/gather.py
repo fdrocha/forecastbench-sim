@@ -176,7 +176,6 @@ class EvalPaths:
 def gather_raw_responses(
     corpus: list[dict],
     model_names: list[str],
-    max_tokens: int,
     *,
     paths: EvalPaths,
     build_prompt: Callable[[str, list[dict]], str],
@@ -249,7 +248,6 @@ def gather_raw_responses(
                         model=model,
                         model_name=model_name,
                         messages=[{"role": "user", "content": prompts[bid]}],
-                        max_tokens=max_tokens,
                     )
                 )
 
@@ -258,10 +256,6 @@ def gather_raw_responses(
     failures: list[PromptResult] = []
 
     async def consume() -> None:
-        # Warm litellm's slow first import in the loop that will use it, rather
-        # than paying for it under the first worker's provider semaphore.
-        import litellm  # noqa: F401
-
         # The workers only make API calls; every print, dict update and disk
         # write happens here in the single consumer task, so nothing needs a
         # lock. One complete line per completed call — completions from
@@ -287,7 +281,7 @@ def gather_raw_responses(
             took = format_latency(resp.usage.latency_ms, resp.retries)
             cost = resp.usage.cost_usd
             if cost is None:
-                # Reported, not counted: a model litellm has no price for
+                # Reported, not counted: a call the backend couldn't price
                 # would otherwise be summed into the total as free.
                 nunpriced[model_name] += 1
                 print(
@@ -302,7 +296,7 @@ def gather_raw_responses(
                     f"{prefix}  {cost * 100:.3f}c, {resp.usage.tokens()}{took}{eta}",
                     flush=True,
                 )
-            g.warn_if_truncated(model_name, resp.finish_reason, max_tokens)
+            g.warn_if_truncated(model_name, resp.finish_reason)
             raws[result.job.key] = resp.text
             if resp.text:
                 # Saved as soon as it lands, so an interrupted run keeps what it
@@ -321,7 +315,7 @@ def gather_raw_responses(
     for model_name in model_names:
         total = f"${model_cost[model_name]:.2f}"
         if nunpriced[model_name]:
-            total += f" + {nunpriced[model_name]} call(s) litellm could not price"
+            total += f" + {nunpriced[model_name]} unpriced call(s)"
         print(f"  {model_name}: {total}")
     if failures:
         print(

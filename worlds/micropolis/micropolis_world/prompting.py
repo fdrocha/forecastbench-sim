@@ -7,9 +7,9 @@ output. The per-provider semaphore pattern is adapted from
 worlds/freeciv/freeciv_world/evaluation/rate_limiter.py (copied, not imported:
 freeciv is a sibling world, not a dependency).
 
-Kept litellm-free at import time, like usage.py: the one function that needs
-litellm imports it lazily, so scoring-only code can import this module's
-dataclasses without pulling in litellm.
+Kept backend-free at import time, like usage.py: the one function that needs
+an LLM client imports llm_backend lazily, so scoring-only code can import this
+module's dataclasses without pulling one in.
 
 prompt_model_async takes a full message list rather than a prompt string, so a
 future multi-turn caller just appends assistant/user turns and calls it again;
@@ -31,7 +31,12 @@ from .usage import LLMResponse, usage_from_response
 # deliberately conservative numbers: 429s are retried with backoff (see
 # DEFAULT_NUM_RETRIES), so these only need to keep the retry loop from being
 # the common case, and a config's "provider_concurrency" map can override any
-# of them. Keyed by LiteLLMModel.provider_cls strings.
+# of them. Keyed by the model's provider_cls string.
+#
+# Under an OpenRouter-style gateway every call leaves through one host, so
+# these no longer describe a per-provider quota; they are kept because the
+# upstream providers still rate-limit independently and the id prefix still
+# partitions them sensibly.
 DEFAULT_PROVIDER_LIMITS: dict[str, int] = {
     "OpenAIProvider": 16,
     "AnthropicProvider": 16,
@@ -127,7 +132,6 @@ class ProviderRateLimiter:
 async def prompt_model_async(
     model: Any,
     messages: list[dict],
-    max_tokens: int,
     *,
     num_retries: int = DEFAULT_NUM_RETRIES,
     timeout: float = DEFAULT_TIMEOUT_S,
@@ -143,33 +147,36 @@ async def prompt_model_async(
     settings, which matter once calls run concurrently and a provider starts
     returning 429s.
 
-    Retries happen here, not in litellm: num_retries=0 and max_retries=0
-    disable litellm's wrapper retries and the provider SDK's, both of which
-    are silent. Rate limits back off exponentially, other transient errors
-    (connection drops, 5xx, timeouts) pause briefly, and each retry prints a
-    one-line warning to stderr so a throttled run is visible. Anything else
-    (auth failures, bad requests) raises immediately.
+    Retries happen here, not in the client: num_retries=0 and max_retries=0
+    disable LiteLLM's wrapper retries and the provider SDK's, both of which
+    are silent (the OpenRouter backend consumes both kwargs and has no retry
+    layer of its own). Rate limits back off exponentially, other transient
+    errors (connection drops, 5xx, timeouts) pause briefly, and each retry
+    prints a one-line warning to stderr so a throttled run is visible.
+    Anything else (auth failures, bad requests) raises immediately.
 
-    `model` is a LiteLLMModel, duck-typed (.id, ._litellm_model_id) so
-    importing this module never imports fbsim-core, which pulls in litellm at
-    module level.
+    The output cap is not set here: it is a per-endpoint limit, so it belongs
+    to the backend's model registry rather than to a caller.
+
+    `model` is duck-typed (.id, .provider_cls) so importing this module never
+    imports fbsim-core.
     """
-    # Imported here so tests can monkeypatch litellm.acompletion; the name is
-    # resolved per call. See test_usage.py's `calls` fixture for why hoisting
-    # this to module level would break the stub.
-    from litellm import (
+    # Imported here so tests can monkeypatch the backend's acompletion; the
+    # name is resolved per call. See test_prompting.py's `calls` fixture for
+    # why hoisting this to module level would break the stub.
+    from .llm_backend import (
         APIConnectionError,
         InternalServerError,
         RateLimitError,
         ServiceUnavailableError,
         Timeout,
         acompletion,
+        to_model_id,
     )
 
     kwargs = {
-        "model": model._litellm_model_id,
+        "model": to_model_id(model.id),
         "messages": messages,
-        "max_tokens": max_tokens,
         "num_retries": 0,
         "max_retries": 0,
         "timeout": timeout,
@@ -230,7 +237,6 @@ class PromptJob:
     model: Any
     model_name: str
     messages: list[dict]
-    max_tokens: int
 
 
 @dataclass(frozen=True)
@@ -281,7 +287,6 @@ async def run_prompts(
                 response = await prompt_model_async(
                     job.model,
                     job.messages,
-                    job.max_tokens,
                     num_retries=num_retries,
                     timeout=timeout,
                 )

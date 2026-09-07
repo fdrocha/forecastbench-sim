@@ -41,7 +41,7 @@ def provider_of(model_id: str) -> str:
 class Totals:
     """Running sums over a set of calls.
 
-    unpriced is tracked apart from cost_usd because a call litellm has no price
+    unpriced is tracked apart from cost_usd because a call the backend has no price
     for records None, and adding it as 0.0 would understate the total with no
     way to tell. The table reports both.
     """
