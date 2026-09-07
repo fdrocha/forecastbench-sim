@@ -11,14 +11,17 @@ together in one numbered prompt. Prompts and raw responses are cached under
 data/micropolis/binary/cache/{batch_id}/ with the same content-addressed
 naming as the continuous eval, so a config change misses the cache rather
 than mixing variants, and data.json is regenerated from cached responses on
-every run. The gather loop below mirrors run_eval_continuous.gather_responses
-(minus its semantic-tagging branches); a third eval variant should extract the
-shared machinery rather than copy it again.
+every run — which --cache-only makes the whole run, sending no prompts and
+leaving uncached questions out of the dataset. The gather loop below mirrors
+run_eval_continuous.gather_responses (minus its semantic-tagging branches); a
+third eval variant should extract the shared machinery rather than copy it
+again.
 
 Usage:
     scripts/run_eval_binary.py                      # configs/binary.json5
     scripts/run_eval_binary.py my_config.json5 --seed 7
     scripts/run_eval_binary.py --dry-run            # corpus + Yes counts only
+    scripts/run_eval_binary.py --cache-only         # no prompts; cached only
     scripts/run_eval_binary.py --cities kyoto bruce
 """
 
@@ -59,6 +62,7 @@ def gather_responses_binary(
     preamble_path: Path | None = None,
     epilogue_path: Path | None = None,
     questions_per_prompt: int = -1,
+    cache_only: bool = False,
 ) -> BinaryResponses:
     """Prompt each model on each batch, then read probabilities out of the replies.
 
@@ -76,6 +80,7 @@ def gather_responses_binary(
         ),
         concurrency=concurrency,
         questions_per_prompt=questions_per_prompt,
+        cache_only=cache_only,
     )
 
     # Parse after the gather, in the stable model x batch order. A failed call
@@ -120,6 +125,11 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     add_config_args(ap, default=DEFAULT_BINARY_CONFIG_PATH)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument(
+        "--cache-only",
+        action="store_true",
+        help="send no prompts; build data.json from already-cached responses",
+    )
     args = ap.parse_args()
 
     cfg = load_config(args)
@@ -171,8 +181,11 @@ def main() -> None:
         print("\nDry run. Exiting")
         return
 
-    print("\nGathering model responses...")
-    g.ensure_api_keys()
+    if args.cache_only:
+        print("\nCache-only run: no prompts will be sent")
+    else:
+        print("\nGathering model responses...")
+        g.ensure_api_keys()
     responses = gather_responses_binary(
         corpus,
         models,
@@ -180,6 +193,7 @@ def main() -> None:
         preamble_path,
         epilogue_path,
         questions_per_prompt,
+        args.cache_only,
     )
     print("Done gathering")
 

@@ -19,7 +19,8 @@ reused when its hash matches the freshly built prompt, so trying a different
 prompt variant (template, history_freq, ...) never mixes its answers with an
 older variant's; it just adds new files alongside them. data.json is
 regenerated from the cached responses on every run, so parser improvements
-take effect without re-prompting.
+take effect without re-prompting; --cache-only makes that the whole run,
+sending no prompts and leaving uncached questions out of the dataset.
 
 Scoring and plotting read that file:
     scripts/analyze_continuous.py   tables of CRPS
@@ -29,6 +30,7 @@ Usage:
     scripts/run_eval_continuous.py                  # configs/continuous.json5
     scripts/run_eval_continuous.py my_config.json --seed 7
     scripts/run_eval_continuous.py my_config.json --dry-run
+    scripts/run_eval_continuous.py my_config.json --cache-only
     scripts/run_eval_continuous.py --models openai/gpt-4o xai/grok-4-0709
     scripts/run_eval_continuous.py --cities kyoto bruce --disasters false
     scripts/run_eval_continuous.py --label kyoto_only --cities kyoto
@@ -78,6 +80,7 @@ def gather_responses(
     epilogue_path: Path | None = None,
     question_tagging: str = QUESTION_TAGGING_NUMERIC,
     questions_per_prompt: int = -1,
+    cache_only: bool = False,
 ) -> Responses:
     """Prompt each model on each batch, then read percentiles out of the replies.
 
@@ -95,6 +98,7 @@ def gather_responses(
         ),
         concurrency=concurrency,
         questions_per_prompt=questions_per_prompt,
+        cache_only=cache_only,
     )
 
     # Parse after the gather, in the stable model x batch order. Cached text,
@@ -130,6 +134,11 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     add_config_args(ap, default=DEFAULT_CONTINUOUS_CONFIG_PATH)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument(
+        "--cache-only",
+        action="store_true",
+        help="send no prompts; build data.json from already-cached responses",
+    )
     args = ap.parse_args()
 
     cfg = load_config(args)
@@ -191,8 +200,11 @@ def main() -> None:
         print("\nDry run. Exiting")
         return
 
-    print("\nGathering model responses...")
-    g.ensure_api_keys()
+    if args.cache_only:
+        print("\nCache-only run: no prompts will be sent")
+    else:
+        print("\nGathering model responses...")
+        g.ensure_api_keys()
     responses = gather_responses(
         corpus,
         models,
@@ -201,6 +213,7 @@ def main() -> None:
         epilogue_path,
         question_tagging,
         questions_per_prompt,
+        args.cache_only,
     )
     print("Done gathering")
 

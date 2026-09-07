@@ -182,6 +182,7 @@ def gather_raw_responses(
     build_prompt: Callable[[str, list[dict]], str],
     concurrency: int | None = None,
     questions_per_prompt: int = -1,
+    cache_only: bool = False,
 ) -> tuple[dict[str, list[dict]], RawResponses]:
     """Prompt each model on each batch of questions, reusing cached responses.
 
@@ -203,6 +204,12 @@ def gather_raw_responses(
     lands, so an interrupted run keeps what it already paid for. A failed call
     is reported and skipped rather than aborting the run — nothing is cached
     for it, so re-running the script retries exactly the failures.
+
+    `cache_only` makes no calls at all: the cache hits are returned and the
+    misses are left absent, exactly as a failed call would be, so the caller
+    builds a dataset from whatever was already gathered. Prompts are still
+    built (their hashes are what finds the cache) and still written, so the
+    misses are inspectable.
     """
     batches = group_into_batches(corpus, questions_per_prompt)
     prompts = {
@@ -223,10 +230,15 @@ def gather_raw_responses(
         for model_name in model_names
     }
     ncached = sum(1 for p in rpaths.values() if p.exists())
-    print(
-        f"{ncached} of {len(rpaths)} batch responses cached; "
-        f"generating {len(rpaths) - ncached}"
-    )
+    nmissing = len(rpaths) - ncached
+    if cache_only:
+        print(f"{ncached} of {len(rpaths)} batch responses cached; cache-only run")
+        if nmissing:
+            msg.warn(f"{nmissing} response(s) not cached; omitted from the dataset")
+    else:
+        print(
+            f"{ncached} of {len(rpaths)} batch responses cached; generating {nmissing}"
+        )
 
     # Split cache hits from the calls still to make. raws holds the text to
     # parse per (batch_id, model_name); a key that is still absent at parse
@@ -238,7 +250,7 @@ def gather_raw_responses(
             key = (bid, model_name)
             if rpaths[key].exists():
                 raws[key] = rpaths[key].read_text()
-            else:
+            elif not cache_only:
                 # prompt_model_async rather than model.get_response, because
                 # the finish reason is what distinguishes a model that answered
                 # badly from one that never got to answer at all, and the usage
@@ -311,7 +323,11 @@ def gather_raw_responses(
         asyncio.run(consume())
 
     # What this run paid, per model. Cached batches cost nothing, so a fully
-    # cached model reports $0.00 rather than what it originally cost.
+    # cached model reports $0.00 rather than what it originally cost. A
+    # cache-only run pays for nothing at all, so it prints no totals.
+    if cache_only:
+        return batches, raws
+
     print("Per-model totals for this run:")
     for model_name in model_names:
         total = f"${model_cost[model_name]:.2f}"
