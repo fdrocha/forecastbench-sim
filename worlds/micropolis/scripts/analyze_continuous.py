@@ -10,12 +10,16 @@ disasters, snapshot_turns and horizons — so one gathered dataset can be viewed
 many ways. Naming anything the dataset lacks is an error, not a smaller table.
 
 Writes every table and figure to one Markdown report,
-data/micropolis/continuous/{label}/analysis-crps.md, rather than to
-stdout: normalized CRPS against horizon, over all runs and restricted to the
-runs with and without disasters; forecast skill against ECI; and the
-correlation of each against horizon, both for ECI alone and comparing ECI to
-the knowledge-eval score. --no-plot skips the figures. Only the paths written
-and the report's own path are printed to stdout.
+data/micropolis/continuous/{label}/analysis-crps.md, rather than to stdout:
+normalized CRPS against horizon, over all runs and restricted to the runs with
+and without disasters; forecast skill against ECI; and the correlation of each
+against horizon, both for ECI alone and comparing ECI to the knowledge-eval
+score. --no-plot skips the figures. Only the paths written and the report's own
+path are printed to stdout.
+
+The report and every figure carry a -{norm} suffix under any --norm but the
+default, so scoring one label under two modes leaves two sets of files rather
+than one silently overwriting the other.
 
 --norm picks what CRPS is divided by to make it unitless, which every
 normalized table and figure then reports:
@@ -106,6 +110,21 @@ READ_OFF_NOTE = f"excludes H{READ_OFF_HORIZON} (a read-off, not a forecast)"
 # legend is reordered by, and the two silently disagreeing would drop the
 # baseline out of the legend while leaving it on the axes.
 PERSISTENCE_LABEL = "persistence baseline (no change from snapshot)"
+
+
+def norm_suffix(norm: Normalizer) -> str:
+    """Filename suffix keeping one --norm mode's outputs off another's.
+
+    Every figure and the report are per-mode: the same label scored under two
+    modes produces two different sets of numbers, and without a suffix the
+    second run would overwrite the first's files while its report went on
+    claiming the mode it was written for.
+
+    "global" keeps the unsuffixed names — it was the only mode before --norm
+    existed, and is still the default — so an existing label's files stay
+    where every earlier report's links already point.
+    """
+    return "" if norm.mode == DEFAULT_NORM else f"-{norm.mode}"
 
 
 def is_forecast(horizon: int) -> bool:
@@ -911,10 +930,12 @@ def plot_normalized_by_horizon(
     )
     fig.tight_layout()
 
-    suffix = (
+    # Mode first, then subset: the mode is the coarser split, so one mode's
+    # figures sort together in a directory listing.
+    subset_suffix = (
         f"-{re.sub(r'[^a-z0-9]+', '-', subset.lower()).strip('-')}" if subset else ""
     )
-    out = outdir / f"normalized_crps_by_horizon{suffix}.png"
+    out = outdir / f"normalized_crps_by_horizon{norm_suffix(norm)}{subset_suffix}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     report.image(out, caption=subset)
@@ -1046,7 +1067,7 @@ def plot_eci_vs_normalized(
     fig.canvas.draw()
     place_labels(fig, ax, [n for _, _, n in points], ecis, values)
 
-    out = outdir / "eci_vs_normalized_crps.png"
+    out = outdir / f"eci_vs_normalized_crps{norm_suffix(norm)}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     report.image(out)
@@ -1497,7 +1518,7 @@ def plot_eci_correlation_by_horizon(
     )
     fig.tight_layout()
 
-    out = outdir / "eci_correlation_by_horizon.png"
+    out = outdir / f"eci_correlation_by_horizon{norm_suffix(norm)}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     report.image(out)
@@ -1704,7 +1725,7 @@ def plot_predictors_correlation_by_horizon(
     )
     fig.tight_layout()
 
-    out = outdir / "predictors_correlation_by_horizon.png"
+    out = outdir / f"predictors_correlation_by_horizon{norm_suffix(norm)}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     report.image(out)
@@ -1910,7 +1931,8 @@ def main() -> None:
                 print(f"Wrote {out}")
 
     out_path = report.write(
-        label_dir(label) / "analysis-crps.md", "Continuous eval — CRPS"
+        label_dir(label) / f"analysis-crps{norm_suffix(norm)}.md",
+        f"Continuous eval — CRPS ({norm.mode} normalization)",
     )
     print(out_path)
 

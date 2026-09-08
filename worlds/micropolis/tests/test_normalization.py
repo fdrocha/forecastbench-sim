@@ -291,3 +291,37 @@ def test_norm_global_frac_rejects_a_non_number():
 
     with pytest.raises(ConfigError, match="must be a number"):
         _cfg({"norm_global_frac": "1%"}).get_norm_global_frac()
+
+
+def _analysis_module():
+    """scripts/analyze_continuous.py, which is not importable as a package."""
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    path = Path(__file__).parent.parent / "scripts" / "analyze_continuous.py"
+    spec = importlib.util.spec_from_file_location("analyze_continuous", path)
+    module = importlib.util.module_from_spec(spec)
+    argv, sys.argv = sys.argv, ["analyze_continuous"]
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.argv = argv
+    return module
+
+
+def _stub_normalizer(mode: str):
+    """A Normalizer of `mode` without the ground truth the real one reads."""
+    from micropolis_world.continuous_eval import Normalizer
+
+    return Normalizer(
+        mode=mode, ratio="r", detail="d", scale=lambda _c: 1.0, floored=None
+    )
+
+
+def test_norm_suffix_tags_every_mode_but_the_default():
+    """The default keeps the unsuffixed names an existing label already has."""
+    norm_suffix = _analysis_module().norm_suffix
+    assert norm_suffix(make_normalizer("global", [])) == ""
+    assert norm_suffix(_stub_normalizer("local")) == "-local"
+    assert norm_suffix(_stub_normalizer("baseline")) == "-baseline"
