@@ -320,6 +320,13 @@ def cross_check_trunk(trunk_log: list[dict], sim: CitySimulation) -> str:
     return f"trunk matches the cached run over turns 0..{n - 1}"
 
 
+def _averages(values: dict[str, list]) -> dict[str, float | None]:
+    """Mean over continuations per metric; None for a metric with no values."""
+    return {
+        metric: (sum(vs) / len(vs) if vs else None) for metric, vs in values.items()
+    }
+
+
 def ground_truth_lines(
     sim: CitySimulation,
     snapshot_turn: int,
@@ -342,6 +349,7 @@ def ground_truth_lines(
             "branch_seeds": [min(merged.seeds), max(merged.seeds)],
             "counts": {qid: merged.yes[h][qid] for qid in QUESTION_IDS},
             "values": merged.values[h],
+            "averages": _averages(merged.values[h]),
             "fbsim_commit": fbsim_commit,
             "engine_commit": engine_commit,
         }
