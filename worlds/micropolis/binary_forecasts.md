@@ -11,7 +11,7 @@ player input (no building, zoning, budget or tax changes). Random disasters stay
 
 | | |
 |:--|:--|
-| Questions | 16 mid-range (A1–A16, target ≈10–90% Yes) + 11 tail (B1–B11, target ≈0.5–5% Yes) |
+| Questions | 16 mid-range (A1–A16, target ≈10–90% Yes) + 9 tail (B1–B9, target ≈0.5–5% Yes) |
 | Snapshots | game-year 20 (turn 960) and game-year 30 (turn 1440) |
 | Horizons | snapshot + 240 turns (5 game-years) and + 480 turns (10 game-years) |
 | Written | 2026-08-31, against engine/runner state of branch `exploration` |
@@ -130,14 +130,14 @@ Message numbers used by the questions:
 | # | `messageText` | Used by |
 |--:|:--|:--|
 | 15 | `Blackouts reported. Check power map.` | A11 |
-| 20 | `Fire reported!` | B5 |
-| 21 | `A monster has been sighted!` | A4, B8 |
-| 22 | `Tornado reported!` | A2, B3, B4 |
-| 23 | `Major earthquake reported!` | A1, B2, B4 |
+| 20 | `Fire reported!` | B4 |
+| 21 | `A monster has been sighted!` | A4, B7 |
+| 22 | `Tornado reported!` | A2, B3 |
+| 23 | `Major earthquake reported!` | A1, B2 |
 | 24 | `A plane has crashed!` | A5 |
 | 25 | `Shipwreck reported!` | A6 |
-| 26 | `A train crashed!` | B6 |
-| 42 | `Flooding reported!` | A3, B7 |
+| 26 | `A train crashed!` | B5 |
+| 42 | `Flooding reported!` | A3, B6 |
 | 43 | `A Nuclear Meltdown has occurred!` | B1 |
 
 Known double-signals — count **one**, never both:
@@ -152,7 +152,7 @@ Messages that never occur in no-mayor runs (useful as negative tests for your pa
 occurrences across 1,900 fifty-year reference runs.
 
 One flood emits exactly one message 42 (verified over 380 runs / 238 flood messages:
-consecutive 42s are never closer than 20 turns), so raw message counts are safe for B7.
+consecutive 42s are never closer than 20 turns), so raw message counts are safe for B6.
 
 ---
 
@@ -201,14 +201,12 @@ report does not already define classes, the ordinal table from §2.2.
 | B1 | Will a nuclear meltdown occur by turn {HORIZON}? | `msgs(43, NOW, H] ≥ 1` | 0 in 9 plant-less cities; 0.8–1.6% single plant; up to ~15% (deadwood/badnews, 8 plants, 10 yr) |
 | B2 | Will two or more earthquakes be reported by turn {HORIZON}? | `msgs(23, NOW, H] ≥ 2` | 0.15% (5 yr) – 2.2% (10 yr happisle) |
 | B3 | Will two or more tornadoes be sighted by turn {HORIZON}? | `msgs(22, NOW, H] ≥ 2` | same as B2 |
-| B4 | Will at least one tornado and at least one earthquake both be reported by turn {HORIZON}? | `msgs(22, NOW, H] ≥ 1 and msgs(23, NOW, H] ≥ 1` | 0.3% – 4% (independent events; P ≈ P(A)·P(B)) |
-| B5 | Will a "Fire reported!" disaster strike by turn {HORIZON}? | `msgs(20, NOW, H] ≥ 1` | 0.2–7%; median ≈1.5% |
-| B6 | Will a train crash by turn {HORIZON}? | `msgs(26, NOW, H] ≥ 1` | 0 without rail traffic; ≈0.2–1.6% with |
-| B7 | Will two or more separate floods be reported by turn {HORIZON}? | `msgs(42, NOW, H] ≥ 2` | 0 in the 5 unfloodable cities; 0.6–2.1% elsewhere |
-| B8 | Will the monster be sighted two or more times by turn {HORIZON}? | `msgs(21, NOW, H] ≥ 2` | ≈0 clean cities; 1–6% dirty cities |
-| B9 | Will the city's population reach a new all-time high at any yearly checkpoint by turn {HORIZON}? | `max over T in YC(NOW, H] of pop(T) > max over T in YC(0, NOW] of pop(T)` | ≈0–2% for most; 10–40% for still-growing cities (med_isle, deadwood, senri, ndulls) |
-| B10 | Will the city's classification at turn {HORIZON} be higher than it is now? | `class(H) > class(NOW)` | ≈0 mostly; up to 20% (kyoto, kamakura near a boundary) |
-| B11 | Will the city's population read zero at some yearly checkpoint after the current turn and then be above zero at turn {HORIZON}? | `(exists T in YC(NOW, H) with pop(T) == 0) and pop(H) > 0` | ≈0 stable cities; ≈0.5–2% extinction-prone ones (never observed in a 380-run sweep) |
+| B4 | Will a "Fire reported!" disaster strike by turn {HORIZON}? | `msgs(20, NOW, H] ≥ 1` | 0.2–7%; median ≈1.5% |
+| B5 | Will a train crash by turn {HORIZON}? | `msgs(26, NOW, H] ≥ 1` | 0 without rail traffic; ≈0.2–1.6% with |
+| B6 | Will two or more separate floods be reported by turn {HORIZON}? | `msgs(42, NOW, H] ≥ 2` | 0 in the 5 unfloodable cities; 0.6–2.1% elsewhere |
+| B7 | Will the monster be sighted two or more times by turn {HORIZON}? | `msgs(21, NOW, H] ≥ 2` | ≈0 clean cities; 1–6% dirty cities |
+| B8 | Will the city's population reach a new all-time high at any yearly checkpoint by turn {HORIZON}? | `max over T in YC(NOW, H] of pop(T) > max over T in YC(0, NOW] of pop(T)` | ≈0–2% for most; 10–40% for still-growing cities (med_isle, deadwood, senri, ndulls) |
+| B9 | Will the city's classification at turn {HORIZON} be higher than it is now? | `class(H) > class(NOW)` | ≈0 mostly; up to 20% (kyoto, kamakura near a boundary) |
 
 ---
 
@@ -260,14 +258,12 @@ def resolve(rows, msgs, now, h):
         "B1": n(43) >= 1,
         "B2": n(23) >= 2,
         "B3": n(22) >= 2,
-        "B4": n(22) >= 1 and n(23) >= 1,
-        "B5": n(20) >= 1,
-        "B6": n(26) >= 1,
-        "B7": n(42) >= 2,
-        "B8": n(21) >= 2,
-        "B9": max(pop(t) for t in yc(now, h)) > max(pop(t) for t in yc(0, now)),
-        "B10": at(h)["cityClass"] > at(now)["cityClass"],
-        "B11": any(pop(t) == 0 for t in yc(now, h) if t < h) and pop(h) > 0,
+        "B4": n(20) >= 1,
+        "B5": n(26) >= 1,
+        "B6": n(42) >= 2,
+        "B7": n(21) >= 2,
+        "B8": max(pop(t) for t in yc(now, h)) > max(pop(t) for t in yc(0, now)),
+        "B9": at(h)["cityClass"] > at(now)["cityClass"],
     }
 ```
 

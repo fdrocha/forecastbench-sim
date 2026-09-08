@@ -30,8 +30,8 @@ from micropolis_world.ground_truth import (
 )
 
 CITY = "kyoto"
-S = 96  # snapshot turn; >= one year so B9's baseline window is non-empty
-H = 96  # producer horizon; each tested horizon spans a yearly checkpoint (B9)
+S = 96  # snapshot turn; >= one year so B8's baseline window is non-empty
+H = 96  # producer horizon; each tested horizon spans a yearly checkpoint (B8)
 SHORT, LONG = 48, 96
 HORIZONS = [SHORT, LONG]
 

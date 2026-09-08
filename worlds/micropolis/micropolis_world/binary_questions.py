@@ -124,10 +124,10 @@ class Window:
                 f"need 0 <= now < h < {len(self.run.log_data)} logged turns, "
                 f"got now={self.now}, h={self.h}"
             )
-        # B9's all-time-high baseline scans yc(0, now), which must be non-empty.
+        # B8's all-time-high baseline scans yc(0, now), which must be non-empty.
         if self.now < g.TURNS_PER_YEAR:
             raise ValueError(f"now must be >= {g.TURNS_PER_YEAR}, got {self.now}")
-        # B9 also takes the max over yc(now, h); a window with no checkpoint
+        # B8 also takes the max over yc(now, h); a window with no checkpoint
         # would crash there instead of resolving.
         if not yearly_checkpoints(self.now, self.h):
             raise ValueError(
@@ -168,7 +168,7 @@ class Question:
 
 
 # binary_forecasts.md §3, in doc order: A1-A16 are mid-range questions
-# (target P(Yes) ≈ 10-90%), B1-B11 are tail-probability questions (target
+# (target P(Yes) ≈ 10-90%), B1-B9 are tail-probability questions (target
 # P(Yes) ≈ 0.5-5%). A10 carries the example the doc's wording note asks for;
 # the class ordering table lives in the binary preamble.
 QUESTIONS = [
@@ -280,35 +280,29 @@ QUESTIONS = [
     ),
     Question(
         "B4",
-        "Will at least one tornado and at least one earthquake both be "
-        "reported between the current turn and turn {HORIZON}?",
-        lambda w: w.n(MSG_TORNADO) >= 1 and w.n(MSG_EARTHQUAKE) >= 1,
-    ),
-    Question(
-        "B5",
         'Will a "Fire reported!" disaster strike between the current turn '
         "and turn {HORIZON}?",
         lambda w: w.n(MSG_FIRE) >= 1,
     ),
     Question(
-        "B6",
+        "B5",
         "Will a train crash between the current turn and turn {HORIZON}?",
         lambda w: w.n(MSG_TRAIN_CRASH) >= 1,
     ),
     Question(
-        "B7",
+        "B6",
         "Will two or more separate floods be reported between the current "
         "turn and turn {HORIZON}?",
         lambda w: w.n(MSG_FLOOD) >= 2,
     ),
     Question(
-        "B8",
+        "B7",
         "Will the monster be sighted two or more times between the current "
         "turn and turn {HORIZON}?",
         lambda w: w.n(MSG_MONSTER) >= 2,
     ),
     Question(
-        "B9",
+        "B8",
         "Will the city's population reach a new all-time high at any yearly "
         "checkpoint between the current turn and turn {HORIZON}?",
         lambda w: (
@@ -317,17 +311,9 @@ QUESTIONS = [
         ),
     ),
     Question(
-        "B10",
+        "B9",
         "Will the city's classification at turn {HORIZON} be higher than it is now?",
         lambda w: w.at(w.h)["cityClass"] > w.at(w.now)["cityClass"],
-    ),
-    Question(
-        "B11",
-        "Will the city's population read zero at some yearly checkpoint "
-        "after the current turn and then be above zero at turn {HORIZON}?",
-        lambda w: (
-            any(w.pop(t) == 0 for t in w.yc(w.now, w.h) if t < w.h) and w.pop(w.h) > 0
-        ),
     ),
 ]
 
@@ -361,7 +347,7 @@ NO_AIRPORT_CITIES = {
 
 
 def check_horizons(horizons: list[int]) -> None:
-    """Raise if a horizon is too short to hold a yearly checkpoint (B9).
+    """Raise if a horizon is too short to hold a yearly checkpoint (B8).
 
     For callers to run before simulating anything, so a bad config fails at
     once rather than at the first Window built from it.
@@ -370,12 +356,12 @@ def check_horizons(horizons: list[int]) -> None:
     if short:
         raise ValueError(
             f"horizons must be >= {g.TURNS_PER_YEAR} turns so every window holds "
-            f"a yearly checkpoint (B9); got {short}"
+            f"a yearly checkpoint (B8); got {short}"
         )
 
 
 def resolve_all(run: RunIndex, now: int, h: int) -> dict[str, bool]:
-    """All 27 answers for the window (now, h] — binary_forecasts.md §4."""
+    """All 25 answers for the window (now, h] — binary_forecasts.md §4."""
     return {q.qid: q.resolve(run, now, h) for q in QUESTIONS}
 
 
@@ -383,7 +369,7 @@ def check_structural_constraints(city: str, answers: dict[str, bool]) -> None:
     """Raise if a §5-impossible question resolved Yes for `city`."""
     impossible = []
     if city in NO_FLOOD_CITIES:
-        impossible += ["A3", "B7"]
+        impossible += ["A3", "B6"]
     if city in NO_MELTDOWN_CITIES:
         impossible += ["B1"]
     if city in NO_AIRPORT_CITIES:

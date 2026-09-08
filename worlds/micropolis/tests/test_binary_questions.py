@@ -153,7 +153,6 @@ class TestMessageQuestions:
             "B5",
             "B6",
             "B7",
-            "B8",
         ]:
             assert answers[qid] is False
 
@@ -167,8 +166,8 @@ class TestMessageQuestions:
             (MSG_SHIPWRECK, "A6"),
             (MSG_BLACKOUTS, "A11"),
             (MSG_MELTDOWN, "B1"),
-            (MSG_FIRE, "B5"),
-            (MSG_TRAIN_CRASH, "B6"),
+            (MSG_FIRE, "B4"),
+            (MSG_TRAIN_CRASH, "B5"),
         ]:
             assert resolve(msgs=[(60, message)])[qid] is True, qid
 
@@ -176,16 +175,11 @@ class TestMessageQuestions:
         for message, qid in [
             (MSG_EARTHQUAKE, "B2"),
             (MSG_TORNADO, "B3"),
-            (MSG_FLOOD, "B7"),
-            (MSG_MONSTER, "B8"),
+            (MSG_FLOOD, "B6"),
+            (MSG_MONSTER, "B7"),
         ]:
             assert resolve(msgs=[(60, message)])[qid] is False, qid
             assert resolve(msgs=[(60, message), (70, message)])[qid] is True, qid
-
-    def test_b4_needs_both_a_tornado_and_an_earthquake(self):
-        assert resolve(msgs=[(60, MSG_TORNADO)])["B4"] is False
-        assert resolve(msgs=[(60, MSG_EARTHQUAKE)])["B4"] is False
-        assert resolve(msgs=[(60, MSG_TORNADO), (70, MSG_EARTHQUAKE)])["B4"] is True
 
     def test_message_at_now_excluded_at_horizon_included(self):
         assert resolve(msgs=[(NOW, MSG_EARTHQUAKE)])["A1"] is False
@@ -213,13 +207,13 @@ class TestStateQuestions:
         assert resolve(log_with(H, pop=499))["A8"] is True
         assert resolve(log_with(H, pop=500))["A8"] is False
 
-    def test_a10_and_b10_class_ordinals(self):
+    def test_a10_and_b9_class_ordinals(self):
         assert resolve(log_with(H, cls=1))["A10"] is True
         assert resolve(log_with(H, cls=3))["A10"] is False
-        assert resolve(log_with(H, cls=3))["B10"] is True
-        assert resolve(log_with(H, cls=1))["B10"] is False
+        assert resolve(log_with(H, cls=3))["B9"] is True
+        assert resolve(log_with(H, cls=1))["B9"] is False
         answers = resolve()
-        assert answers["A10"] is False and answers["B10"] is False
+        assert answers["A10"] is False and answers["B9"] is False
 
     def test_a12_pollution_exceeds_60(self):
         assert resolve(log_with(H, poll=60))["A12"] is False
@@ -251,33 +245,16 @@ class TestCheckpointQuestions:
         # is not scanned; checkpoints are the multiples of 48.
         assert resolve(log_with(70, pop=0))["A9"] is False
 
-    def test_b9_new_all_time_high(self):
+    def test_b8_new_all_time_high(self):
         log = make_log(145)
         log[96] = make_row(96, pop=2000)
-        assert resolve(log, now=48, h=144)["B9"] is True
+        assert resolve(log, now=48, h=144)["B8"] is True
 
-    def test_b9_blocked_by_pre_snapshot_high(self):
+    def test_b8_blocked_by_pre_snapshot_high(self):
         log = make_log(145)
         log[48] = make_row(48, pop=3000)
         log[96] = make_row(96, pop=2000)
-        assert resolve(log, now=48, h=144)["B9"] is False
-
-    def test_b11_zero_then_recovery(self):
-        log = make_log(145)
-        log[96] = make_row(96, pop=0)
-        assert resolve(log, now=48, h=144)["B11"] is True
-
-    def test_b11_no_recovery(self):
-        log = make_log(145)
-        log[96] = make_row(96, pop=0)
-        log[144] = make_row(144, pop=0)
-        assert resolve(log, now=48, h=144)["B11"] is False
-
-    def test_b11_zero_only_at_the_horizon_itself(self):
-        # The scan excludes the horizon checkpoint, and pop(h) must be > 0.
-        log = make_log(145)
-        log[144] = make_row(144, pop=0)
-        assert resolve(log, now=48, h=144)["B11"] is False
+        assert resolve(log, now=48, h=144)["B8"] is False
 
 
 class TestResolveAllValidation:
@@ -290,7 +267,7 @@ class TestResolveAllValidation:
             resolve(now=47, h=96)
 
     def test_window_without_a_checkpoint_raises(self):
-        # (48, 95] holds no multiple of 48, so B9 would have nothing to max over.
+        # (48, 95] holds no multiple of 48, so B8 would have nothing to max over.
         with pytest.raises(ValueError, match="no yearly checkpoint"):
             resolve(now=48, h=95)
         resolve(now=48, h=96)
@@ -307,7 +284,7 @@ class TestStructuralConstraints:
         check_structural_constraints("kowloon", answers)
         for city, qid in [
             ("kowloon", "A3"),
-            ("kowloon", "B7"),
+            ("kowloon", "B6"),
             ("kobe", "B1"),
             ("bruce", "A5"),
         ]:
@@ -323,9 +300,9 @@ class TestStructuralConstraints:
 
 
 class TestQuestions:
-    def test_all_27_in_doc_order(self):
+    def test_all_25_in_doc_order(self):
         assert QUESTION_IDS == [f"A{i}" for i in range(1, 17)] + [
-            f"B{i}" for i in range(1, 12)
+            f"B{i}" for i in range(1, 10)
         ]
 
     def test_every_text_carries_the_horizon_placeholder(self):

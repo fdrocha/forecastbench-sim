@@ -38,7 +38,7 @@ Per eval, the pieces around that seam:
   horizon × metric, resolved through fbsim-core's `QuestionResolver`) →
   `scenarios.build_batch_prompt_continuous` → `scenarios.parse_batch_percentiles[_semantic]`
   → `continuous_eval.save_dataset` (`"percentiles"` per forecast).
-- **Binary** — `binary_questions.build_corpus_binary` (27 questions × snapshot_turn ×
+- **Binary** — `binary_questions.build_corpus_binary` (25 questions × snapshot_turn ×
   horizon, resolved locally — see below) → `scenarios.build_batch_prompt_binary` →
   `scenarios.parse_batch_probabilities` → `binary_eval.save_dataset_binary`
   (`"probability"` per forecast, `"answer"` bool per question).
@@ -55,7 +55,7 @@ question texts (§3), the messageNum/messageText table (§2.3), the reference re
 and the structural constraints (§5). Read it before touching resolution.
 
 - `QUESTIONS` is the single table: each `Question(qid, text, resolution)` holds its id
-  (A1–A16 mid-range, target P(Yes) ≈ 10–90%; B1–B11 tail, ≈ 0.5–5%), its `{HORIZON}`-templated
+  (A1–A16 mid-range, target P(Yes) ≈ 10–90%; B1–B9 tail, ≈ 0.5–5%), its `{HORIZON}`-templated
   text and its criterion as a lambda over a `Window` — `w.n(msg)`, `w.at(t)`, `w.pop(t)`,
   `w.yc(a, b)` — so a question's wording and its resolution never drift apart.
 - **Turn convention is this codebase's, not the doc's**: `state_at(T) = log_data[T]` and an

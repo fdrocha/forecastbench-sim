@@ -152,7 +152,7 @@ def consume_stream(
     """Tally one producer's stream (header, trunk, continuations).
 
     The trunk must be in the stream: the resolver needs the state at the
-    snapshot and the whole population history (B9), and the trunk's last tick
+    snapshot and the whole population history (B8), and the trunk's last tick
     already belongs to turn S+1 under turn_of, so its messages are part of
     every continuation's window.
     """
@@ -474,8 +474,16 @@ def load_expected_persistence(
 
 
 def covers(lines: list[dict], horizons: list[int], nseeds: int) -> bool:
-    """Whether an existing file already has every horizon at >= nseeds continuations."""
+    """Whether an existing file has every horizon at >= nseeds continuations.
+
+    The question set is part of coverage: a file tallied before a question was
+    added, removed or relabelled holds counts under the wrong ids, and skipping
+    it would silently resolve against stale labels.
+    """
     by_horizon = {line["horizon"]: line for line in lines}
     return all(
-        h in by_horizon and by_horizon[h]["n_continuations"] >= nseeds for h in horizons
+        h in by_horizon
+        and by_horizon[h]["n_continuations"] >= nseeds
+        and set(by_horizon[h]["counts"]) == set(QUESTION_IDS)
+        for h in horizons
     )
