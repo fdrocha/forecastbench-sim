@@ -91,7 +91,6 @@ from micropolis_world.continuous_eval import (
     score_forecasts,
     select_for_config,
 )
-from micropolis_world.plot_labels import place_labels
 
 DEFAULT_CONTINUOUS_CONFIG_PATH = CONFIG_DIR / "continuous.json5"
 
@@ -116,6 +115,27 @@ TURNS_PER_YEAR = 48
 def horizon_label(horizon: int) -> str:
     """A horizon in turns past the snapshot, as years (e.g. 144 -> "3y")."""
     return f"{horizon / TURNS_PER_YEAR:g}y"
+
+
+# A model's identity in a figure: a color and a marker shape. Two dozen models
+# is more than any palette separates by hue alone — tab20 pairs a light and a
+# dark of each hue, and at scatter size those read as one color — so shape
+# carries the difference the eye can't get from color. The two lists are
+# coprime in length, so a (color, marker) pair does not repeat until every
+# model has one: within a hue the shapes differ, and within a shape the hues do.
+MODEL_COLORS = [
+    "#4269d0", "#efb118", "#ff725c", "#6cc5b0", "#3ca951", "#ff8ab7",
+    "#a463f2", "#97bbf5", "#9c6b4e", "#9498a0", "#e45756", "#72b7b2",
+]
+MODEL_MARKERS = ["o", "s", "^", "D", "v", "P", "X"]
+
+
+def model_style(index: int) -> tuple[str, str]:
+    """The (color, marker) a model's position in the config's order earns it."""
+    return MODEL_COLORS[index % len(MODEL_COLORS)], MODEL_MARKERS[
+        index % len(MODEL_MARKERS)
+    ]
+
 
 # Named in one place because the string is both the legend entry and the key the
 # legend is reordered by, and the two silently disagreeing would drop the
@@ -877,11 +897,6 @@ def plot_normalized_by_horizon(
     outdir.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(10, 6.5))
 
-    # One color per model, matching plot_forecasts.py: tab10 reads more clearly
-    # but wraps at 10, so step up once there are more models than that.
-    n_colors = 10 if len(model_names) <= 10 else 20
-    palette = plt.get_cmap(f"tab{n_colors}")
-
     # Models in the legend best-first, so its order is itself a ranking. Ranked
     # on the forecast horizons only, matching the tables' "all" column; ranking
     # on a mean that included the read-off would disagree with them.
@@ -920,12 +935,16 @@ def plot_normalized_by_horizon(
         ]
         if not points:
             continue
+        color, marker = model_style(i)
         ax.scatter(
             [h + offsets[model_id] for h, _ in points],
             [v for _, v in points],
-            color=palette(i % n_colors),
-            s=38,
-            alpha=0.85,
+            color=color,
+            marker=marker,
+            s=44,
+            alpha=0.9,
+            linewidths=0.5,
+            edgecolors="white",
             zorder=3,
             label=model_id.split("/")[-1],
         )
@@ -1075,6 +1094,89 @@ def normalized_by_model(
     return {m: sum(v) / len(v) for m, v in scores.items()}
 
 
+def plot_overall_bars(
+    report: MdReport,
+    corpus: list[dict],
+    responses: Responses,
+    model_names: list[str],
+    outdir: Path,
+    norm: Normalizer,
+) -> Path | None:
+    """Bar the pooled mean normalized CRPS per model, best-first.
+
+    The report's headline: one number per model, the same one the normalized
+    table's "overall" column carries, in the order that column sorts. Returns
+    None when nothing normalized.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    scores = normalized_by_model(corpus, responses, model_names, norm)
+    ranked = sorted(
+        ((m, scores[m]) for m in model_names if m in scores), key=lambda p: p[1]
+    )
+    if not ranked:
+        return None
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    # 4:1 is the plotting area, not the file: the rotated model names below the
+    # bars take as much height again, and sizing the figure instead would leave
+    # the bars themselves nearer 8:1. Set after tight_layout, which measures the
+    # labels, by giving the axes the box it worked out at 1/4 of its width.
+    fig, ax = plt.subplots(figsize=(18, 8))
+
+    # Each bar in the model's own color, so a bar can be matched to that model's
+    # points on the figures below it.
+    order = {m: i for i, m in enumerate(model_names)}
+    xs = range(len(ranked))
+    ax.bar(
+        xs,
+        [v for _, v in ranked],
+        color=[model_style(order[m])[0] for m, _ in ranked],
+        edgecolor="white",
+        linewidth=0.6,
+        zorder=3,
+    )
+
+    for x, (_m, v) in zip(xs, ranked):
+        ax.annotate(
+            f"{v:.3f}",
+            xy=(x, v),
+            xytext=(0, 3),
+            textcoords="offset points",
+            ha="center",
+            fontsize=7,
+            color="#333333",
+        )
+
+    ax.set_xticks(list(xs))
+    ax.set_xticklabels(
+        [m.split("/")[-1] for m, _ in ranked], rotation=40, ha="right", fontsize=8
+    )
+    ax.set_ylabel(f"Mean nCRPS ({norm.ratio})")
+    ax.set_title(
+        f"Overall forecast skill — mean normalized CRPS, lower is better  "
+        f"({len(ranked)} models, {norm.mode} normalization)\n{READ_OFF_NOTE}"
+    )
+    ax.margins(x=0.01)
+    ax.grid(alpha=0.3, axis="y", zorder=0)
+    fig.tight_layout()
+
+    # 4:1 for the bars, with the label and title space tight_layout measured
+    # kept as it is; the figure is then trimmed to whatever that leaves.
+    box = ax.get_position()
+    width_in = box.width * fig.get_figwidth()
+    ax.set_position([box.x0, box.y0, box.width, (width_in / 4) / fig.get_figheight()])
+
+    out = outdir / f"overall_normalized_crps{norm_suffix(norm)}.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    report.image(out)
+    return out
+
+
 def eci_of(model_id: str) -> float | None:
     """ECI score for a provider/name model id, or None if it has none.
 
@@ -1112,9 +1214,12 @@ def plot_eci_vs_normalized(
 
     scores = normalized_by_model(corpus, responses, model_names, norm)
     forecasts = forecast_questions(corpus)
+    # Carries each model's index in the config's order, so its color and marker
+    # here are the ones the horizon figure gave it and the two can be read
+    # together.
     points = sorted(
-        (eci_of(m), scores[m], m.split("/")[-1])
-        for m in model_names
+        (eci_of(m), scores[m], m.split("/")[-1], i)
+        for i, m in enumerate(model_names)
         if m in scores and eci_of(m) is not None
     )
     skipped = sorted(
@@ -1127,8 +1232,8 @@ def plot_eci_vs_normalized(
         )
         return None
 
-    ecis = [e for e, _, _ in points]
-    values = [v for _, v, _ in points]
+    ecis = [e for e, _, _, _ in points]
+    values = [v for _, v, _, _ in points]
     rho, p_rho = stats.spearmanr(ecis, values)
     r, p_r = stats.pearsonr(ecis, values)
 
@@ -1152,8 +1257,26 @@ def plot_eci_vs_normalized(
     report.text("\n".join(lines))
 
     outdir.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(9, 6.5))
-    ax.scatter(ecis, values, s=70, color="#3266a8", zorder=3)
+    fig, ax = plt.subplots(figsize=(10, 6.5))
+
+    # One scatter call per model rather than one for all of them: the legend
+    # replaces the labels that used to sit on the points, and it needs a handle
+    # per model to do that. Plotted best-first so the legend doubles as a
+    # ranking, the same order the horizon figure's legend uses.
+    for eci, value, name, i in sorted(points, key=lambda p: p[1]):
+        color, marker = model_style(i)
+        ax.scatter(
+            [eci],
+            [value],
+            color=color,
+            marker=marker,
+            s=90,
+            alpha=0.9,
+            linewidths=0.5,
+            edgecolors="white",
+            zorder=3,
+            label=name,
+        )
 
     fit = stats.linregress(ecis, values)
     xs = [min(ecis), max(ecis)]
@@ -1165,7 +1288,6 @@ def plot_eci_vs_normalized(
         zorder=2,
         label=(f"fit: ρ={rho:+.3f} (p={p_rho:.4f}), r={r:+.3f} (p={p_r:.4f})"),
     )
-    ax.legend(loc="upper right", fontsize=9, framealpha=0.9)
 
     ax.set_xlabel("ECI (Epoch capability index)")
     ax.set_ylabel(f"Mean normalized CRPS ({norm.ratio}, lower is better)")
@@ -1175,12 +1297,22 @@ def plot_eci_vs_normalized(
     )
     ax.grid(alpha=0.3, zorder=0)
     ax.margins(x=0.12, y=0.1)
-    fig.tight_layout()
 
-    # After the axes are final, so the labels are measured and placed against the
-    # limits the figure actually ends up with.
-    fig.canvas.draw()
-    place_labels(fig, ax, [n for _, _, n in points], ecis, values)
+    # Beside the axes, as on the horizon figure: the legend is as tall as the
+    # model list, and over the points it would cover the scatter it explains.
+    # The fit line goes on top, since it is the figure's summary and not one
+    # more model.
+    handles, labels = ax.get_legend_handles_labels()
+    order = sorted(range(len(labels)), key=lambda j: not labels[j].startswith("fit:"))
+    ax.legend(
+        [handles[j] for j in order],
+        [labels[j] for j in order],
+        loc="center left",
+        bbox_to_anchor=(1.01, 0.5),
+        fontsize=8,
+        framealpha=0.9,
+    )
+    fig.tight_layout()
 
     out = outdir / f"eci_vs_normalized_crps{norm_suffix(norm)}.png"
     fig.savefig(out, dpi=150)
@@ -1890,12 +2022,22 @@ def main() -> None:
         # that covers.
         if norm.floored is not None:
             report.text(norm.floored.note().capitalize() + ".")
+
+        # The headline figure, so it is appended before the tables it summarizes
+        # rather than with the rest of the plots.
+        overall_bars = (
+            plot_overall_bars(report, corpus, responses, models, outdir, norm)
+            if args.plot
+            else None
+        )
+
         print_crps_table(report, corpus, responses, models, norm)
         print_normalized_crps_table(report, corpus, responses, models, norm)
         print_normalized_horizon_table(report, corpus, responses, models, norm)
 
         if args.plot:
             plots = [
+                overall_bars,
                 plot_normalized_by_horizon(
                     report, corpus, responses, models, seed, outdir, norm
                 ),
