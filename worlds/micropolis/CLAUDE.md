@@ -5,7 +5,7 @@ text report of a Micropolis run, and their skill is correlated against external 
 (ECI, ForecastBench) held in `micropolis_world/datafiles/model_scores.csv`.
 Two evals share that report: the **continuous** one asks for p10–p90 percentiles
 of city metrics (scored by CRPS), the **binary** one asks for a single P(Yes)
-on 27 yes/no questions (to be scored by Brier).
+on 25 yes/no questions (scored by Brier).
 
 ## Layout
 
@@ -199,7 +199,13 @@ Binary forecasting eval (P(Yes), `data/micropolis/binary/`, spec in `binary_fore
   `micropolis_world/configs/binary.json5`
   (19 eligible cities, snapshots 960/1440, horizons +240/+480, disasters on).
   `--dry-run` builds the corpus and prints per-question Yes counts, for eyeballing resolution
-  against the spec's P(Yes) ranges. No analysis script yet.
+  against the spec's P(Yes) ranges.
+- `analyze_binary.py` — Brier and calibration figures per section (A mid-range, B tail) to
+  `analysis-brier.md`, plus `binary_scores.csv`: one row per model × question type
+  (`regular` = A, `tail` = B) × horizon in years and an `all` horizon row, with `nforecasts`
+  (prompted), `nvalid` (parsed) and the mean `brier`, `expected_brier`
+  ((f - p)^2 + p(1 - p) over the continuations' p) and `calibration` ((f - p)^2). The two
+  question types are never pooled. Pooled rows average datapoints, not per-horizon means.
 - `extract_ground_truth.py` — pipes the engine's `run_continuations.js` (trunk to the snapshot,
   then `branch_nseeds` reseeded continuations from a byte copy of its state) through
   `ground_truth.consume_stream`, tallying per-question Yes counts and per-metric values at

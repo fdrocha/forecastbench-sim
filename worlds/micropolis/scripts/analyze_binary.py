@@ -17,6 +17,9 @@ finally a grid of per-model calibration scatters. The tail section draws
 its color and its scatter axes on a log scale, since its probabilities span
 two decades. Everything goes to one Markdown report,
 data/micropolis/binary/{label}/analysis-brier.md; --no-plot skips the figures.
+Beside it goes binary_scores.csv: one row per model x question type (regular =
+A, tail = B) x horizon in years plus an "all" horizon row, with the prompted
+and parsed counts and the mean Brier, expected Brier and calibration error.
 
 Usage:
     scripts/analyze_binary.py                       # configs/binary.json5
@@ -27,6 +30,7 @@ Usage:
 """
 
 import argparse
+import csv
 import math
 import sys
 from collections import Counter
@@ -89,6 +93,9 @@ SECTIONS = [
     ("B", "Tail probabilities", "tail questions (target P(Yes) ~ 0.5-5%)"),
 ]
 
+# The sections' names in binary_scores.csv's question_type column.
+QUESTION_TYPES = {"A": "regular", "B": "tail"}
+
 
 @dataclass(frozen=True)
 class Score:
@@ -142,10 +149,14 @@ def score_forecasts_binary(
     truths: dict[str, Truth],
 ) -> list[dict]:
     """One row per parsed forecast: its Brier score, its calibration error,
-    the forecast and ground truth behind them, and its qid and horizon.
+    its expected Brier score, the forecast and ground truth behind them, and
+    its qid and horizon.
 
-    The binary counterpart of continuous_eval.score_forecasts. Both scores are
-    unitless and bounded, so there is no normalized twin.
+    The binary counterpart of continuous_eval.score_forecasts. The scores are
+    unitless and bounded, so there is no normalized twin. The expected Brier
+    is what the Brier score averages to over the continuations' outcomes,
+    (f - p)^2 + p(1 - p): the calibration error plus the irreducible variance
+    of the event itself.
     """
     rows = []
     for c in corpus:
@@ -157,12 +168,15 @@ def score_forecasts_binary(
             rows.append(
                 {
                     "model_id": model_id,
+                    "question_id": c["question_id"],
                     "qid": c["qid"],
                     "horizon": c["horizon"],
                     "forecast": r.probability,
                     "truth": truth,
                     "brier": compute_brier_score([r.probability], [c["answer"]]),
                     "calibration": (r.probability - truth.p) ** 2,
+                    "expected_brier": (r.probability - truth.p) ** 2
+                    + truth.p * (1 - truth.p),
                 }
             )
     return rows
@@ -191,6 +205,93 @@ def score_by_model_and_horizon(
         h: {m: sum(v) / len(v) for m, v in by_model.items()}
         for h, by_model in per_horizon.items()
     }
+
+
+# ---------------------------------------------------------------------------
+# binary_scores.csv
+
+SCORES_CSV_NAME = "binary_scores.csv"
+SCORES_CSV_COLUMNS = [
+    "model",
+    "question_type",
+    "horizon",
+    "nforecasts",
+    "nvalid",
+    "brier",
+    "expected_brier",
+    "calibration",
+]
+
+# The pooled row's label in the horizon column.
+ALL = "all"
+
+
+def scores_csv_rows(
+    corpus: list[dict],
+    responses: BinaryResponses,
+    model_names: list[str],
+    truths: dict[str, Truth],
+) -> list[dict]:
+    """The rows of binary_scores.csv, in the order they are written.
+
+    One row per model x question type x horizon, then an "all" horizon row per
+    (model, question type). The two question types are never pooled: their
+    scores live on different scales (see SECTIONS). A pooled row averages the
+    underlying forecasts, not the per-horizon means.
+
+    Per row, nforecasts counts the questions the model was actually prompted
+    with — a response on record, parsed or not — and nvalid those whose answer
+    parsed; the means are over the latter and nan when there are none.
+    """
+    scored = {
+        (r["model_id"], r["question_id"]): r
+        for r in score_forecasts_binary(corpus, responses, model_names, truths)
+    }
+    horizons = sorted({c["horizon"] for c in corpus})
+    horizon_groups = [(years(h), [h]) for h in horizons] + [(ALL, horizons)]
+
+    def nan_mean(values: list[float]) -> float:
+        return sum(values) / len(values) if values else math.nan
+
+    rows = []
+    for model_id in model_names:
+        for prefix, question_type in QUESTION_TYPES.items():
+            for horizon_name, horizon_group in horizon_groups:
+                asked = [
+                    c
+                    for c in corpus
+                    if c["qid"].startswith(prefix) and c["horizon"] in horizon_group
+                ]
+                valid = [
+                    scored[k]
+                    for c in asked
+                    if (k := (model_id, c["question_id"])) in scored
+                ]
+                row = {
+                    "model": model_id,
+                    "question_type": question_type,
+                    "horizon": horizon_name,
+                    "nforecasts": sum(
+                        1
+                        for c in asked
+                        if ResponseId(model_id, c["question_id"]) in responses
+                    ),
+                    "nvalid": len(valid),
+                }
+                for key in ("brier", "expected_brier", "calibration"):
+                    row[key] = nan_mean([r[key] for r in valid])
+                rows.append(row)
+    return rows
+
+
+def write_scores_csv(path: Path, rows: list[dict]) -> Path:
+    """Write scores_csv_rows' output; nan lands as the literal "nan"."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=SCORES_CSV_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+    return path
 
 
 def plot_base_rates(
@@ -1106,6 +1207,9 @@ def main() -> None:
     report.text(
         "Scores per forecast f, both lower-is-better:\n"
         + "\n".join(f"- {s.name}: {s.definition}" for s in SCORES)
+        + f"\n\n{SCORES_CSV_NAME} carries their means per model, question type"
+        " and horizon, plus the expected Brier score (f - p)^2 + p(1 - p):"
+        " the calibration error plus the event's own variance."
     )
     written: list[Path] = []
     for prefix, section, description in SECTIONS:
@@ -1173,6 +1277,11 @@ def main() -> None:
     print()
     for out in written:
         print(f"Wrote {out}")
+    csv_path = write_scores_csv(
+        label_dir(label) / SCORES_CSV_NAME,
+        scores_csv_rows(corpus, responses, models, truths),
+    )
+    print(f"Wrote {csv_path}")
     out_path = report.write(
         label_dir(label) / "analysis-brier.md", "Binary eval — Brier and calibration"
     )
