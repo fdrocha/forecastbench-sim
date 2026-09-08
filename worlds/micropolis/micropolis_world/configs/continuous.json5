@@ -49,6 +49,13 @@
 
   "question_tagging": "numeric",
 
+  // analyze_continuous.py --norm local / --norm baseline divide each question
+  // by a number the continuations supply, which is 0 where a metric provably
+  // could not move. Both floor that denominator at this share of the metric's
+  // global scale; the report says how many questions the floor bound.
+  // Override per run with --norm-global-frac.
+  "norm_global_frac": 0.01,
+
   // Ask every horizon for one metric before moving to the next metric, so a
   // metric's whole trajectory is asked about in one run of consecutive lines.
   "questions_sort": "metric",

@@ -52,6 +52,15 @@ QUESTION_TAGGING_NUMERIC = "numeric"
 QUESTION_TAGGING_SEMANTIC = "semantic"
 QUESTION_TAGGINGS = (QUESTION_TAGGING_NUMERIC, QUESTION_TAGGING_SEMANTIC)
 
+# The floor analyze_continuous.py's per-question normalization modes put under
+# a denominator, as a share of the metric's own global scale. 1% is low enough
+# that it binds only where a metric barely moves over the continuations — a
+# city whose traffic is pinned at 0 — and high enough to keep such a question's
+# normalized CRPS inside two orders of magnitude of the rest. Overridable per
+# config ('norm_global_frac') and per run (--norm-global-frac); the report says
+# how many questions it bound.
+DEFAULT_NORM_GLOBAL_FRAC = 0.01
+
 # .json5 rather than .json so editors don't flag the comments as syntax errors.
 # Either extension loads; the parser is the same.
 DEFAULT_CONFIG_PATH = CONFIG_DIR / "default.json5"
@@ -110,6 +119,27 @@ class Config:
         if key not in self.data:
             return default
         return self.get_int(key)
+
+    def get_float(self, key: str) -> float:
+        value = self._require(key)
+        # An int is a fine float here — a config writing 1 rather than 1.0 for
+        # a ratio means the same thing — but a bool is an int in Python and
+        # never means a number in a config.
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ConfigError(
+                f"parameter '{key}' in {self.path} must be a number, got {value!r}"
+            )
+        return float(value)
+
+    def get_float_or(self, key: str, default: float) -> float:
+        """The number at `key`, or `default` if the config doesn't set it.
+
+        Same reasoning as get_bool_or: a parameter added after configs were
+        already in use should not turn every existing config into an error.
+        """
+        if key not in self.data:
+            return default
+        return self.get_float(key)
 
     def get_bool(self, key: str) -> bool:
         value = self._require(key)
@@ -354,6 +384,30 @@ class Config:
                 f"strings, got {models!r}"
             )
         return models
+
+    def get_norm_global_frac(self, override: float | None = None) -> float:
+        """The floor on a per-question CRPS denominator, as a share of the
+        metric's global scale.
+
+        analyze_continuous.py's --norm local and --norm baseline divide by a
+        number the question itself supplies, which on the scenarios where a
+        metric cannot move at all goes to 0 — or near enough that the cell
+        would swamp any mean it entered. Both floor the denominator at this
+        fraction of continuous_eval.GLOBAL_SCALES, so no question is dropped
+        and no denominator is unbounded. `override` is --norm-global-frac.
+        """
+        value = (
+            override
+            if override is not None
+            else self.get_float_or("norm_global_frac", DEFAULT_NORM_GLOBAL_FRAC)
+        )
+        if not 0 <= value < 1:
+            raise ConfigError(
+                f"'norm_global_frac' must be in [0, 1), got {value!r}: it is a "
+                "share of the metric's global scale, and at 1 every question "
+                "would be floored onto that scale"
+            )
+        return value
 
     def get_seed(self, override: int | None = None) -> int:
         """The 'seed', or override when one was passed on the command line."""

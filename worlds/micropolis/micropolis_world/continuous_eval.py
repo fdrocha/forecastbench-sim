@@ -79,21 +79,51 @@ GLOBAL_SCALES: dict[str, float] = {
     "landValueAverage": 60.0,
 }
 
-# Added to a --norm local denominator so a scenario whose metric averaged 0
-# over the continuations — a dead city's population, a metric a map never
-# supports — still has something to divide by. It is a unit, not a fraction, so
-# it only bites where the average is itself small: see LOCAL_FLOOR_WARN.
-LOCAL_OFFSET = 1.0
-
-# A --norm local average this far below the metric's global scale means the
-# offset above, not the outcome, is setting the denominator, which inflates
-# that question's normalized CRPS by the ratio of the two. Rare, and worth
-# saying out loud rather than letting one cell drive a mean.
-LOCAL_FLOOR_WARN = 0.01
-
 # --norm's values, "global" first because it is the default.
 NORM_MODES = ("global", "local", "baseline")
 DEFAULT_NORM = "global"
+
+# The per-question modes below need the ground-truth continuations, which
+# scripts/extract_ground_truth.py writes; "global" reads nothing.
+GROUND_TRUTH_NORMS = ("local", "baseline")
+
+
+@dataclass(frozen=True)
+class Floored:
+    """How often a mode's denominator floor was the binding one.
+
+    A per-question denominator goes to 0 exactly where the metric provably
+    could not move — a city whose traffic is pinned at 0 across every
+    continuation — and near 0 on the scenarios where it barely could. Flooring
+    at a share of the metric's global scale keeps every question in the corpus
+    at a bounded denominator, but a floored cell is measuring the floor rather
+    than the question, so the count goes in the report beside the numbers it
+    affected.
+    """
+
+    n: int
+    total: int
+    frac: float
+    by_metric: dict[str, int]
+
+    @property
+    def share(self) -> float:
+        return self.n / self.total if self.total else 0.0
+
+    def note(self) -> str:
+        """One line for the report and for stdout."""
+        floor = f"{self.frac:.3g}% of the metric's global scale"
+        if not self.n:
+            return f"denominator floor ({floor}) bound on no question"
+        where = ", ".join(
+            f"{g.METRIC_LABELS.get(m, m)} {n}"
+            for m, n in sorted(self.by_metric.items(), key=lambda kv: -kv[1])
+        )
+        return (
+            f"denominator floor ({floor}) bound on {self.n} of {self.total} "
+            f"question(s) ({self.share:.1%}) — {where}; those cells are scored "
+            "against the floor rather than against their own scenario"
+        )
 
 
 @dataclass(frozen=True)
@@ -106,12 +136,16 @@ class Normalizer:
     in a column note and `detail` is the one line saying what the denominator
     is, so a report never shows a normalized number without stating what it was
     divided by — the modes are not comparable with each other.
+
+    `floored` is None for a mode with no floor to report — "global" divides by
+    the scale itself — and otherwise says how many questions the floor bound.
     """
 
     mode: str
     ratio: str
     detail: str
     scale: Callable[[dict], float | None]
+    floored: Floored | None = None
 
     def unscaled_metrics(self, corpus: list[dict]) -> list[str]:
         """Corpus metrics this mode has no scale for and does not exclude.
@@ -132,54 +166,82 @@ def describe_global_scales() -> str:
     )
 
 
-def local_scales(corpus: list[dict]) -> dict[str, float | None]:
-    """Per-question --norm local denominators: LOCAL_OFFSET + the mean outcome.
+def floor_scales(
+    corpus: list[dict], raw: dict[str, float | None], global_frac: float
+) -> tuple[dict[str, float | None], Floored]:
+    """`raw` denominators floored at `global_frac` of each metric's scale.
 
-    The mean is over the reseeded continuations of that question's own
-    scenario, snapshot and horizon (scripts/extract_ground_truth.py), so it
-    says how large the metric ran in the futures the snapshot could have had
-    rather than in the single one it did — a denominator the realized draw
-    cannot make lucky. The metrics on UNNORMALIZED_METRICS get None here as
-    they do under every other mode, whatever the file holds for them.
+    The floor is what keeps a per-question mode bounded: the raw denominator is
+    0 where a metric could not move and arbitrarily small where it barely
+    could, and either would let one cell dominate every mean it entered.
+    Returns the floored denominators and the tally of where the floor won, so
+    the caller can report it rather than let it pass silently.
 
-    Warns about the questions where the offset rather than the outcome is
-    setting the scale; those cells are inflated by the ratio between the two
-    and would otherwise be invisible inside a mean.
+    A metric on UNNORMALIZED_METRICS, or one with no global scale to take a
+    share of, stays None — unnormalized under every mode — however large its
+    raw denominator is.
     """
-    from .ground_truth import load_averages
-
-    averages = load_averages(corpus)
     scales: dict[str, float | None] = {}
-    floored = []
+    by_metric: Counter[str] = Counter()
+    normalizable = 0
     for c in corpus:
-        average = averages[c["question_id"]]
-        if c["metric"] in UNNORMALIZED_METRICS or average is None:
+        metric = c["metric"]
+        scale = GLOBAL_SCALES.get(metric)
+        if metric in UNNORMALIZED_METRICS or scale is None:
             scales[c["question_id"]] = None
             continue
-        scales[c["question_id"]] = LOCAL_OFFSET + abs(average)
-        if abs(average) < LOCAL_FLOOR_WARN * GLOBAL_SCALES.get(c["metric"], 1.0):
-            floored.append(c)
-    if floored:
-        msg.warn(
-            f"{len(floored)} question(s) averaged near 0 over the continuations, so "
-            f"the +{LOCAL_OFFSET:g} offset sets their scale and inflates their "
-            "normalized CRPS:"
+        normalizable += 1
+        value = raw.get(c["question_id"])
+        floor = global_frac * scale
+        if value is None or abs(value) < floor:
+            by_metric[metric] += 1
+            scales[c["question_id"]] = floor
+        else:
+            scales[c["question_id"]] = abs(value)
+    tally = Floored(
+        n=sum(by_metric.values()),
+        total=normalizable,
+        frac=global_frac * 100,
+        by_metric=dict(by_metric),
+    )
+    return scales, tally
+
+
+def snapshot_rows(corpus: list[dict], seed: int) -> dict[tuple[str, int], dict | None]:
+    """Each (scenario, snapshot)'s cached log row at its snapshot turn.
+
+    What the persistence baseline forecasts, read from the run logs the
+    analysis already relies on. None for a scenario with no cached run, which
+    leaves its questions on the floor rather than unscored.
+    """
+    rows: dict[tuple[str, int], dict | None] = {}
+    histories: dict[str, list[dict] | None] = {}
+    for c in corpus:
+        key = (c["scenario_id"], c["snapshot_turn"])
+        if key in rows:
+            continue
+        if c["scenario_id"] not in histories:
+            histories[c["scenario_id"]] = scenario_history(c["scenario_id"], seed)
+        history = histories[c["scenario_id"]]
+        rows[key] = (
+            history[c["snapshot_turn"]]
+            if history and c["snapshot_turn"] < len(history)
+            else None
         )
-        for c in sorted(floored, key=lambda c: (c["metric"], c["scenario_id"])):
-            msg.plain(
-                f"  {c['metric']} {c['scenario_id']} T{c['snapshot_turn']}"
-                f"+{c['horizon']}: mean {averages[c['question_id']]:,.3f}",
-                color=msg.YELLOW,
-            )
-    return scales
+    return rows
 
 
-def make_normalizer(mode: str, corpus: list[dict]) -> Normalizer:
+def make_normalizer(
+    mode: str,
+    corpus: list[dict],
+    global_frac: float = 0.01,
+    seed: int | None = None,
+) -> Normalizer:
     """The Normalizer for a --norm mode, over the corpus about to be scored.
 
-    Raises NotImplementedError for the modes that are named but not written
-    yet, so the flag documents where they will land rather than silently
-    falling back to another mode's numbers.
+    `global_frac` floors the two per-question modes' denominators at that share
+    of the metric's global scale (see floor_scales); `seed` names the run logs
+    the baseline mode reads its snapshot values from, and is required there.
     """
     if mode == "global":
         return Normalizer(
@@ -189,20 +251,38 @@ def make_normalizer(mode: str, corpus: list[dict]) -> Normalizer:
             scale=lambda c: GLOBAL_SCALES.get(c["metric"]),
         )
     if mode == "local":
-        scales = local_scales(corpus)
+        from .ground_truth import load_averages
+
+        scales, floored = floor_scales(corpus, load_averages(corpus), global_frac)
         return Normalizer(
             mode=mode,
-            ratio=f"CRPS/({LOCAL_OFFSET:g}+mean)",
+            ratio="CRPS/mean",
             detail=(
-                f"{LOCAL_OFFSET:g} plus the metric's mean over the reseeded "
-                "continuations of that question's own scenario, snapshot and horizon"
+                "the metric's mean over the reseeded continuations of that "
+                f"question's own scenario, snapshot and horizon, floored at "
+                f"{global_frac:.3g} of its global scale"
             ),
             scale=lambda c: scales.get(c["question_id"]),
+            floored=floored,
         )
     if mode == "baseline":
-        raise NotImplementedError(
-            "--norm baseline (divide by the baseline forecast's CRPS) is not "
-            "implemented yet; scripts/analyze_baseline_skill.py reports that ratio"
+        from .ground_truth import load_expected_persistence
+
+        if seed is None:
+            raise ValueError("--norm baseline needs the config's seed")
+        raw = load_expected_persistence(corpus, snapshot_rows(corpus, seed))
+        scales, floored = floor_scales(corpus, raw, global_frac)
+        return Normalizer(
+            mode=mode,
+            ratio="CRPS/CRPS_persistence",
+            detail=(
+                "the expected CRPS of the persistence forecast — the mean of "
+                "|snapshot - outcome| over the reseeded continuations of that "
+                f"question — floored at {global_frac:.3g} of the metric's "
+                "global scale; 1.0 is as good as assuming nothing changes"
+            ),
+            scale=lambda c: scales.get(c["question_id"]),
+            floored=floored,
         )
     raise ValueError(f"unknown normalization mode: {mode!r}")
 

@@ -402,18 +402,15 @@ def load_truths(corpus: list[dict]) -> dict[str, Truth]:
     return truths
 
 
-def load_averages(corpus: list[dict]) -> dict[str, float | None]:
-    """Mean outcome per question_id for a continuous corpus.
+def lines_for(corpus: list[dict]) -> dict[str, dict]:
+    """The tally line each corpus question resolves against, per question_id.
 
-    The "averages" entry of the (scenario, snapshot) tally file, picked out per
-    question by its metric and horizon: the mean over the reseeded
-    continuations of what the metric read at the resolution turn. None where
-    the file has no value for that metric. Errors on a missing file or horizon
-    the way load_truths does, so a report never quietly normalizes part of its
-    config against something else.
+    Reads each (scenario, snapshot) file once and errors on a missing file or
+    horizon the way load_truths does, so a report never quietly covers less
+    than its config asks for.
     """
     files: dict[Path, dict[int, dict]] = {}
-    averages: dict[str, float | None] = {}
+    out: dict[str, dict] = {}
     for c in corpus:
         path = output_path_for(c["scenario_id"], c["snapshot_turn"])
         if path not in files:
@@ -428,8 +425,52 @@ def load_averages(corpus: list[dict]) -> dict[str, float | None]:
                 f"{path} has no horizon {c['horizon']} — rerun "
                 "scripts/extract_ground_truth.py for this config"
             )
-        averages[c["question_id"]] = line["averages"].get(c["metric"])
-    return averages
+        out[c["question_id"]] = line
+    return out
+
+
+def load_averages(corpus: list[dict]) -> dict[str, float | None]:
+    """Mean outcome per question_id: the "averages" entry, by metric.
+
+    The mean over the reseeded continuations of what the metric read at the
+    resolution turn. None where the file has no value for that metric.
+    """
+    return {
+        qid: line["averages"].get(c["metric"])
+        for c, (qid, line) in zip(corpus, lines_for(corpus).items(), strict=True)
+    }
+
+
+def load_expected_persistence(
+    corpus: list[dict], snapshots: dict[tuple[str, int], dict | None]
+) -> dict[str, float | None]:
+    """Expected CRPS of the persistence forecast, per question_id.
+
+    Persistence puts all five percentiles on the snapshot value, so its CRPS
+    against one outcome is |snapshot - outcome|; averaged over every
+    continuation this is the mean absolute deviation of the outcome
+    distribution about the snapshot — how far the metric was going to move,
+    measured without reference to the single realized future, so no model is
+    flattered or punished by a lucky draw. It is 0 only where every
+    continuation equals the snapshot, i.e. where the metric provably could not
+    move.
+
+    `snapshots` maps (scenario_id, snapshot_turn) to that scenario's log row at
+    the snapshot turn, or None where the run is not cached; the caller supplies
+    it because reading run logs belongs to the analysis, not here. A question
+    whose row or metric values are missing gets None.
+    """
+    lines = lines_for(corpus)
+    out: dict[str, float | None] = {}
+    for c in corpus:
+        values = lines[c["question_id"]]["values"].get(c["metric"])
+        row = snapshots.get((c["scenario_id"], c["snapshot_turn"]))
+        if not values or row is None or c["metric"] not in row:
+            out[c["question_id"]] = None
+            continue
+        snapshot = row[c["metric"]]
+        out[c["question_id"]] = sum(abs(snapshot - v) for v in values) / len(values)
+    return out
 
 
 def covers(lines: list[dict], horizons: list[int], nseeds: int) -> bool:

@@ -18,19 +18,32 @@ the knowledge-eval score. --no-plot skips the figures. Only the paths written
 and the report's own path are printed to stdout.
 
 --norm picks what CRPS is divided by to make it unitless, which every
-normalized table and figure then reports: "global" (the default) divides by a
-fixed per-metric scale, the same for every question, so a cell is comparable
-across scenarios, snapshots and horizons. "local" divides each question by the
-mean its own metric took over the reseeded continuations of its scenario,
-snapshot and horizon, read from data/micropolis/ground_truth/ — so it needs
-scripts/extract_ground_truth.py to have covered the config. "baseline" is
-named but not written yet. The modes are not comparable with each other, so
+normalized table and figure then reports:
+
+  global    (the default) a fixed per-metric scale, the same for every
+            question, so a cell is comparable across scenarios, snapshots and
+            horizons.
+  local     the mean the question's own metric took over the reseeded
+            continuations of its scenario, snapshot and horizon.
+  baseline  the expected CRPS of the persistence forecast: the mean of
+            |snapshot - outcome| over those same continuations. 1.0 is then
+            "as good as assuming nothing changes", which is the one mode whose
+            scale carries its own zero point.
+
+The last two read data/micropolis/ground_truth/, so they need
+scripts/extract_ground_truth.py to have covered the config. Both divide by a
+number the question itself supplies, which goes to 0 where a metric provably
+could not move — a city whose traffic is pinned at 0 across every continuation
+— and near 0 where it barely could; both therefore floor the denominator at
+--norm-global-frac of the metric's global scale, and the report says how many
+questions that floor bound. The modes are not comparable with each other, so
 the mode is stated wherever a normalized number is.
 
 Usage:
     scripts/analyze_continuous.py                   # configs/continuous.json5
     scripts/analyze_continuous.py subset.json5
-    scripts/analyze_continuous.py --norm local
+    scripts/analyze_continuous.py --norm baseline
+    scripts/analyze_continuous.py --norm local --norm-global-frac 0.005
     scripts/analyze_continuous.py --no-plot
     scripts/analyze_continuous.py --cities kyoto --disasters false
     scripts/analyze_continuous.py --models openai/gpt-5.6-sol --label myrun
@@ -49,6 +62,7 @@ import micropolis_world.module_globals as g
 from micropolis_world import model_scores
 from micropolis_world.config import (
     CONFIG_DIR,
+    DEFAULT_NORM_GLOBAL_FRAC,
     add_config_args,
     load_config,
     main_with_config,
@@ -1779,9 +1793,18 @@ def main() -> None:
         "--norm",
         choices=NORM_MODES,
         default=DEFAULT_NORM,
-        help="What to divide CRPS by: 'global' uses a fixed per-metric scale, "
-        "'local' the question's own mean over the ground-truth continuations; "
-        "'baseline' is not implemented yet",
+        help="What to divide CRPS by: 'global' a fixed per-metric scale, "
+        "'local' the question's own mean over the ground-truth continuations, "
+        "'baseline' the expected CRPS of the persistence forecast over them",
+    )
+    ap.add_argument(
+        "--norm-global-frac",
+        type=float,
+        default=None,
+        help="Floor the per-question denominators of --norm local and "
+        "--norm baseline at this share of the metric's global scale "
+        f"(config 'norm_global_frac', default {DEFAULT_NORM_GLOBAL_FRAC:g}). "
+        "Only the questions it binds are affected, and the report counts them",
     )
     ap.add_argument(
         "--no-plot",
@@ -1833,10 +1856,17 @@ def main() -> None:
     # slice being scored. Both failures are the user's to fix — a flag to
     # change, or a gathering step to run — so neither gets a stack trace.
     try:
-        norm = make_normalizer(args.norm, corpus)
+        norm = make_normalizer(
+            args.norm,
+            corpus,
+            global_frac=cfg.get_norm_global_frac(args.norm_global_frac),
+            seed=cfg.get_seed(args.seed),
+        )
     except (NotImplementedError, FileNotFoundError) as e:
         sys.exit(f"[error] {e}")
     print(f"norm:   {norm.mode} ({norm.detail})")
+    if norm.floored is not None:
+        print(f"floor:  {norm.floored.note()}")
 
     # A metric with no scale and no place on the exclusion list would drop out
     # of every normalized table without saying so, leaving them quietly
@@ -1851,6 +1881,11 @@ def main() -> None:
 
     report = MdReport()
     report.text(f"Normalized CRPS is {norm.ratio}: {norm.detail}.")
+    # Beside the numbers it affected rather than only on stdout: a floored cell
+    # is scored against the floor, not against its own scenario, and a reader
+    # of the report alone has to be told how much of the table that covers.
+    if norm.floored is not None:
+        report.text(norm.floored.note().capitalize() + ".")
     print_crps_table(report, corpus, responses, models, norm)
     print_normalized_crps_table(report, corpus, responses, models, norm)
     print_normalized_horizon_table(report, corpus, responses, models, norm)

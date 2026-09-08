@@ -53,11 +53,6 @@ def test_global_has_no_scale_for_the_excluded_metric():
     assert make_normalizer("global", []).scale(_question("totalFunds", 500.0)) is None
 
 
-def test_the_unwritten_mode_says_so():
-    with pytest.raises(NotImplementedError, match="baseline"):
-        make_normalizer("baseline", [])
-
-
 def test_an_unknown_mode_is_an_error():
     with pytest.raises(ValueError, match="unknown normalization mode"):
         make_normalizer("|actual|", [])
@@ -102,8 +97,14 @@ def test_score_forecasts_divides_by_the_metric_scale():
     assert rows["totalFunds"]["normalized"] is None
 
 
-def _write_ground_truth(tmp_path, monkeypatch, averages_by_horizon):
-    """A tally file holding just the averages --norm local reads."""
+def _write_ground_truth(tmp_path, monkeypatch, by_horizon, snapshot=None):
+    """A tally file carrying the values the per-question modes read.
+
+    `by_horizon` maps horizon to {metric: [continuation outcomes]}; `snapshot`
+    is the log row the persistence baseline forecasts from, patched in as the
+    scenario's cached run so no engine is needed.
+    """
+    import micropolis_world.continuous_eval as ce
     import micropolis_world.ground_truth as gt
 
     monkeypatch.setattr(gt, "OUT_DIR", tmp_path)
@@ -112,56 +113,143 @@ def _write_ground_truth(tmp_path, monkeypatch, averages_by_horizon):
             "scenario_id": "s",
             "snapshot_turn": 240,
             "horizon": horizon,
-            "n_continuations": 1000,
-            "averages": averages,
+            "n_continuations": len(next(iter(values.values()))),
+            "values": values,
+            "averages": {
+                m: (sum(v) / len(v) if v else None) for m, v in values.items()
+            },
         }
-        for horizon, averages in averages_by_horizon.items()
+        for horizon, values in by_horizon.items()
     ]
     gt.write_lines(gt.output_path_for("s", 240), lines)
+    if snapshot is not None:
+        history = [dict.fromkeys(snapshot, 0) for _ in range(241)]
+        history[240] = snapshot
+        monkeypatch.setattr(ce, "scenario_history", lambda _sid, _seed: history)
 
 
-def test_local_scale_is_the_offset_plus_the_horizons_own_mean(tmp_path, monkeypatch):
+def test_local_scale_is_the_horizons_own_mean(tmp_path, monkeypatch):
     """Each question divides by its own (scenario, snapshot, horizon) mean."""
     _write_ground_truth(
         tmp_path,
         monkeypatch,
-        {48: {"cityPop": 5_000.0}, 96: {"cityPop": 9_999.0}},
+        {48: {"cityPop": [4_000.0, 6_000.0]}, 96: {"cityPop": [9_000.0, 11_000.0]}},
     )
     corpus = [
         _question("cityPop", 1.0, horizon=48),
         _question("cityPop", 2.0, horizon=96),
     ]
     norm = make_normalizer("local", corpus)
-    assert norm.scale(corpus[0]) == pytest.approx(5_001.0)
+    assert norm.scale(corpus[0]) == pytest.approx(5_000.0)
     assert norm.scale(corpus[1]) == pytest.approx(10_000.0)
+    assert norm.floored.n == 0
 
 
-def test_local_offsets_a_zero_mean_instead_of_dividing_by_it(tmp_path, monkeypatch):
-    """The one case the offset is there for: a metric that averaged 0."""
-    _write_ground_truth(tmp_path, monkeypatch, {48: {"pollutionAverage": 0.0}})
-    corpus = [_question("pollutionAverage", 3.0)]
-    assert make_normalizer("local", corpus).scale(corpus[0]) == pytest.approx(1.0)
+def test_local_floors_a_zero_mean_at_a_share_of_the_global_scale(tmp_path, monkeypatch):
+    """The case the floor exists for: a metric that could not move at all."""
+    _write_ground_truth(tmp_path, monkeypatch, {48: {"trafficAverage": [0.0, 0.0]}})
+    corpus = [_question("trafficAverage", 3.0)]
+    norm = make_normalizer("local", corpus, global_frac=0.01)
+    # 1% of trafficAverage's global scale of 20, not a division by zero.
+    assert norm.scale(corpus[0]) == pytest.approx(0.2)
+    assert norm.floored.n == 1
+    assert norm.floored.by_metric == {"trafficAverage": 1}
 
 
-def test_local_keeps_the_excluded_metric_out(tmp_path, monkeypatch):
-    """City funds has no scale under any mode, whatever the file holds for it."""
-    _write_ground_truth(tmp_path, monkeypatch, {48: {"totalFunds": 4_000.0}})
+def test_the_floor_is_configurable(tmp_path, monkeypatch):
+    """--norm-global-frac moves the floor, and so what it binds on."""
+    _write_ground_truth(tmp_path, monkeypatch, {48: {"trafficAverage": [0.1, 0.1]}})
+    corpus = [_question("trafficAverage", 3.0)]
+    # A mean of 0.1 clears a 0.005 floor (0.1 of a scale of 20) but not a 0.01 one.
+    loose = make_normalizer("local", corpus, global_frac=0.00025)
+    assert loose.scale(corpus[0]) == pytest.approx(0.1)
+    assert loose.floored.n == 0
+    tight = make_normalizer("local", corpus, global_frac=0.05)
+    assert tight.scale(corpus[0]) == pytest.approx(1.0)
+    assert tight.floored.n == 1
+
+
+def test_baseline_scale_is_the_expected_persistence_crps(tmp_path, monkeypatch):
+    """Mean |snapshot - outcome| over the continuations, not over one draw."""
+    _write_ground_truth(
+        tmp_path,
+        monkeypatch,
+        {48: {"cityPop": [900.0, 1_100.0, 1_000.0, 2_000.0]}},
+        snapshot={"cityPop": 1_000.0},
+    )
+    corpus = [_question("cityPop", 12_345.0)]
+    norm = make_normalizer("baseline", corpus, seed=42)
+    # |1000-900| + |1000-1100| + 0 + 1000, over 4 continuations.
+    assert norm.scale(corpus[0]) == pytest.approx(300.0)
+    assert norm.floored.n == 0
+
+
+def test_baseline_floors_a_metric_that_never_moves(tmp_path, monkeypatch):
+    """Expected persistence CRPS is 0 exactly where every future is identical."""
+    _write_ground_truth(
+        tmp_path,
+        monkeypatch,
+        {48: {"trafficAverage": [0.0, 0.0, 0.0]}},
+        snapshot={"trafficAverage": 0.0},
+    )
+    corpus = [_question("trafficAverage", 0.0)]
+    norm = make_normalizer("baseline", corpus, global_frac=0.01, seed=42)
+    assert norm.scale(corpus[0]) == pytest.approx(0.2)
+    assert norm.floored.n == 1
+
+
+def test_baseline_needs_a_seed(tmp_path, monkeypatch):
+    """The snapshot value comes from a cached run, which the seed names."""
+    _write_ground_truth(tmp_path, monkeypatch, {48: {"cityPop": [1.0, 2.0]}})
+    with pytest.raises(ValueError, match="seed"):
+        make_normalizer("baseline", [_question("cityPop", 1.0)])
+
+
+def test_the_excluded_metric_stays_unnormalized_under_every_mode(tmp_path, monkeypatch):
+    """City funds has no scale to take a share of, so no floor rescues it."""
+    _write_ground_truth(
+        tmp_path,
+        monkeypatch,
+        {48: {"totalFunds": [4_000.0, 5_000.0]}},
+        snapshot={"totalFunds": 4_000.0},
+    )
     corpus = [_question("totalFunds", 500.0)]
-    assert make_normalizer("local", corpus).scale(corpus[0]) is None
+    for norm in (
+        make_normalizer("local", corpus),
+        make_normalizer("baseline", corpus, seed=42),
+    ):
+        assert norm.scale(corpus[0]) is None, norm.mode
+        # And it is not counted as floored: it was never in the running.
+        assert norm.floored.n == 0
+        assert norm.floored.total == 0
 
 
-def test_local_has_no_scale_where_the_file_has_no_mean(tmp_path, monkeypatch):
-    _write_ground_truth(tmp_path, monkeypatch, {48: {"cityPop": None}})
-    corpus = [_question("cityPop", 100.0)]
+def test_floored_note_reports_the_count_and_share(tmp_path, monkeypatch):
+    """The line the report and stdout both carry."""
+    _write_ground_truth(
+        tmp_path,
+        monkeypatch,
+        {48: {"trafficAverage": [0.0, 0.0], "cityPop": [5_000.0, 5_000.0]}},
+    )
+    corpus = [_question("trafficAverage", 1.0), _question("cityPop", 1.0)]
+    norm = make_normalizer("local", corpus, global_frac=0.01)
+    note = norm.floored.note()
+    assert "bound on 1 of 2 question(s) (50.0%)" in note
+    assert "average traffic 1" in note
+    assert norm.floored.share == pytest.approx(0.5)
+
+
+def test_floored_note_says_so_when_nothing_was_floored(tmp_path, monkeypatch):
+    """Stated either way, so a silent report is not ambiguous."""
+    _write_ground_truth(tmp_path, monkeypatch, {48: {"cityPop": [5_000.0, 5_000.0]}})
+    corpus = [_question("cityPop", 1.0)]
     norm = make_normalizer("local", corpus)
-    assert norm.scale(corpus[0]) is None
-    # And that is exactly what the coverage check is there to catch.
-    assert norm.unscaled_metrics(corpus) == ["cityPop"]
+    assert "bound on no question" in norm.floored.note()
 
 
 def test_local_errors_on_a_scenario_with_no_ground_truth(tmp_path, monkeypatch):
     """Rather than normalizing part of the config against something else."""
-    _write_ground_truth(tmp_path, monkeypatch, {48: {"cityPop": 5_000.0}})
+    _write_ground_truth(tmp_path, monkeypatch, {48: {"cityPop": [1.0, 2.0]}})
     absent = dict(_question("cityPop", 100.0), scenario_id="other")
     with pytest.raises(FileNotFoundError, match="extract_ground_truth"):
         make_normalizer("local", [absent])
@@ -169,16 +257,37 @@ def test_local_errors_on_a_scenario_with_no_ground_truth(tmp_path, monkeypatch):
         make_normalizer("local", [_question("cityPop", 100.0, horizon=480)])
 
 
-def test_local_warns_where_the_offset_sets_the_scale(tmp_path, monkeypatch, capsys):
-    """A near-zero mean inflates that cell, so it must not pass in silence."""
-    _write_ground_truth(
-        tmp_path,
-        monkeypatch,
-        {48: {"cityPop": 0.2, "crimeAverage": 30.0}},
-    )
-    corpus = [_question("cityPop", 1.0), _question("crimeAverage", 30.0)]
-    make_normalizer("local", corpus)
-    err = capsys.readouterr().err
-    assert "1 question(s) averaged near 0" in err
-    assert "cityPop" in err
-    assert "crimeAverage" not in err
+def _cfg(data: dict):
+    from pathlib import Path
+
+    from micropolis_world.config import Config
+
+    return Config(data, Path("test.json5"))
+
+
+def test_norm_global_frac_defaults_and_overrides():
+    from micropolis_world.config import DEFAULT_NORM_GLOBAL_FRAC
+
+    # Absent from the config: configs written before the key keep working.
+    assert _cfg({}).get_norm_global_frac() == DEFAULT_NORM_GLOBAL_FRAC
+    assert _cfg({"norm_global_frac": 0.02}).get_norm_global_frac() == 0.02
+    # --norm-global-frac wins over the config's own value.
+    assert _cfg({"norm_global_frac": 0.02}).get_norm_global_frac(0.005) == 0.005
+    # An int is a fine share; a config writing 0 turns the floor off.
+    assert _cfg({"norm_global_frac": 0}).get_norm_global_frac() == 0.0
+
+
+@pytest.mark.parametrize("bad", [1.0, 1.5, -0.1])
+def test_norm_global_frac_rejects_shares_outside_the_unit_interval(bad):
+    """At 1 every question is floored onto the global scale, which is --norm global."""
+    from micropolis_world.config import ConfigError
+
+    with pytest.raises(ConfigError, match="norm_global_frac"):
+        _cfg({}).get_norm_global_frac(bad)
+
+
+def test_norm_global_frac_rejects_a_non_number():
+    from micropolis_world.config import ConfigError
+
+    with pytest.raises(ConfigError, match="must be a number"):
+        _cfg({"norm_global_frac": "1%"}).get_norm_global_frac()
