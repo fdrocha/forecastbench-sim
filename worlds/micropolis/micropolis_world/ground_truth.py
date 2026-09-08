@@ -402,6 +402,36 @@ def load_truths(corpus: list[dict]) -> dict[str, Truth]:
     return truths
 
 
+def load_averages(corpus: list[dict]) -> dict[str, float | None]:
+    """Mean outcome per question_id for a continuous corpus.
+
+    The "averages" entry of the (scenario, snapshot) tally file, picked out per
+    question by its metric and horizon: the mean over the reseeded
+    continuations of what the metric read at the resolution turn. None where
+    the file has no value for that metric. Errors on a missing file or horizon
+    the way load_truths does, so a report never quietly normalizes part of its
+    config against something else.
+    """
+    files: dict[Path, dict[int, dict]] = {}
+    averages: dict[str, float | None] = {}
+    for c in corpus:
+        path = output_path_for(c["scenario_id"], c["snapshot_turn"])
+        if path not in files:
+            if not path.exists():
+                raise FileNotFoundError(
+                    f"{path} not found — run scripts/extract_ground_truth.py first"
+                )
+            files[path] = {line["horizon"]: line for line in load_lines(path)}
+        line = files[path].get(c["horizon"])
+        if line is None:
+            raise FileNotFoundError(
+                f"{path} has no horizon {c['horizon']} — rerun "
+                "scripts/extract_ground_truth.py for this config"
+            )
+        averages[c["question_id"]] = line["averages"].get(c["metric"])
+    return averages
+
+
 def covers(lines: list[dict], horizons: list[int], nseeds: int) -> bool:
     """Whether an existing file already has every horizon at >= nseeds continuations."""
     by_horizon = {line["horizon"]: line for line in lines}

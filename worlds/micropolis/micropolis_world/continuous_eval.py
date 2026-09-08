@@ -79,6 +79,18 @@ GLOBAL_SCALES: dict[str, float] = {
     "landValueAverage": 60.0,
 }
 
+# Added to a --norm local denominator so a scenario whose metric averaged 0
+# over the continuations — a dead city's population, a metric a map never
+# supports — still has something to divide by. It is a unit, not a fraction, so
+# it only bites where the average is itself small: see LOCAL_FLOOR_WARN.
+LOCAL_OFFSET = 1.0
+
+# A --norm local average this far below the metric's global scale means the
+# offset above, not the outcome, is setting the denominator, which inflates
+# that question's normalized CRPS by the ratio of the two. Rare, and worth
+# saying out loud rather than letting one cell drive a mean.
+LOCAL_FLOOR_WARN = 0.01
+
 # --norm's values, "global" first because it is the default.
 NORM_MODES = ("global", "local", "baseline")
 DEFAULT_NORM = "global"
@@ -120,8 +132,50 @@ def describe_global_scales() -> str:
     )
 
 
-def make_normalizer(mode: str) -> Normalizer:
-    """The Normalizer for a --norm mode.
+def local_scales(corpus: list[dict]) -> dict[str, float | None]:
+    """Per-question --norm local denominators: LOCAL_OFFSET + the mean outcome.
+
+    The mean is over the reseeded continuations of that question's own
+    scenario, snapshot and horizon (scripts/extract_ground_truth.py), so it
+    says how large the metric ran in the futures the snapshot could have had
+    rather than in the single one it did — a denominator the realized draw
+    cannot make lucky. The metrics on UNNORMALIZED_METRICS get None here as
+    they do under every other mode, whatever the file holds for them.
+
+    Warns about the questions where the offset rather than the outcome is
+    setting the scale; those cells are inflated by the ratio between the two
+    and would otherwise be invisible inside a mean.
+    """
+    from .ground_truth import load_averages
+
+    averages = load_averages(corpus)
+    scales: dict[str, float | None] = {}
+    floored = []
+    for c in corpus:
+        average = averages[c["question_id"]]
+        if c["metric"] in UNNORMALIZED_METRICS or average is None:
+            scales[c["question_id"]] = None
+            continue
+        scales[c["question_id"]] = LOCAL_OFFSET + abs(average)
+        if abs(average) < LOCAL_FLOOR_WARN * GLOBAL_SCALES.get(c["metric"], 1.0):
+            floored.append(c)
+    if floored:
+        msg.warn(
+            f"{len(floored)} question(s) averaged near 0 over the continuations, so "
+            f"the +{LOCAL_OFFSET:g} offset sets their scale and inflates their "
+            "normalized CRPS:"
+        )
+        for c in sorted(floored, key=lambda c: (c["metric"], c["scenario_id"])):
+            msg.plain(
+                f"  {c['metric']} {c['scenario_id']} T{c['snapshot_turn']}"
+                f"+{c['horizon']}: mean {averages[c['question_id']]:,.3f}",
+                color=msg.YELLOW,
+            )
+    return scales
+
+
+def make_normalizer(mode: str, corpus: list[dict]) -> Normalizer:
+    """The Normalizer for a --norm mode, over the corpus about to be scored.
 
     Raises NotImplementedError for the modes that are named but not written
     yet, so the flag documents where they will land rather than silently
@@ -135,8 +189,15 @@ def make_normalizer(mode: str) -> Normalizer:
             scale=lambda c: GLOBAL_SCALES.get(c["metric"]),
         )
     if mode == "local":
-        raise NotImplementedError(
-            "--norm local (divide by the question's own actual) is not implemented yet"
+        scales = local_scales(corpus)
+        return Normalizer(
+            mode=mode,
+            ratio=f"CRPS/({LOCAL_OFFSET:g}+mean)",
+            detail=(
+                f"{LOCAL_OFFSET:g} plus the metric's mean over the reseeded "
+                "continuations of that question's own scenario, snapshot and horizon"
+            ),
+            scale=lambda c: scales.get(c["question_id"]),
         )
     if mode == "baseline":
         raise NotImplementedError(

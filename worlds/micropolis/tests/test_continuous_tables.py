@@ -17,7 +17,8 @@ SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
 
 # The baselines are normalized through whatever --norm the run picked, so the
 # tests below pass the default one and read its scale rather than restating it.
-NORM = make_normalizer("global")
+# The global mode needs no corpus: its scales do not come from the questions.
+NORM = make_normalizer("global", [])
 POP_SCALE = GLOBAL_SCALES["cityPop"]
 
 

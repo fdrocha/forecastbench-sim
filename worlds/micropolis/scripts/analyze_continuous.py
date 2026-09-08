@@ -20,14 +20,17 @@ and the report's own path are printed to stdout.
 --norm picks what CRPS is divided by to make it unitless, which every
 normalized table and figure then reports: "global" (the default) divides by a
 fixed per-metric scale, the same for every question, so a cell is comparable
-across scenarios, snapshots and horizons. "local" and "baseline" are named but
-not written yet. The modes are not comparable with each other, so the mode is
-stated wherever a normalized number is.
+across scenarios, snapshots and horizons. "local" divides each question by the
+mean its own metric took over the reseeded continuations of its scenario,
+snapshot and horizon, read from data/micropolis/ground_truth/ — so it needs
+scripts/extract_ground_truth.py to have covered the config. "baseline" is
+named but not written yet. The modes are not comparable with each other, so
+the mode is stated wherever a normalized number is.
 
 Usage:
     scripts/analyze_continuous.py                   # configs/continuous.json5
     scripts/analyze_continuous.py subset.json5
-    scripts/analyze_continuous.py --norm global
+    scripts/analyze_continuous.py --norm local
     scripts/analyze_continuous.py --no-plot
     scripts/analyze_continuous.py --cities kyoto --disasters false
     scripts/analyze_continuous.py --models openai/gpt-5.6-sol --label myrun
@@ -1776,8 +1779,9 @@ def main() -> None:
         "--norm",
         choices=NORM_MODES,
         default=DEFAULT_NORM,
-        help="What to divide CRPS by: 'global' uses a fixed per-metric scale; "
-        "'local' and 'baseline' are not implemented yet",
+        help="What to divide CRPS by: 'global' uses a fixed per-metric scale, "
+        "'local' the question's own mean over the ground-truth continuations; "
+        "'baseline' is not implemented yet",
     )
     ap.add_argument(
         "--no-plot",
@@ -1794,12 +1798,6 @@ def main() -> None:
     args = ap.parse_args()
 
     cfg = load_config(args)
-    # Before the dataset is loaded: an unimplemented mode is a flag the user has
-    # to change, so say so on its own rather than under a stack trace.
-    try:
-        norm = make_normalizer(args.norm)
-    except NotImplementedError as e:
-        sys.exit(f"[error] {e}")
     label = cfg.get_label(args.label)
     data_file = data_path(label)
     outdir = plots_path(label)
@@ -1830,6 +1828,14 @@ def main() -> None:
     print(f"config: {cfg.path}")
     print(f"label:  {label}")
     print(f"{len(corpus)} questions x {len(models)} models")
+
+    # After the selection, since a mode can need per-question numbers for the
+    # slice being scored. Both failures are the user's to fix — a flag to
+    # change, or a gathering step to run — so neither gets a stack trace.
+    try:
+        norm = make_normalizer(args.norm, corpus)
+    except (NotImplementedError, FileNotFoundError) as e:
+        sys.exit(f"[error] {e}")
     print(f"norm:   {norm.mode} ({norm.detail})")
 
     # A metric with no scale and no place on the exclusion list would drop out

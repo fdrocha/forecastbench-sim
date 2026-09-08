@@ -168,10 +168,16 @@ Continuous forecasting eval (percentiles, `data/micropolis/continuous/`). The fi
 default to `micropolis_world/configs/continuous.json5`; `analyze_skill_by_config.py` requires
 its configs and `plot_forecasts.py` has its own:
 - `run_eval_continuous.py` — prompts models; writes `data.json`.
-- `analyze_continuous.py` — CRPS tables/figures, normalized by a per-metric scale.
-  `--norm global` (the default) divides by a fixed scale per metric
+- `analyze_continuous.py` — CRPS tables/figures, normalized by `--norm`.
+  `global` (the default) divides by a fixed scale per metric
   (`continuous_eval.GLOBAL_SCALES`), so a cell is comparable across scenarios,
-  snapshots and horizons; `--norm local`/`baseline` are named but not implemented.
+  snapshots and horizons; `local` divides each question by
+  `LOCAL_OFFSET + |mean|`, the mean its metric took over the ground-truth
+  continuations of its own (scenario, snapshot, horizon), which needs
+  `extract_ground_truth.py` to have covered the config and warns about the
+  questions whose mean is small enough that the offset sets the scale;
+  `baseline` is named but not implemented. The modes are not comparable with
+  each other, so every table and figure states the one it used.
 - `analyze_baseline_skill.py` — same forecasts scored against a naive (`plain`/`sigma`)
   no-change baseline, so 1.0 is the meaningful zero point.
 - `analyze_skill_by_config.py` — that skill compared across several configs (many-config
@@ -190,7 +196,10 @@ Binary forecasting eval (P(Yes), `data/micropolis/binary/`, spec in `binary_fore
   every horizon. One JSONL per (scenario, snapshot) under `data/micropolis/ground_truth/`,
   one line per horizon. Branches at `S+1` so continuations start from the row the report
   showed; cross-checks the trunk against the cached `runs/` log; skips files that already
-  cover the config unless `--force-regen`.
+  cover the config unless `--force-regen`. `ground_truth.load_truths` reads the per-question
+  Yes counts out of those files and `load_averages` the per-metric means (what
+  `analyze_continuous.py --norm local` normalizes by); both error rather than cover less
+  than the config asks for.
 
 Domain-knowledge eval (`micropolis_world/knowledge_eval/`, True/False/Unknown statements
 about the engine, own cache under `data/micropolis/knowledge_eval/`):
