@@ -163,7 +163,6 @@ async def prompt_model_async(
 
     kwargs = {
         "model": model.id,  # the slug; the backend maps it to its own id
-
         "messages": messages,
         "num_retries": 0,
         "max_retries": 0,

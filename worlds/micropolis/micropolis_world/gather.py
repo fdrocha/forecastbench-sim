@@ -172,7 +172,9 @@ class EvalPaths:
         together — the slug must match response_path's exactly, or the sidecar
         lands next to nothing.
         """
-        return self.batch_dir(batch_id) / f"usage-{filename_slug(model_id)}-{phash}.json"
+        return (
+            self.batch_dir(batch_id) / f"usage-{filename_slug(model_id)}-{phash}.json"
+        )
 
 
 def gather_raw_responses(

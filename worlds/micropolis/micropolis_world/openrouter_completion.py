@@ -252,7 +252,9 @@ def _build(slug: str, messages: list[dict], kwargs: dict) -> dict:
     if spec is None and model_id != slug:
         # A suffix exists only to pick a spec; without one it is a typo, and
         # sending the bare id at provider defaults would hide that.
-        raise BadRequestError(f"{slug}: suffixed slug has no entry in model_specs.json5")
+        raise BadRequestError(
+            f"{slug}: suffixed slug has no entry in model_specs.json5"
+        )
     body: dict[str, Any] = {
         # The id before any ":suffix". OpenRouter's own ":nitro"/":floor"
         # variants are therefore not reachable through the slug; pin routing
