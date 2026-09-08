@@ -67,4 +67,8 @@
   "censorCityFunds": true,
 
   "models": "models-jaeho.json5",
+
+  // Reseeded continuations per (city, snapshot) that extract_ground_truth.py
+  // runs to estimate each question's P(Yes) and each metric's distribution.
+  "branch_nseeds": 1000,
 }
