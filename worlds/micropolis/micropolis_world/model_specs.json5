@@ -17,7 +17,9 @@
 //   reasoning_budget_tokens -> reasoning.max_tokens; an error together
 //                             with reasoning_effort
 //
-// Every model id in models.csv has an unsuffixed entry here.
+// Every model id in models.csv has an unsuffixed entry here. Each with a
+// lowest_effort there also has a ":loeff" entry: the same spec plus
+// reasoning_effort set to that value.
 {
   "meta-llama/llama-4-scout": {
     endpoint: "google-vertex"
@@ -28,6 +30,10 @@
   "deepseek/deepseek-v4-flash-0731": {
     endpoint: "streamlake/fp8",
   },
+  "deepseek/deepseek-v4-flash-0731:loeff": {
+    endpoint: "streamlake/fp8",
+    reasoning_effort: "low",
+  },
   "moonshotai/kimi-k2": {
     endpoint: "novita",
     // Without specifying this param, endpoint was erroring with "max_tokens: 100352 exceeds maximum 98304"
@@ -37,13 +43,19 @@
   },
   "qwen/qwen3-235b-a22b": {
     endpoint: "alibaba",
-    // reasoning_budget_tokens: 1024,
   },
   "qwen/qwen3.5-flash-02-23": {
     endpoint: "alibaba",
-    // reasoning_budget_tokens: 1024,
   },
-
+  // qwen models don't have an effort param, reason budget instead
+  "qwen/qwen3-235b-a22b:loeff": {
+    endpoint: "alibaba",
+    reasoning_budget_tokens: 1024,
+  },
+  "qwen/qwen3.5-flash-02-23:loeff": {
+    endpoint: "alibaba",
+    reasoning_budget_tokens: 1024,
+  },
 
   // --- OpenAI: "openai" is first-party; /flex, /fast and /default are tiers ---
   "openai/gpt-4.1": {
@@ -58,70 +70,150 @@
   "openai/o4-mini": {
     endpoint: "openai",
   },
+  "openai/o4-mini:loeff": {
+    endpoint: "openai",
+    reasoning_effort: "low",
+  },
   "openai/o3": {
     endpoint: "openai",
   },
+  "openai/o3:loeff": {
+    endpoint: "openai",
+    reasoning_effort: "low",
+  },
   "openai/gpt-5": {
     endpoint: "openai/default",
+  },
+  "openai/gpt-5:loeff": {
+    endpoint: "openai/default",
+    reasoning_effort: "minimal",
   },
   "openai/gpt-5-mini": {
     endpoint: "openai",
     ignore: ["openai/flex"],
   },
+  "openai/gpt-5-mini:loeff": {
+    endpoint: "openai",
+    ignore: ["openai/flex"],
+    reasoning_effort: "minimal",
+  },
   "openai/gpt-5-nano": {
     endpoint: "openai",
     ignore: ["openai/flex"],
+  },
+  "openai/gpt-5-nano:loeff": {
+    endpoint: "openai",
+    ignore: ["openai/flex"],
+    reasoning_effort: "minimal",
   },
   "openai/gpt-5.4-nano": {
     endpoint: "openai",
     ignore: ["openai/flex"],
   },
+  "openai/gpt-5.4-nano:loeff": {
+    endpoint: "openai",
+    ignore: ["openai/flex"],
+    reasoning_effort: "low",
+  },
   "openai/gpt-5.5": {
     endpoint: "openai",
     ignore: ["openai/flex", "openai/fast"],
+  },
+  "openai/gpt-5.5:loeff": {
+    endpoint: "openai",
+    ignore: ["openai/flex", "openai/fast"],
+    reasoning_effort: "low",
   },
   "openai/gpt-5.6-luna": {
     endpoint: "openai",
     ignore: ["openai/flex", "openai/fast"],
   },
+  "openai/gpt-5.6-luna:loeff": {
+    endpoint: "openai",
+    ignore: ["openai/flex", "openai/fast"],
+    reasoning_effort: "low",
+  },
   "openai/gpt-5.6-sol": {
     endpoint: "openai",
     ignore: ["openai/flex", "openai/fast"],
+  },
+  "openai/gpt-5.6-sol:loeff": {
+    endpoint: "openai",
+    ignore: ["openai/flex", "openai/fast"],
+    reasoning_effort: "low",
   },
 
   // --- Google: google-ai-studio, not vertex; /flex and /priority are tiers ---
   "google/gemini-2.5-flash": {
     endpoint: "google-ai-studio",
     ignore: ["google-ai-studio/flex", "google-ai-studio/priority"],
-//    reasoning_budget_tokens: 1024,
+  },
+  // for gemini-2.5-flash there is no native effort param, we use reasoning budget instead
+  "google/gemini-2.5-flash:loeff": {
+    endpoint: "google-ai-studio",
+    ignore: ["google-ai-studio/flex", "google-ai-studio/priority"],
+    reasoning_budget_tokens: 1024,
   },
   "google/gemini-3-flash-preview": {
     endpoint: "google-ai-studio",
     ignore: ["google-ai-studio/flex", "google-ai-studio/priority"],
   },
+  "google/gemini-3-flash-preview:loeff": {
+    endpoint: "google-ai-studio",
+    ignore: ["google-ai-studio/flex", "google-ai-studio/priority"],
+    reasoning_effort: "minimal",
+  },
   "google/gemini-3.1-flash-lite-preview": {
     endpoint: "google-ai-studio",
     ignore: ["google-ai-studio/flex", "google-ai-studio/priority"],
+  },
+  "google/gemini-3.1-flash-lite-preview:loeff": {
+    endpoint: "google-ai-studio",
+    ignore: ["google-ai-studio/flex", "google-ai-studio/priority"],
+    reasoning_effort: "minimal",
   },
   "google/gemini-3.7-flash": {
     endpoint: "google-ai-studio",
     ignore: ["google-ai-studio/flex", "google-ai-studio/priority"],
   },
+  "google/gemini-3.7-flash:loeff": {
+    endpoint: "google-ai-studio",
+    ignore: ["google-ai-studio/flex", "google-ai-studio/priority"],
+    reasoning_effort: "low",
+  },
 
   // --- Anthropic: first-party ---
+  // note, with default params claude-haiku-4.5 does no reasoning
+  // using loeff actually corresponds to *higher* reasoning
   "anthropic/claude-haiku-4.5": {
     endpoint: "anthropic",
-//    reasoning_budget_tokens: 1024,
   },
+  "anthropic/claude-haiku-4.5:loeff": {
+    endpoint: "anthropic",
+    reasoning_budget_tokens: 1024,
+  },
+
   "anthropic/claude-sonnet-5": {
     endpoint: "anthropic",
-//    reasoning_effort: "low",
+  },
+  "anthropic/claude-sonnet-5:loeff": {
+    endpoint: "anthropic",
+    reasoning_effort: "low",
   },
   "anthropic/claude-opus-5": {
     endpoint: "anthropic",
     ignore: ["anthropic/fast"],
   },
+  "anthropic/claude-opus-5:loeff": {
+    endpoint: "anthropic",
+    ignore: ["anthropic/fast"],
+    reasoning_effort: "low",
+  },
   "anthropic/claude-fable-5": {
     endpoint: "anthropic",
+  },
+  "anthropic/claude-fable-5:loeff": {
+    endpoint: "anthropic",
+    reasoning_effort: "low",
   },
 }
