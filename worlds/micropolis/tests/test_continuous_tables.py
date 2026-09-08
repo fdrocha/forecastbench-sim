@@ -15,7 +15,7 @@ from micropolis_world.continuous_eval import GLOBAL_SCALES, make_normalizer
 
 SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
 
-# The baselines are normalized through whatever --norm the run picked, so the
+# The baselines are normalized through one of the normalizations, so the
 # tests below pass the default one and read its scale rather than restating it.
 # The global mode needs no corpus: its scales do not come from the questions.
 NORM = make_normalizer("global", [])

@@ -64,7 +64,7 @@ def plots_path(label: str) -> Path:
 # metric with no scale can be told from one whose scale was forgotten.
 UNNORMALIZED_METRICS = {"totalFunds"}
 
-# Denominators for --norm global: one fixed scale per metric, the same for
+# Denominators for the global normalization: one fixed scale per metric, the same for
 # every question. Round numbers on the order of a metric's plausible range over
 # a run rather than anything fitted to the data, so they hold still as cities,
 # snapshots and models come and go, and a normalized cell can be compared
@@ -79,13 +79,9 @@ GLOBAL_SCALES: dict[str, float] = {
     "landValueAverage": 60.0,
 }
 
-# --norm's values, "global" first because it is the default.
+# The normalizations analyze_continuous.py reports, in the order its reports,
+# figures and CSV columns come out.
 NORM_MODES = ("global", "local", "baseline")
-DEFAULT_NORM = "global"
-
-# The per-question modes below need the ground-truth continuations, which
-# scripts/extract_ground_truth.py writes; "global" reads nothing.
-GROUND_TRUTH_NORMS = ("local", "baseline")
 
 
 @dataclass(frozen=True)
@@ -237,7 +233,7 @@ def make_normalizer(
     global_frac: float = 0.01,
     seed: int | None = None,
 ) -> Normalizer:
-    """The Normalizer for a --norm mode, over the corpus about to be scored.
+    """The Normalizer for one of NORM_MODES, over the corpus about to be scored.
 
     `global_frac` floors the two per-question modes' denominators at that share
     of the metric's global scale (see floor_scales); `seed` names the run logs
@@ -269,7 +265,7 @@ def make_normalizer(
         from .ground_truth import load_expected_persistence
 
         if seed is None:
-            raise ValueError("--norm baseline needs the config's seed")
+            raise ValueError("the baseline normalization needs the config's seed")
         raw = load_expected_persistence(corpus, snapshot_rows(corpus, seed))
         scales, floored = floor_scales(corpus, raw, global_frac)
         return Normalizer(

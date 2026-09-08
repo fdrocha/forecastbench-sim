@@ -9,32 +9,21 @@ The config selects which slice of the dataset to score — its models, cities,
 disasters, snapshot_turns and horizons — so one gathered dataset can be viewed
 many ways. Naming anything the dataset lacks is an error, not a smaller table.
 
-Writes every table and figure to one Markdown report,
-data/micropolis/continuous/{label}/analysis-crps.md, rather than to stdout:
-normalized CRPS against horizon, over all runs and restricted to the runs with
-and without disasters; forecast skill against ECI; and the correlation of each
-against horizon, both for ECI alone and comparing ECI to the knowledge-eval
-score. --no-plot skips the figures. Only the paths written and the report's own
-path are printed to stdout.
+Writes every table and figure to one Markdown report per normalization,
+data/micropolis/continuous/{label}/analysis-crps-{norm}.md, rather than to
+stdout: normalized CRPS against horizon, over all runs and restricted to the
+runs with and without disasters; forecast skill against ECI; and the
+correlation of each against horizon, both for ECI alone and comparing ECI to
+the knowledge-eval score. --no-plot skips the figures. Only the paths written
+and the reports' own paths are printed to stdout.
 
-The report and every figure carry a -{norm} suffix — analysis-crps-global.md
-and so on — so scoring one label under several modes leaves a set of files per
-mode rather than one silently overwriting another.
+CRPS is reported normalized — divided by something that makes it unitless —
+and there are three things worth dividing by. One run computes all three, each
+to its own report and figures, tagged -{norm} in the filename so the sets sit
+side by side rather than overwrite each other:
 
-Beside the report it writes continuous_scores.csv: one row per model x metric
-x horizon, plus an "all" metric and an "all" horizon per model, with the
-forecast counts, the raw CRPS and the normalized CRPS under every --norm mode
-side by side — the table's numbers in a form the next analysis can load rather
-than parse out of fixed-width text. It is the same file whatever --norm was
-passed, and so unsuffixed; it needs every mode buildable, which means the
-ground truth the last two read.
-
---norm picks what CRPS is divided by to make it unitless, which every
-normalized table and figure then reports:
-
-  global    (the default) a fixed per-metric scale, the same for every
-            question, so a cell is comparable across scenarios, snapshots and
-            horizons.
+  global    a fixed per-metric scale, the same for every question, so a cell
+            is comparable across scenarios, snapshots and horizons.
   local     the mean the question's own metric took over the reseeded
             continuations of its scenario, snapshot and horizon.
   baseline  the expected CRPS of the persistence forecast: the mean of
@@ -43,19 +32,25 @@ normalized table and figure then reports:
             scale carries its own zero point.
 
 The last two read data/micropolis/ground_truth/, so they need
-scripts/extract_ground_truth.py to have covered the config. Both divide by a
+scripts/extract_ground_truth.py to have covered the config — and since every
+mode is computed on every run, so does the script as a whole. Both divide by a
 number the question itself supplies, which goes to 0 where a metric provably
 could not move — a city whose traffic is pinned at 0 across every continuation
 — and near 0 where it barely could; both therefore floor the denominator at
---norm-global-frac of the metric's global scale, and the report says how many
+--norm-global-frac of the metric's global scale, and each report says how many
 questions that floor bound. The modes are not comparable with each other, so
 the mode is stated wherever a normalized number is.
+
+Beside the reports it writes continuous_scores.csv: one row per model x metric
+x horizon, plus an "all" metric and an "all" horizon per model, with the
+forecast counts, the raw CRPS and the normalized CRPS under every mode side by
+side — the tables' numbers in a form the next analysis can load rather than
+parse out of fixed-width text. One file for all three modes, so unsuffixed.
 
 Usage:
     scripts/analyze_continuous.py                   # configs/continuous.json5
     scripts/analyze_continuous.py subset.json5
-    scripts/analyze_continuous.py --norm baseline
-    scripts/analyze_continuous.py --norm local --norm-global-frac 0.005
+    scripts/analyze_continuous.py --norm-global-frac 0.005
     scripts/analyze_continuous.py --no-plot
     scripts/analyze_continuous.py --cities kyoto --disasters false
     scripts/analyze_continuous.py --models openai/gpt-5.6-sol --label myrun
@@ -82,7 +77,6 @@ from micropolis_world.config import (
     main_with_config,
 )
 from micropolis_world.continuous_eval import (
-    DEFAULT_NORM,
     NORM_MODES,
     UNNORMALIZED_METRICS,
     DatasetError,
@@ -123,17 +117,14 @@ PERSISTENCE_LABEL = "persistence baseline (no change from snapshot)"
 
 
 def norm_suffix(norm: Normalizer) -> str:
-    """Filename suffix keeping one --norm mode's outputs off another's.
+    """Filename suffix keeping one normalization's outputs off another's.
 
-    Every figure and the report are per-mode: the same label scored under two
-    modes produces two different sets of numbers, and without a suffix the
-    second run would overwrite the first's files while its report went on
-    claiming the mode it was written for.
-
-    Every mode is tagged, the default included, so a filename always says
-    which normalization produced it and no set of outputs is the odd one out.
-    Files written before this — an unsuffixed analysis-crps.md and its plots —
-    are left behind rather than overwritten, and are stale from here on.
+    Every figure and report is per-mode: the three normalizations turn the
+    same forecasts into three different sets of numbers, and one run writes
+    all three, so the mode has to be in the name for them to coexist. Files
+    from before the suffix existed — an unsuffixed analysis-crps.md and its
+    plots — are left behind rather than overwritten, and are stale from here
+    on.
     """
     return f"-{norm.mode}"
 
@@ -592,7 +583,7 @@ def print_normalized_crps_table(
     report.heading("Mean normalized CRPS by model and metric (lower is better)")
     report.text(
         f"pooled over every forecast horizon; {READ_OFF_NOTE}\n\n"
-        f"{norm.ratio} (--norm {norm.mode}), so cells compare across metrics as"
+        f"{norm.ratio} ({norm.mode} normalization), so cells compare across metrics as"
         " well as down them; (n) is the model's rank within that metric\n\n"
         "mean = mean over every normalized forecast pooled, so a metric with "
         "more parsed forecasts weighs more"
@@ -714,7 +705,7 @@ def print_normalized_horizon_table(
         model_names,
         sorted({c["horizon"] for c in corpus}),
         "Mean normalized CRPS by model and horizon (lower is better)",
-        f"{norm.ratio} (--norm {norm.mode}) over {', '.join(normalized_labels)};"
+        f"{norm.ratio} ({norm.mode} normalization) over {', '.join(normalized_labels)};"
         " horizons are turns past the snapshot"
         f"\nall* {READ_OFF_NOTE}; the H{READ_OFF_HORIZON} column is kept as the"
         " comprehension check it is",
@@ -759,9 +750,9 @@ def scores_csv_rows(
     Per row, nforecasts counts the questions the model was actually prompted
     with — a response on record, parsed or not — and nvalid those whose answer
     parsed; the means are over the latter. The two differ per model under
-    --incomplete and agree otherwise. The normalized columns are one per --norm
-    mode, computed from the same forecasts, so a row compares the modes on an
-    identical question set.
+    --incomplete and agree otherwise. The normalized columns are one per
+    normalization mode, computed from the same forecasts, so a row compares the
+    modes on an identical question set.
 
     Only the normalizable metrics get rows: city funds has no scale under any
     mode, and a row of nans would say nothing the raw table does not. The
@@ -1023,7 +1014,8 @@ def plot_normalized_by_horizon(
     ax.set_ylabel(f"Normalized CRPS ({norm.ratio}, lower is better)")
     ax.set_title(
         f"Normalized CRPS by horizon{f' — {subset}' if subset else ''}\n"
-        f"{len(model_names)} models, {len(corpus)} questions, --norm {norm.mode}\n"
+        f"{len(model_names)} models, {len(corpus)} questions, "
+        f"{norm.mode} normalization\n"
         f"legend ranks on the forecast horizons only ({READ_OFF_NOTE})\n"
         "below dashed beats persistence; below dotted also beats it "
         "with an honest interval"
@@ -1922,8 +1914,8 @@ def plot_horizon_figures(
     if ymax <= 0:
         raise ValueError(
             "no normalized scores to plot: every selected forecast either failed "
-            "to parse or resolved on a metric with no scale under --norm "
-            f"{norm.mode} ({norm.detail})"
+            "to parse or resolved on a metric with no scale under the "
+            f"{norm.mode} normalization ({norm.detail})"
         )
     ymax *= 1.08  # headroom so the topmost marker isn't clipped by the frame
 
@@ -1940,27 +1932,19 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     add_config_args(ap, default=DEFAULT_CONTINUOUS_CONFIG_PATH)
     ap.add_argument(
-        "--norm",
-        choices=NORM_MODES,
-        default=DEFAULT_NORM,
-        help="What to divide CRPS by: 'global' a fixed per-metric scale, "
-        "'local' the question's own mean over the ground-truth continuations, "
-        "'baseline' the expected CRPS of the persistence forecast over them",
-    )
-    ap.add_argument(
         "--norm-global-frac",
         type=float,
         default=None,
-        help="Floor the per-question denominators of --norm local and "
-        "--norm baseline at this share of the metric's global scale "
+        help="Floor the per-question denominators of the local and baseline "
+        "normalizations at this share of the metric's global scale "
         f"(config 'norm_global_frac', default {DEFAULT_NORM_GLOBAL_FRAC:g}). "
-        "Only the questions it binds are affected, and the report counts them",
+        "Only the questions it binds are affected, and each report counts them",
     )
     ap.add_argument(
         "--no-plot",
         dest="plot",
         action="store_false",
-        help="Skip writing the normalized CRPS by horizon scatter plot",
+        help="Skip writing the figures",
     )
     ap.add_argument(
         "--incomplete",
@@ -1972,6 +1956,7 @@ def main() -> None:
 
     cfg = load_config(args)
     label = cfg.get_label(args.label)
+    seed = cfg.get_seed(args.seed)
     data_file = data_path(label)
     outdir = plots_path(label)
 
@@ -1985,7 +1970,7 @@ def main() -> None:
             responses,
             models,
             cfg,
-            cfg.get_seed(args.seed),
+            seed,
             cities=args.cities,
             disasters=args.disasters,
             models=args.models,
@@ -2002,8 +1987,7 @@ def main() -> None:
     print(f"label:  {label}")
     print(f"{len(corpus)} questions x {len(models)} models")
 
-    # Every mode, not only the one asked for: continuous_scores.csv carries
-    # them side by side. Built after the selection, since a mode can need
+    # Every normalization, built after the selection since two of them need
     # per-question numbers for the slice being scored. The failure is the
     # user's to fix — a gathering step to run — so it gets no stack trace.
     try:
@@ -2012,76 +1996,86 @@ def main() -> None:
                 mode,
                 corpus,
                 global_frac=cfg.get_norm_global_frac(args.norm_global_frac),
-                seed=cfg.get_seed(args.seed),
+                seed=seed,
             )
             for mode in NORM_MODES
         }
     except (NotImplementedError, FileNotFoundError) as e:
         sys.exit(
             f"[error] {e}\n"
-            f"  {SCORES_CSV_NAME} carries every --norm mode, so all of them have "
-            "to be buildable whichever one the tables use"
+            "  every normalization is computed on every run, so the ground truth "
+            "is needed even for the global report"
         )
-    norm = norms[args.norm]
-    print(f"norm:   {norm.mode} ({norm.detail})")
-    if norm.floored is not None:
-        print(f"floor:  {norm.floored.note()}")
 
     # A metric with no scale and no place on the exclusion list would drop out
     # of every normalized table without saying so, leaving them quietly
-    # narrower than the raw ones.
-    unscaled = norm.unscaled_metrics(corpus)
-    if unscaled:
-        sys.exit(
-            f"[error] --norm {norm.mode} has no scale for: {', '.join(unscaled)}\n"
-            "  add one to continuous_eval.GLOBAL_SCALES, or to "
-            "UNNORMALIZED_METRICS to leave the metric out of normalized CRPS"
+    # narrower than the raw ones. Checked for every mode before anything is
+    # written, so a failing mode cannot leave the others' files half-updated.
+    for norm in norms.values():
+        unscaled = norm.unscaled_metrics(corpus)
+        if unscaled:
+            sys.exit(
+                f"[error] the {norm.mode} normalization has no scale for: "
+                f"{', '.join(unscaled)}\n"
+                "  add one to continuous_eval.GLOBAL_SCALES, or to "
+                "UNNORMALIZED_METRICS to leave the metric out of normalized CRPS"
+            )
+
+    # One report and one set of figures per normalization, each self-contained:
+    # the raw CRPS table is the same under every mode but is repeated in each,
+    # so a report can be read on its own.
+    for norm in norms.values():
+        print()
+        print(f"norm:   {norm.mode} ({norm.detail})")
+        if norm.floored is not None:
+            print(f"floor:  {norm.floored.note()}")
+
+        report = MdReport()
+        report.text(f"Normalized CRPS is {norm.ratio}: {norm.detail}.")
+        # Beside the numbers it affected rather than only on stdout: a floored
+        # cell is scored against the floor, not against its own scenario, and
+        # a reader of the report alone has to be told how much of the table
+        # that covers.
+        if norm.floored is not None:
+            report.text(norm.floored.note().capitalize() + ".")
+        print_crps_table(report, corpus, responses, models, norm)
+        print_normalized_crps_table(report, corpus, responses, models, norm)
+        print_normalized_horizon_table(report, corpus, responses, models, norm)
+
+        if args.plot:
+            eci_plots = [
+                plot_eci_vs_normalized(report, corpus, responses, models, outdir, norm),
+                plot_eci_correlation_by_horizon(
+                    report, corpus, responses, models, outdir, norm
+                ),
+                plot_predictors_correlation_by_horizon(
+                    report, corpus, responses, models, outdir, norm
+                ),
+            ]
+            for out in plot_horizon_figures(
+                report, corpus, responses, models, seed, outdir, norm
+            ):
+                print(f"Wrote {out}")
+            for out in eci_plots:
+                if out is not None:
+                    print(f"Wrote {out}")
+
+        out_path = report.write(
+            label_dir(label) / f"analysis-crps{norm_suffix(norm)}.md",
+            f"Continuous eval — CRPS ({norm.mode} normalization)",
         )
+        print(out_path)
 
-    report = MdReport()
-    report.text(f"Normalized CRPS is {norm.ratio}: {norm.detail}.")
-    # Beside the numbers it affected rather than only on stdout: a floored cell
-    # is scored against the floor, not against its own scenario, and a reader
-    # of the report alone has to be told how much of the table that covers.
-    if norm.floored is not None:
-        report.text(norm.floored.note().capitalize() + ".")
-    print_crps_table(report, corpus, responses, models, norm)
-    print_normalized_crps_table(report, corpus, responses, models, norm)
-    print_normalized_horizon_table(report, corpus, responses, models, norm)
-
-    # Data rather than a figure, so written under --no-plot too; and the same
-    # file under every --norm, hence no suffix.
+    # Data rather than a figure, so written under --no-plot too; and one file
+    # for every mode, hence no suffix. Last, so the tables' own emptiness
+    # checks have already fired before a CSV of nothing is written.
     csv_path = write_scores_csv(
         label_dir(label) / SCORES_CSV_NAME,
         scores_csv_rows(corpus, responses, models, norms),
         list(NORM_MODES),
     )
+    print()
     print(f"Wrote {csv_path}")
-
-    if args.plot:
-        eci_plots = [
-            plot_eci_vs_normalized(report, corpus, responses, models, outdir, norm),
-            plot_eci_correlation_by_horizon(
-                report, corpus, responses, models, outdir, norm
-            ),
-            plot_predictors_correlation_by_horizon(
-                report, corpus, responses, models, outdir, norm
-            ),
-        ]
-        print()
-        for out in plot_horizon_figures(
-            report, corpus, responses, models, cfg.get_seed(args.seed), outdir, norm
-        ):
-            print(f"Wrote {out}")
-        for out in eci_plots:
-            if out is not None:
-                print(f"Wrote {out}")
-
-    out_path = report.write(
-        label_dir(label) / f"analysis-crps{norm_suffix(norm)}.md",
-        f"Continuous eval — CRPS ({norm.mode} normalization)",
-    )
-    print(out_path)
 
 
 if __name__ == "__main__":

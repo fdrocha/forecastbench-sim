@@ -147,7 +147,7 @@ and the structural constraints (§5). Read it before touching resolution.
   (strip the suffix, passthrough prefix, dated aliases, `gemini/` for `google/`).
 - Scoring choices that must not be reinvented per script: horizon 0 is a read-off, not a
   forecast, and is excluded from aggregates; `totalFunds` has no scale and so is excluded
-  from normalized CRPS under every `--norm` mode, floor included; a per-question
+  from normalized CRPS under every normalization mode, floor included; a per-question
   denominator is floored, never dropped, so every mode covers the same question set; skill (`CRPS_model / CRPS_baseline`) is aggregated as a geometric mean with t-based
   CIs clustered on (scenario, snapshot turn). `analyze_skill_by_config.py` →
   `analyze_baseline_skill.py` → `analyze_continuous.py` import each other via
@@ -169,29 +169,25 @@ Continuous forecasting eval (percentiles, `data/micropolis/continuous/`). The fi
 default to `micropolis_world/configs/continuous.json5`; `analyze_skill_by_config.py` requires
 its configs and `plot_forecasts.py` has its own:
 - `run_eval_continuous.py` — prompts models; writes `data.json`.
-- `analyze_continuous.py` — CRPS tables/figures, normalized by `--norm`:
-  `global` (the default) divides by a fixed scale per metric
-  (`continuous_eval.GLOBAL_SCALES`), so a cell is comparable across scenarios,
-  snapshots and horizons; `local` by the mean the question's own metric took
-  over the ground-truth continuations of its (scenario, snapshot, horizon);
-  `baseline` by the expected CRPS of the persistence forecast over those same
-  continuations (mean `|snapshot - outcome|`), which is the one mode whose
-  scale has a zero point — 1.0 is as good as assuming nothing changes. The
-  last two need `extract_ground_truth.py` to have covered the config and
-  floor their denominator at `--norm-global-frac` (config `norm_global_frac`,
-  default 1%) of the metric's global scale, since a metric that provably
-  cannot move gives a denominator of 0; stdout and the report both say how
-  many questions that floor bound. The modes are not comparable with each
-  other, so every table and figure states the one it used, and the report and
-  plots carry a `-{norm}` filename suffix (`analysis-crps-global.md`, …) —
-  scoring one label under several modes leaves a set of files per mode. Beside
-  the report it always writes `continuous_scores.csv` (unsuffixed: the same file
-  under every `--norm`): one row per model × metric × horizon-in-years plus
-  `all` pooled rows, with `nforecasts` (prompted), `nvalid` (parsed), raw `CRPS`
-  (nan on the pooled-metric rows) and `nCRPS_{global,local,baseline}` side by
-  side. Pooled rows and the table's `mean` column both average datapoints,
-  not per-metric means. Because the CSV needs every mode,
-  the script needs the ground truth even under `--norm global`.
+- `analyze_continuous.py` — CRPS tables/figures under three normalizations, each to
+  its own report and figures tagged `-{norm}` (`analysis-crps-global.md`, …), all from
+  one run: `global` divides by a fixed scale per metric (`continuous_eval.GLOBAL_SCALES`),
+  so a cell is comparable across scenarios, snapshots and horizons; `local` by the mean
+  the question's own metric took over the ground-truth continuations of its (scenario,
+  snapshot, horizon); `baseline` by the expected CRPS of the persistence forecast over
+  those same continuations (mean `|snapshot - outcome|`), the one mode whose scale has a
+  zero point — 1.0 is as good as assuming nothing changes. The last two need
+  `extract_ground_truth.py` to have covered the config — and since every mode is computed
+  on every run, so does the script as a whole — and floor their denominator at
+  `--norm-global-frac` (config `norm_global_frac`, default 1%) of the metric's global
+  scale, since a metric that provably cannot move gives a denominator of 0; stdout and
+  each report say how many questions that floor bound. The modes are not comparable
+  with each other, so every table and figure states the one it used. Beside the reports
+  it writes `continuous_scores.csv` (one file, unsuffixed): one row per model × metric ×
+  horizon-in-years plus `all` pooled rows, with `nforecasts` (prompted), `nvalid`
+  (parsed), raw `CRPS` (nan on the pooled-metric rows) and
+  `nCRPS_{global,local,baseline}` side by side. Pooled rows and the tables' `mean`
+  column both average datapoints, not per-metric means.
 - `analyze_baseline_skill.py` — same forecasts scored against a naive (`plain`/`sigma`)
   no-change baseline, so 1.0 is the meaningful zero point.
 - `analyze_skill_by_config.py` — that skill compared across several configs (many-config
@@ -212,9 +208,9 @@ Binary forecasting eval (P(Yes), `data/micropolis/binary/`, spec in `binary_fore
   showed; cross-checks the trunk against the cached `runs/` log; skips files that already
   cover the config unless `--force-regen`. `ground_truth.load_truths` reads the per-question
   Yes counts out of those files and `load_averages` the per-metric means (what
-  `analyze_continuous.py --norm local` normalizes by) plus `load_expected_persistence`
-  (the mean `|snapshot - outcome|` over the continuations, which `--norm baseline`
-  normalizes by); all three error rather than cover less than the config asks for.
+  `analyze_continuous.py`'s local normalization divides by) plus `load_expected_persistence`
+  (the mean `|snapshot - outcome|` over the continuations, which its baseline
+  normalization divides by); all three error rather than cover less than the config asks for.
 
 Domain-knowledge eval (`micropolis_world/knowledge_eval/`, True/False/Unknown statements
 about the engine, own cache under `data/micropolis/knowledge_eval/`):

@@ -1,4 +1,4 @@
-"""Unit tests for the CRPS normalization modes behind --norm."""
+"""Unit tests for the CRPS normalization modes analyze_continuous.py reports under."""
 
 import pytest
 from fbsim_core.metrics import compute_crps
@@ -279,7 +279,7 @@ def test_norm_global_frac_defaults_and_overrides():
 
 @pytest.mark.parametrize("bad", [1.0, 1.5, -0.1])
 def test_norm_global_frac_rejects_shares_outside_the_unit_interval(bad):
-    """At 1 every question is floored onto the global scale, which is --norm global."""
+    """At 1 every question is floored onto the global scale, i.e. the global mode."""
     from micropolis_world.config import ConfigError
 
     with pytest.raises(ConfigError, match="norm_global_frac"):

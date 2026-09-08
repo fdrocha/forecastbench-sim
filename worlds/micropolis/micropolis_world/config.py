@@ -57,8 +57,8 @@ QUESTION_TAGGINGS = (QUESTION_TAGGING_NUMERIC, QUESTION_TAGGING_SEMANTIC)
 # that it binds only where a metric barely moves over the continuations — a
 # city whose traffic is pinned at 0 — and high enough to keep such a question's
 # normalized CRPS inside two orders of magnitude of the rest. Overridable per
-# config ('norm_global_frac') and per run (--norm-global-frac); the report says
-# how many questions it bound.
+# config ('norm_global_frac') and per run (--norm-global-frac); each report
+# says how many questions it bound.
 DEFAULT_NORM_GLOBAL_FRAC = 0.01
 
 # .json5 rather than .json so editors don't flag the comments as syntax errors.
@@ -389,7 +389,7 @@ class Config:
         """The floor on a per-question CRPS denominator, as a share of the
         metric's global scale.
 
-        analyze_continuous.py's --norm local and --norm baseline divide by a
+        analyze_continuous.py's local and baseline normalizations divide by a
         number the question itself supplies, which on the scenarios where a
         metric cannot move at all goes to 0 — or near enough that the cell
         would swamp any mean it entered. Both floor the denominator at this
