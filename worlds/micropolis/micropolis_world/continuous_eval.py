@@ -687,9 +687,11 @@ def score_forecasts(
     """Score every parsed forecast, raw and normalized.
 
     One row per (model, question) that produced a usable forecast, carrying the
-    metric and horizon so callers can group as they like. "normalized" is CRPS
-    over `norm`'s scale for that question, and is None where the question has
-    no scale, so a caller averaging it must skip the Nones.
+    question id, metric and horizon so callers can group as they like — or join
+    the rows of two normalizers on (model_id, question_id), since the raw CRPS
+    is the same under every mode. "normalized" is CRPS over `norm`'s scale for
+    that question, and is None where the question has no scale, so a caller
+    averaging it must skip the Nones.
     """
     rows = []
     for c in corpus:
@@ -706,6 +708,7 @@ def score_forecasts(
             rows.append(
                 {
                     "model_id": model_id,
+                    "question_id": c["question_id"],
                     "metric": c["metric"],
                     "horizon": c["horizon"],
                     "crps": crps,

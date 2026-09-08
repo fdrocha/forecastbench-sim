@@ -184,7 +184,14 @@ its configs and `plot_forecasts.py` has its own:
   many questions that floor bound. The modes are not comparable with each
   other, so every table and figure states the one it used, and the report and
   plots carry a `-{norm}` filename suffix (`analysis-crps-global.md`, …) —
-  scoring one label under several modes leaves a set of files per mode.
+  scoring one label under several modes leaves a set of files per mode. Beside
+  the report it always writes `continuous_scores.csv` (unsuffixed: the same file
+  under every `--norm`): one row per model × metric × horizon-in-years plus
+  `all` pooled rows, with `nforecasts` (prompted), `nvalid` (parsed), raw `CRPS`
+  (nan on the pooled-metric rows) and `nCRPS_{global,local,baseline}` side by
+  side. Pooled rows and the table's `mean` column both average datapoints,
+  not per-metric means. Because the CSV needs every mode,
+  the script needs the ground truth even under `--norm global`.
 - `analyze_baseline_skill.py` — same forecasts scored against a naive (`plain`/`sigma`)
   no-change baseline, so 1.0 is the meaningful zero point.
 - `analyze_skill_by_config.py` — that skill compared across several configs (many-config

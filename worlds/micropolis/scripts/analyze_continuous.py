@@ -21,6 +21,14 @@ The report and every figure carry a -{norm} suffix — analysis-crps-global.md
 and so on — so scoring one label under several modes leaves a set of files per
 mode rather than one silently overwriting another.
 
+Beside the report it writes continuous_scores.csv: one row per model x metric
+x horizon, plus an "all" metric and an "all" horizon per model, with the
+forecast counts, the raw CRPS and the normalized CRPS under every --norm mode
+side by side — the table's numbers in a form the next analysis can load rather
+than parse out of fixed-width text. It is the same file whatever --norm was
+passed, and so unsuffixed; it needs every mode buildable, which means the
+ground truth the last two read.
+
 --norm picks what CRPS is divided by to make it unitless, which every
 normalized table and figure then reports:
 
@@ -54,6 +62,8 @@ Usage:
 """
 
 import argparse
+import csv
+import math
 import re
 import statistics
 import sys
@@ -544,16 +554,12 @@ def print_normalized_crps_table(
         for m in metrics
     }
 
-    # The mean of the per-metric means, so every metric counts equally. The raw
-    # table's "norm" instead averages the underlying questions, which weights a
-    # metric by how many of them parsed; the two differ slightly, hence the
-    # distinct column name.
-    overall = {
-        model_id: _mean(
-            [normalized[(model_id, m)] for m in metrics if (model_id, m) in normalized]
-        )
-        for model_id in model_names
-    }
+    # Pooled over every normalized forecast rather than averaged over the
+    # per-metric cells, so a metric with more parsed forecasts weighs more.
+    # The same pooling as the ECI figures and continuous_scores.csv's (all,
+    # all) row, so one number per model is quoted the same way everywhere.
+    pooled = normalized_by_model(corpus, responses, model_names, norm)
+    overall = {model_id: pooled.get(model_id) for model_id in model_names}
 
     labels = {m: str(g.METRIC_LABELS.get(m, m)) for m in metrics}
     model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in model_names])
@@ -588,7 +594,8 @@ def print_normalized_crps_table(
         f"pooled over every forecast horizon; {READ_OFF_NOTE}\n\n"
         f"{norm.ratio} (--norm {norm.mode}), so cells compare across metrics as"
         " well as down them; (n) is the model's rank within that metric\n\n"
-        "mean = mean of the per-metric cells, weighting each metric equally"
+        "mean = mean over every normalized forecast pooled, so a metric with "
+        "more parsed forecasts weighs more"
         + (f"; omits {', '.join(excluded)}, which no scale covers" if excluded else "")
     )
 
@@ -713,6 +720,127 @@ def print_normalized_horizon_table(
         " comprehension check it is",
         ".3f",
     )
+
+
+# ---------------------------------------------------------------------------
+# continuous_scores.csv
+
+SCORES_CSV_NAME = "continuous_scores.csv"
+
+# The pooled row's label in both the metric and the horizon column.
+ALL = "all"
+
+
+def horizon_label(horizon: int) -> str:
+    """A horizon in years, "3y", the unit a reader of the CSV thinks in."""
+    return f"{horizon / g.TURNS_PER_YEAR:g}y"
+
+
+def metric_label(metric: str) -> str:
+    """The metric's report label without the "average " four of them carry."""
+    return str(g.METRIC_LABELS.get(metric, metric)).removeprefix("average ")
+
+
+def scores_csv_rows(
+    corpus: list[dict],
+    responses: Responses,
+    model_names: list[str],
+    norms: dict[str, Normalizer],
+) -> list[dict]:
+    """The rows of continuous_scores.csv, in the order they are written.
+
+    One row per model x metric x horizon, then an "all" metric row per
+    (model, horizon) and an "all" horizon row per (model, metric), and the
+    (all, all) corner. A pooled row averages the underlying (model, question)
+    scores rather than the per-metric means — so a metric with more parsed
+    forecasts weighs more, as in the normalized table's "mean" column — and
+    its raw CRPS is nan, since raw CRPS is in each metric's own units.
+
+    Per row, nforecasts counts the questions the model was actually prompted
+    with — a response on record, parsed or not — and nvalid those whose answer
+    parsed; the means are over the latter. The two differ per model under
+    --incomplete and agree otherwise. The normalized columns are one per --norm
+    mode, computed from the same forecasts, so a row compares the modes on an
+    identical question set.
+
+    Only the normalizable metrics get rows: city funds has no scale under any
+    mode, and a row of nans would say nothing the raw table does not. The
+    read-off horizon gets none either, "all" included — it is a comprehension
+    check, not a forecast.
+    """
+    corpus = forecast_questions(corpus)
+    metrics = [m for m in metrics_in_order(corpus) if m not in UNNORMALIZED_METRICS]
+    horizons = sorted({c["horizon"] for c in corpus})
+
+    # Every mode's rows, keyed so a question's scores under each can be read
+    # side by side. The raw CRPS is identical across modes; it is read off the
+    # first.
+    scored = {
+        mode: {
+            (r["model_id"], r["question_id"]): r
+            for r in score_forecasts(corpus, responses, model_names, norm)
+        }
+        for mode, norm in norms.items()
+    }
+    first = next(iter(scored.values()))
+
+    def nan_mean(values: list[float]) -> float:
+        return sum(values) / len(values) if values else math.nan
+
+    metric_groups = [(metric_label(m), [m]) for m in metrics] + [(ALL, metrics)]
+    horizon_groups = [(horizon_label(h), [h]) for h in horizons] + [(ALL, horizons)]
+
+    rows = []
+    for model_id in model_names:
+        for metric_name, metric_group in metric_groups:
+            for horizon_name, horizon_group in horizon_groups:
+                keys = [
+                    (model_id, c["question_id"])
+                    for c in corpus
+                    if c["metric"] in metric_group and c["horizon"] in horizon_group
+                ]
+                valid = [k for k in keys if k in first]
+                row = {
+                    "model": model_id,
+                    "metric": metric_name,
+                    "horizon": horizon_name,
+                    "nforecasts": sum(
+                        1 for m, q in keys if ResponseId(m, q) in responses
+                    ),
+                    "nvalid": len(valid),
+                    "CRPS": (
+                        math.nan
+                        if metric_name == ALL
+                        else nan_mean([first[k]["crps"] for k in valid])
+                    ),
+                }
+                for mode, by_key in scored.items():
+                    row[f"nCRPS_{mode}"] = nan_mean(
+                        [
+                            by_key[k]["normalized"]
+                            for k in valid
+                            if by_key[k]["normalized"] is not None
+                        ]
+                    )
+                rows.append(row)
+    return rows
+
+
+def write_scores_csv(path: Path, rows: list[dict], modes: list[str]) -> Path:
+    """Write scores_csv_rows' output, columns in the documented order.
+
+    nan lands as the literal "nan", which pandas and R both read back as
+    missing without being told to.
+    """
+    columns = ["model", "metric", "horizon", "nforecasts", "nvalid", "CRPS"] + [
+        f"nCRPS_{mode}" for mode in modes
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+    return path
 
 
 def plot_normalized_by_horizon(
@@ -1874,18 +2002,27 @@ def main() -> None:
     print(f"label:  {label}")
     print(f"{len(corpus)} questions x {len(models)} models")
 
-    # After the selection, since a mode can need per-question numbers for the
-    # slice being scored. Both failures are the user's to fix — a flag to
-    # change, or a gathering step to run — so neither gets a stack trace.
+    # Every mode, not only the one asked for: continuous_scores.csv carries
+    # them side by side. Built after the selection, since a mode can need
+    # per-question numbers for the slice being scored. The failure is the
+    # user's to fix — a gathering step to run — so it gets no stack trace.
     try:
-        norm = make_normalizer(
-            args.norm,
-            corpus,
-            global_frac=cfg.get_norm_global_frac(args.norm_global_frac),
-            seed=cfg.get_seed(args.seed),
-        )
+        norms = {
+            mode: make_normalizer(
+                mode,
+                corpus,
+                global_frac=cfg.get_norm_global_frac(args.norm_global_frac),
+                seed=cfg.get_seed(args.seed),
+            )
+            for mode in NORM_MODES
+        }
     except (NotImplementedError, FileNotFoundError) as e:
-        sys.exit(f"[error] {e}")
+        sys.exit(
+            f"[error] {e}\n"
+            f"  {SCORES_CSV_NAME} carries every --norm mode, so all of them have "
+            "to be buildable whichever one the tables use"
+        )
+    norm = norms[args.norm]
     print(f"norm:   {norm.mode} ({norm.detail})")
     if norm.floored is not None:
         print(f"floor:  {norm.floored.note()}")
@@ -1911,6 +2048,15 @@ def main() -> None:
     print_crps_table(report, corpus, responses, models, norm)
     print_normalized_crps_table(report, corpus, responses, models, norm)
     print_normalized_horizon_table(report, corpus, responses, models, norm)
+
+    # Data rather than a figure, so written under --no-plot too; and the same
+    # file under every --norm, hence no suffix.
+    csv_path = write_scores_csv(
+        label_dir(label) / SCORES_CSV_NAME,
+        scores_csv_rows(corpus, responses, models, norms),
+        list(NORM_MODES),
+    )
+    print(f"Wrote {csv_path}")
 
     if args.plot:
         eci_plots = [
