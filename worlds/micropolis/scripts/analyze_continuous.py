@@ -11,11 +11,10 @@ many ways. Naming anything the dataset lacks is an error, not a smaller table.
 
 Writes every table and figure to one Markdown report per normalization,
 data/micropolis/continuous/{label}/analysis-crps-{norm}.md, rather than to
-stdout: normalized CRPS against horizon, over all runs and restricted to the
-runs with and without disasters; forecast skill against ECI; and the
-correlation of each against horizon, both for ECI alone and comparing ECI to
-the knowledge-eval score. --no-plot skips the figures. Only the paths written
-and the reports' own paths are printed to stdout.
+stdout: normalized CRPS against horizon; forecast skill against ECI; and the
+correlation of ECI and the knowledge-eval score against horizon, compared
+against each other. --no-plot skips the figures. Only the paths written and
+the reports' own paths are printed to stdout.
 
 CRPS is reported normalized — divided by something that makes it unitless —
 and there are three things worth dividing by. One run computes all three, each
@@ -59,7 +58,6 @@ Usage:
 import argparse
 import csv
 import math
-import re
 import statistics
 import sys
 from itertools import pairwise
@@ -828,8 +826,6 @@ def plot_normalized_by_horizon(
     seed: int,
     outdir: Path,
     norm: Normalizer,
-    subset: str = "",
-    ymax: float | None = None,
 ) -> Path:
     """Scatter normalized CRPS against horizon, one series per model.
 
@@ -846,11 +842,6 @@ def plot_normalized_by_horizon(
     interval, which separates two ways of losing: distance above the dashed line
     is a bad central estimate, and the gap between the lines is what honest
     uncertainty is worth on this corpus.
-
-    `subset` names the slice of the corpus being drawn, for the title and the
-    filename; empty means the whole of it. `ymax` fixes the top of the y-axis, so
-    a set of figures over different slices can be read against each other rather
-    than each being scaled to its own worst model.
     """
     import matplotlib
 
@@ -999,7 +990,7 @@ def plot_normalized_by_horizon(
     )
     ax.set_ylabel(f"Normalized CRPS ({norm.ratio}, lower is better)")
     ax.set_title(
-        f"Normalized CRPS by horizon{f' — {subset}' if subset else ''}\n"
+        "Normalized CRPS by horizon\n"
         f"{len(model_names)} models, {len(corpus)} questions, "
         f"{norm.mode} normalization\n"
         f"legend ranks on the forecast horizons only ({READ_OFF_NOTE})\n"
@@ -1010,6 +1001,27 @@ def plot_normalized_by_horizon(
     ax.set_xticklabels([horizon_label(h) for h in horizons])
     ax.grid(alpha=0.3, zorder=0)
     ax.margins(x=0.04)
+
+    # The baseline counts toward the top too. On the harder scenarios it sits
+    # above every model, and a top set from the models alone would push the
+    # reference line off the figure — losing exactly the comparison it is
+    # drawn for, and silently, since a clipped line still plots. Includes the
+    # read-off horizon: its cells sit near zero and so never set the top, but
+    # the figure still draws them and an axis that excluded them could clip a
+    # point that is on the plot.
+    ymax = max(
+        [v for v in mean_by_horizon.values() if v is not None]
+        + [v for _, v in baseline_points]
+        + [v for _, v in sigma_points]
+        or [0.0]
+    )
+    if ymax <= 0:
+        raise ValueError(
+            "no normalized scores to plot: every forecast either failed to "
+            "parse or resolved on a metric with no scale under the "
+            f"{norm.mode} normalization ({norm.detail})"
+        )
+    ymax *= 1.08  # headroom so the topmost marker isn't clipped by the frame
     ax.set_ylim(bottom=0, top=ymax)
 
     # Drawn here as well as on the correlation figures: the read-off is on this
@@ -1038,15 +1050,10 @@ def plot_normalized_by_horizon(
     )
     fig.tight_layout()
 
-    # Mode first, then subset: the mode is the coarser split, so one mode's
-    # figures sort together in a directory listing.
-    subset_suffix = (
-        f"-{re.sub(r'[^a-z0-9]+', '-', subset.lower()).strip('-')}" if subset else ""
-    )
-    out = outdir / f"normalized_crps_by_horizon{norm_suffix(norm)}{subset_suffix}.png"
+    out = outdir / f"normalized_crps_by_horizon{norm_suffix(norm)}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
-    report.image(out, caption=subset)
+    report.image(out)
     return out
 
 
@@ -1567,73 +1574,6 @@ def annotate_read_off(ax, rows: list[tuple]) -> None:
     )
 
 
-def plot_eci_correlation_by_horizon(
-    report: MdReport,
-    corpus: list[dict],
-    responses: Responses,
-    model_names: list[str],
-    outdir: Path,
-    norm: Normalizer,
-) -> Path | None:
-    """Plot the ECI x nCRPS Spearman correlation against horizon.
-
-    The single scatter pools every horizon into one coefficient; this asks
-    whether capability predicts forecast skill more or less strongly as the
-    question gets harder. Returns None when too few models carry an ECI score.
-
-    nCRPS is lower-is-better, so points below zero are the pro-g ones. The axis
-    is drawn to include zero either way, so a weakening correlation reads as
-    approaching the line rather than as a bare change in height.
-    """
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    by_horizon = normalized_by_model_and_horizon(corpus, responses, model_names, norm)
-    results = correlate_by_horizon(eci_by_name(model_names), by_horizon, with_ci=True)
-
-    if not results:
-        report.text(
-            "ECI x nCRPS by horizon: too few models with an ECI score;"
-            " skipping the plot."
-        )
-        return None
-
-    report.heading("ECI x nCRPS correlation by horizon (Spearman)")
-    lines = [format_horizon_correlations(results)]
-    caveat = read_off_caveat(corpus, responses, model_names, results)
-    if caveat:
-        lines.append(caveat)
-    report.text("\n\n".join(lines))
-
-    outdir.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(9, 6))
-    draw_horizon_correlation_axes(
-        ax,
-        [("ECI", "#3266a8", results)],
-        "Does capability predict forecast skill at every horizon?\n"
-        f"{results[0][3]} models with an ECI score, {len(corpus)} questions",
-    )
-    ax.set_ylabel("Spearman ρ of ECI vs. normalized CRPS")
-    annotate_read_off(ax, results)
-    # With a single series the only things worth legending are what the fill and
-    # the band mean.
-    ax.legend(
-        handles=significance_handles("#3266a8", plt) + band_handles("#3266a8", plt),
-        loc="upper right",
-        fontsize=9,
-        framealpha=0.9,
-    )
-    fig.tight_layout()
-
-    out = outdir / f"eci_correlation_by_horizon{norm_suffix(norm)}.png"
-    fig.savefig(out, dpi=150)
-    plt.close(fig)
-    report.image(out)
-    return out
-
-
 def format_predictor_comparison(
     restricted: list[tuple[str, str, dict[str, float]]],
     by_horizon: dict[int, dict[str, float]],
@@ -1747,9 +1687,7 @@ def plot_predictors_correlation_by_horizon(
     a general capability index does.
 
     Both lines are restricted to the models carrying an ECI score, so they run
-    over one model set and their coefficients are directly comparable. That makes
-    this figure's ECI line differ from eci_correlation_by_horizon.png, which uses
-    every ECI-scored model whether or not it sat the knowledge eval.
+    over one model set and their coefficients are directly comparable.
 
     Returns None when the model set is too small to correlate, or when the
     knowledge eval has no cached answers for these models.
@@ -1839,80 +1777,6 @@ def plot_predictors_correlation_by_horizon(
     plt.close(fig)
     report.image(out)
     return out
-
-
-def plot_horizon_figures(
-    report: MdReport,
-    corpus: list[dict],
-    responses: Responses,
-    model_names: list[str],
-    seed: int,
-    outdir: Path,
-    norm: Normalizer,
-) -> list[Path]:
-    """The horizon scatter over all runs, then split by whether disasters ran.
-
-    Disasters are the corpus's one deliberate difficulty axis, so the split says
-    whether a model's decay with horizon is about forecasting a city at all or
-    about coping with the shocks. Drawn as separate figures rather than one
-    overlay: with this many models, two series each would be unreadable.
-    """
-    subsets = [
-        ("", lambda c: True),
-        ("disasters", lambda c: c["scenario"]["disasters"]),
-        ("no disasters", lambda c: not c["scenario"]["disasters"]),
-    ]
-    # A config naming only one side of the split leaves the other empty; skip it
-    # rather than drawing an axis with nothing on it.
-    selections = [(subset, [c for c in corpus if keep(c)]) for subset, keep in subsets]
-    selections = [(subset, sel) for subset, sel in selections if sel]
-
-    # One y-axis top across the set, so the disasters and no-disasters figures
-    # can be read against each other instead of each filling its own axis. Taken
-    # from the per-(model, horizon) means, which is what the figures plot.
-    # Includes the read-off horizon: its cells sit near zero and so never set the
-    # top, but the figures still draw them and an axis that excluded them could
-    # clip a point that is on the plot.
-    ymax = 0.0
-    for _subset, selected in selections:
-        rows = [
-            r
-            for r in score_forecasts(selected, responses, model_names, norm)
-            if r["normalized"] is not None
-        ]
-        by_cell: dict[tuple[str, int], list[float]] = {}
-        for r in rows:
-            by_cell.setdefault((r["model_id"], r["horizon"]), []).append(
-                r["normalized"]
-            )
-        # The baseline counts toward the top too. On the harder subsets it sits
-        # above every model, and a top set from the models alone would push the
-        # reference line off the figure — losing exactly the comparison it is
-        # drawn for, and silently, since a clipped line still plots.
-        sigma_means, scored = persistence_sigma_by_horizon(selected, seed, norm)
-        baseline = [
-            v
-            for v in persistence_by_horizon(selected, norm, scored).values()
-            if v is not None
-        ] + [v for v in sigma_means.values() if v is not None]
-        ymax = max([ymax] + [sum(v) / len(v) for v in by_cell.values()] + baseline)
-    # A zero top would hand matplotlib set_ylim(0, 0) and draw axes with a
-    # collapsed frame; say what is actually missing instead. Every metric being
-    # unnormalizable, or nothing parsing at all, is what gets here.
-    if ymax <= 0:
-        raise ValueError(
-            "no normalized scores to plot: every selected forecast either failed "
-            "to parse or resolved on a metric with no scale under the "
-            f"{norm.mode} normalization ({norm.detail})"
-        )
-    ymax *= 1.08  # headroom so the topmost marker isn't clipped by the frame
-
-    return [
-        plot_normalized_by_horizon(
-            report, selected, responses, model_names, seed, outdir, norm, subset, ymax
-        )
-        for subset, selected in selections
-    ]
 
 
 @main_with_config
@@ -2031,20 +1895,16 @@ def main() -> None:
         print_normalized_horizon_table(report, corpus, responses, models, norm)
 
         if args.plot:
-            eci_plots = [
-                plot_eci_vs_normalized(report, corpus, responses, models, outdir, norm),
-                plot_eci_correlation_by_horizon(
-                    report, corpus, responses, models, outdir, norm
+            plots = [
+                plot_normalized_by_horizon(
+                    report, corpus, responses, models, seed, outdir, norm
                 ),
+                plot_eci_vs_normalized(report, corpus, responses, models, outdir, norm),
                 plot_predictors_correlation_by_horizon(
                     report, corpus, responses, models, outdir, norm
                 ),
             ]
-            for out in plot_horizon_figures(
-                report, corpus, responses, models, seed, outdir, norm
-            ):
-                print(f"Wrote {out}")
-            for out in eci_plots:
+            for out in plots:
                 if out is not None:
                     print(f"Wrote {out}")
 
