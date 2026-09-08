@@ -1,5 +1,8 @@
 // Model registry, loaded by openrouter_completion.py at import.
-// Keys are OpenRouter slugs; each value is a ModelSpec. EVERY field is
+// Keys are slugs: an OpenRouter model id, optionally followed by ":suffix"
+// (e.g. "openai/o3:lowef"). The suffix only selects this entry; the request
+// is sent with the id before the colon, so several slugs can run one model
+// under different specs. Each value is a ModelSpec. EVERY field is
 // optional, and nothing here is validated against the OpenRouter API:
 //   endpoint        FULL provider slug, e.g. "deepinfra/turbo"; pins the
 //                   request to that provider. A base slug matches every variant.
@@ -14,7 +17,7 @@
 //   reasoning_budget_tokens -> reasoning.max_tokens; an error together
 //                             with reasoning_effort
 //
-// Every slug in models.csv has an entry here.
+// Every model id in models.csv has an unsuffixed entry here.
 {
   "meta-llama/llama-4-scout": {
     endpoint: "google-vertex"

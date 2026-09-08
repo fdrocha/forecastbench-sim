@@ -94,7 +94,12 @@ def test_returns_text_finish_reason_and_usage(calls):
 
 def test_sends_backend_id_and_no_sampling_params(calls):
     """The kwargs must match sync prompt_model's for the same model."""
-    model_ids = ["google/gemini-2.5-flash", "openai/gpt-4o", "openai/gpt-5"]
+    model_ids = [
+        "google/gemini-2.5-flash",
+        "openai/gpt-4o",
+        "openai/gpt-5",
+        "openai/gpt-5:lowef",
+    ]
     for model_id in model_ids:
         asyncio.run(
             prompt_model_async(
@@ -103,10 +108,9 @@ def test_sends_backend_id_and_no_sampling_params(calls):
             )
         )
 
-    # Whatever the config spells is translated for the live backend.
-    assert [c["model"] for c in calls] == [
-        llm_backend.to_model_id(m) for m in model_ids
-    ]
+    # The slug goes to the backend verbatim; mapping slug -> model id (and
+    # picking the suffixed spec) is the backend's job.
+    assert [c["model"] for c in calls] == model_ids
     for call in calls:
         assert "temperature" not in call
         # The output cap belongs to the backend's registry, not to a caller.

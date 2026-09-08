@@ -20,6 +20,7 @@ from fbsim_core.evaluation.models import get_models
 from . import messages as msg
 from . import module_globals as g
 from .knowledge_eval.runner import prompt_hash
+from .model_ids import filename_slug
 from .prompting import (
     PromptJob,
     PromptResult,
@@ -158,10 +159,8 @@ class EvalPaths:
         return self.batch_dir(batch_id) / f"prompt-{phash}.txt"
 
     def response_path(self, batch_id: str, model_id: str, phash: str) -> Path:
-        # Model ids are provider/name; the slash would nest a directory.
         return (
-            self.batch_dir(batch_id)
-            / f"response-{model_id.replace('/', '_')}-{phash}.txt"
+            self.batch_dir(batch_id) / f"response-{filename_slug(model_id)}-{phash}.txt"
         )
 
     def usage_path(self, batch_id: str, model_id: str, phash: str) -> Path:
@@ -173,10 +172,7 @@ class EvalPaths:
         together — the slug must match response_path's exactly, or the sidecar
         lands next to nothing.
         """
-        return (
-            self.batch_dir(batch_id)
-            / f"usage-{model_id.replace('/', '_')}-{phash}.json"
-        )
+        return self.batch_dir(batch_id) / f"usage-{filename_slug(model_id)}-{phash}.json"
 
 
 def gather_raw_responses(

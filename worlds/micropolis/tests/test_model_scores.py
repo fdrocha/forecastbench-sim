@@ -28,7 +28,24 @@ def source(tmp_path, monkeypatch):
     src = tmp_path / "model_scores.csv"
     src.write_text(SOURCE)
     monkeypatch.setattr(model_scores, "SCORES_PATH", src)
-    return src
+    # load_scores is cached; make sure it reads this file and, afterwards,
+    # that no other test inherits the miniature.
+    model_scores.load_scores.cache_clear()
+    yield src
+    model_scores.load_scores.cache_clear()
+
+
+def test_a_suffixed_slug_joins_its_model_ids_scores(source):
+    """Leaderboards score the model, not the effort setting."""
+    assert model_scores.eci_of("openai/gpt-5:lowef") == model_scores.eci_of(
+        "openai/gpt-5"
+    )
+    assert model_scores.eci_of("openai/gpt-5:lowef") == 150.0
+    # The per-slug key stays distinct: the suffix is part of the label.
+    assert model_scores.eci_by_name(["openai/gpt-5", "openai/gpt-5:lowef"]) == {
+        "gpt-5": 150.0,
+        "gpt-5:lowef": 150.0,
+    }
 
 
 def _written(out) -> tuple[list[str], list[dict]]:
@@ -74,3 +91,20 @@ def test_write_scores_csv_appends_a_model_the_source_lacks(source, tmp_path):
     assert [added[c] for c in MP_COLUMNS] == ["0.9000", "0.8000", "1.0000"]
     # The external-benchmark columns are honestly blank, not fabricated.
     assert (added["ECI"], added["FBOverall"]) == ("", "")
+
+
+def test_write_scores_csv_gives_a_suffixed_slug_its_own_row(source, tmp_path):
+    """MPScore is per slug, so the variant cannot share its base model's row; it
+    is appended as a copy of that row carrying the same external scores."""
+    out = model_scores.write_scores_csv(
+        tmp_path / "scores.csv",
+        {"openai/gpt-5": (0.5, 0.4, 0.6), "openai/gpt-5:lowef": (0.7, 0.6, 0.8)},
+    )
+    _columns, rows = _written(out)
+    base, _unscored, variant = rows
+    assert base["slug"] == "openai/gpt-5"
+    assert base["MPScore"] == "0.5000"
+    assert variant["slug"] == "openai/gpt-5:lowef"
+    assert variant["MPScore"] == "0.7000"
+    assert (variant["ECI"], variant["FBOverall"]) == ("150", "60.5")
+    assert variant["Name"] == base["Name"]

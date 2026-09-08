@@ -6,12 +6,12 @@ backends is a matter of flipping which block below is live.
 
 The two backends agree on: the call shape (`model`, `messages`, `timeout`),
 `completion_cost(completion_response=...)`, the five exception classes the
-retry loop in prompting.py catches, and `to_model_id()`, which turns a config
-model id into whatever the live backend wants to be handed.
+retry loop in prompting.py catches, and `to_model_id()`, slug -> model id.
 
-Model ids are stored as bare OpenRouter slugs — in configs, model_scores.csv
-and the cache filenames — so `to_model_id` is the identity under OpenRouter
-and does the real work under LiteLLM.
+Callers hand `model` the slug (see model_ids.py: an OpenRouter id with an
+optional `:suffix` picking a ModelSpec) and the backend translates internally;
+`to_model_id` is exported for code that needs the underlying id, such as the
+external-scores join.
 """
 
 # Env vars the live backend needs beyond what GCP Secret Manager fills in.
@@ -60,13 +60,16 @@ from .openrouter_completion import (
 # # Bare slug -> the dated alias LiteLLM's price map is keyed on.
 # _LITELLM_ALIASES = {"anthropic/claude-haiku-4.5": "anthropic/claude-haiku-4-5-20251001"}
 #
-# def to_model_id(model_id: str) -> str:
-#     """A bare OpenRouter slug turned back into what LiteLLM expects.
+# # Callers pass the slug and no longer translate, so this block would also
+# # have to wrap litellm's completion/acompletion to apply to_model_id (and
+# # the suffixed spec's reasoning settings) before the call.
+# def to_model_id(slug: str) -> str:
+#     """A slug turned into what LiteLLM expects.
 #
-#     The inverse of the identity the OpenRouter backend uses: ids are stored
-#     as bare slugs, and LiteLLM needs the openrouter/ passthrough prefix, its
-#     dated aliases, and gemini/ in place of google/.
+#     Strips any :suffix, then LiteLLM needs the openrouter/ passthrough
+#     prefix, its dated aliases, and gemini/ in place of google/.
 #     """
+#     model_id = slug.split(":", 1)[0]
 #     if model_id in _VIA_OPENROUTER:
 #         return f"openrouter/{model_id}"
 #     model_id = _LITELLM_ALIASES.get(model_id, model_id)

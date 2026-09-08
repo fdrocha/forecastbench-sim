@@ -255,10 +255,11 @@ def test_prompt_model_returns_text_finish_reason_and_usage(calls):
     assert got.usage.latency_ms is not None
 
 
-def test_prompt_model_sends_the_backends_model_id(calls):
-    """Whatever the config spells is translated for the live backend."""
+def test_prompt_model_sends_the_slug_verbatim(calls):
+    """The backend maps slug -> model id itself, so it must see the suffix."""
     g.prompt_model(LiteLLMModel("google/gemini-2.5-flash"), "hi")
-    assert calls[0]["model"] == llm_backend.to_model_id("google/gemini-2.5-flash")
+    g.prompt_model(LiteLLMModel("openai/o3:lowef"), "hi")
+    assert [c["model"] for c in calls] == ["google/gemini-2.5-flash", "openai/o3:lowef"]
 
 
 def test_prompt_model_sends_no_sampling_params_or_token_cap(calls):

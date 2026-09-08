@@ -193,6 +193,8 @@ class TestBinaryPaths:
         assert path.name == "response-openai_gpt-4.1-abc123.txt"
         usage = binary_eval.usage_path("bid", "openai/gpt-4.1", "abc123")
         assert usage.name == "usage-openai_gpt-4.1-abc123.json"
+        suffixed = binary_eval.response_path("bid", "openai/gpt-4.1:lowef", "abc123")
+        assert suffixed.name == "response-openai_gpt-4.1+lowef-abc123.txt"
 
     def test_data_path(self):
         assert binary_eval.data_path("x").parts[-3:] == ("binary", "x", "data.json")

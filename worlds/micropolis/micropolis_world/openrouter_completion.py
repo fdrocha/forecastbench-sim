@@ -5,10 +5,13 @@
 
 Same call shape as LiteLLM. Differences that matter:
 
-* `model` is a bare OpenRouter slug. If it is in MODELS — loaded at import
-  from `model_specs.json5` beside this file — that spec supplies the
-  request's provider routing, sampling defaults and reasoning config.
-  A slug with no spec is sent as-is.
+* `model` is a slug: an OpenRouter model id, optionally with a `:suffix`
+  ("openai/o3:lowef"). The slug picks the ModelSpec in MODELS — loaded at
+  import from `model_specs.json5` beside this file — which supplies the
+  request's provider routing, sampling defaults and reasoning config. The
+  request itself carries `to_model_id(slug)`, the id before the colon, so
+  several slugs can run one model under different specs. An unsuffixed slug
+  with no spec is sent as-is; a suffixed one with no spec is an error.
 * Every ModelSpec field is optional. `endpoint` pins a provider (with
   `ignore`/`quantizations` narrowing it); `sampling` sets body defaults;
   `max_tokens` caps the output; `reasoning_effort` or
@@ -18,9 +21,8 @@ Same call shape as LiteLLM. Differences that matter:
   or `reasoning` dict wins outright. No caller passes `max_tokens`: the output
   cap is the spec's business, since it is a per-endpoint limit.
 * Errors are LiteLLM's class names (`RateLimitError`, `InternalServerError`,
-  ...) so one retry loop serves both backends; `to_model_id` is the identity
-  here, since ids are already slugs. Import both through `llm_backend`, not
-  from here.
+  ...) so one retry loop serves both backends. Import them through
+  `llm_backend`, not from here.
 * The response mirrors LiteLLM's ModelResponse for attribute access, keeps
   every OpenRouter field in place (`provider`, `usage.cost`, ...), and puts
   provenance under `_hidden_params`.
@@ -36,6 +38,8 @@ from typing import Any
 
 import httpx
 import json5
+
+from .model_ids import to_model_id
 
 BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_TIMEOUT = 600.0
@@ -116,25 +120,8 @@ def _raise_for_status(model: str, r: httpx.Response) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Model ids. Configs and model_scores.csv spell models as bare OpenRouter
-# slugs, so nothing needs translating — but the hook stays, because the other
-# backend does need it and one of the two has to be the identity.
-# ---------------------------------------------------------------------------
-
-
-def to_model_id(model_id: str) -> str:
-    """The OpenRouter slug for a config's model id — already one, verbatim.
-
-    Configs, model_scores.csv and the cache filenames all use bare slugs, so
-    a model id reaches the API unchanged. An id OpenRouter doesn't know fails
-    as a 400 at call time rather than being silently rewritten.
-    """
-    return model_id
-
-
-# ---------------------------------------------------------------------------
-# Model registry, from model_specs.json5. Every field is optional; a slug
-# with no entry is sent to OpenRouter as-is.
+# Model registry, from model_specs.json5, keyed by slug. Every field is
+# optional; an unsuffixed slug with no entry is sent to OpenRouter as-is.
 # ---------------------------------------------------------------------------
 
 
@@ -253,13 +240,21 @@ _CONTROL = {
 }
 
 
-def _build(model: str, messages: list[dict], kwargs: dict) -> dict:
+def _build(slug: str, messages: list[dict], kwargs: dict) -> dict:
     if kwargs.get("stream"):
         raise NotImplementedError("stream=True is not supported by this module")
 
-    spec = MODELS.get(model)
+    spec = MODELS.get(slug)
+    model_id = to_model_id(slug)
+    if spec is None and model_id != slug:
+        # A suffix exists only to pick a spec; without one it is a typo, and
+        # sending the bare id at provider defaults would hide that.
+        raise BadRequestError(f"{slug}: suffixed slug has no entry in model_specs.json5")
     body: dict[str, Any] = {
-        "model": model,  # bare slug — :nitro/:floor change routing
+        # The id before any ":suffix". OpenRouter's own ":nitro"/":floor"
+        # variants are therefore not reachable through the slug; pin routing
+        # with the spec's `endpoint` instead.
+        "model": model_id,
         "messages": messages,
         "transforms": [],  # disable middle-out compression explicitly
         **(spec.sampling if spec else {}),
@@ -360,11 +355,12 @@ async def acompletion(model: str, messages: list[dict], **kwargs: Any) -> AttrDi
 # CLI
 # ---------------------------------------------------------------------------
 
-USAGE = """usage: openrouter_completion.py <model-slug> < prompt.txt
+USAGE = """usage: openrouter_completion.py <slug> < prompt.txt
 
 Send a prompt (read from stdin) to one OpenRouter model and print the full
-JSON response. The slug's entry in model_specs.json5, if it has one, supplies
-the provider routing, sampling and reasoning settings.
+JSON response. The slug is an OpenRouter model id, optionally with a ":suffix"
+selecting an entry in model_specs.json5 that supplies the provider routing,
+sampling and reasoning settings; the id before the colon is what is sent.
 
   echo 'What is 17*23?' | ./openrouter_completion.py deepseek/deepseek-chat
 

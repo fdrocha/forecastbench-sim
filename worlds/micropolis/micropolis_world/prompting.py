@@ -159,11 +159,11 @@ async def prompt_model_async(
         ServiceUnavailableError,
         Timeout,
         acompletion,
-        to_model_id,
     )
 
     kwargs = {
-        "model": to_model_id(model.id),
+        "model": model.id,  # the slug; the backend maps it to its own id
+
         "messages": messages,
         "num_retries": 0,
         "max_retries": 0,

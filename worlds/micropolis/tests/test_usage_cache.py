@@ -46,11 +46,8 @@ def test_continuous_sidecar_sits_beside_its_response():
 
 
 def test_knowledge_eval_sidecar_sits_beside_its_response():
-    """The knowledge eval slugs model ids with a regex, not str.replace.
-
-    Its usage_path has to use that same slug function or the sidecar lands next
-    to nothing.
-    """
+    """Its usage_path has to use the same slug function as response_path or
+    the sidecar lands next to nothing."""
     response = runner.response_path(MODEL, PHASH)
     sidecar = runner.usage_path(MODEL, PHASH)
 
@@ -59,6 +56,14 @@ def test_knowledge_eval_sidecar_sits_beside_its_response():
         "response-"
     )
     assert sidecar.suffix == ".json"
+
+
+def test_both_caches_name_a_suffixed_slug_the_same_way():
+    """One filename rule for both evals, with the ':' escaped rather than kept."""
+    slug = "openai/o3:lowef"
+    continuous = response_path("bid", slug, PHASH).name
+    knowledge = runner.response_path(slug, PHASH).name
+    assert continuous == knowledge == f"response-openai_o3+lowef-{PHASH}.txt"
 
 
 def test_save_then_load_roundtrips(tmp_path):

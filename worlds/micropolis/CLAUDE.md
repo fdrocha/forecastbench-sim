@@ -109,7 +109,8 @@ and the structural constraints (§5). Read it before touching resolution.
   dataset is still an error, as is a selected model with no forecasts at all.
 - **One import boundary for the LLM client: `llm_backend`.** It re-exports
   `completion`/`acompletion`/`completion_cost`, the five transient-error classes the retry
-  loop catches, and `to_model_id` (config id → the live backend's model id). OpenRouter
+  loop catches, and `to_model_id` (slug → the underlying model id). Callers pass the slug
+  as `model`; the backend translates internally. OpenRouter
   (`openrouter_completion`, whose per-model routing lives in `model_specs.json5`) is live;
   litellm is a commented block in the same file, so switching back is flipping which block
   is uncommented — never import either client directly. It is still imported lazily (inside
@@ -118,7 +119,8 @@ and the structural constraints (§5). Read it before touching resolution.
   those lazy imports. `tests/conftest.py` blocks httpx outright, so a stub aimed at the wrong
   target fails instead of quietly calling the real API.
 - **No caller sets `max_tokens`.** The output cap is a per-endpoint limit, so it belongs to
-  the model's `model_specs.json5` entry; configs and `PromptJob` have no such key.
+  the model's `model_specs.json5` entry; configs and `PromptJob` have no such key. The same
+  goes for reasoning effort: a caller picks it by naming a suffixed slug, never by a kwarg.
 - **Output goes to a Markdown report**, accumulated via `continuous_eval.MdReport` and stamped
   with both this repo's and the engine checkout's commit; stdout gets only paths.
 - **Warnings and errors go to stderr, colored, via `messages.warn`/`error`/`plain`** — never
@@ -128,14 +130,20 @@ and the structural constraints (§5). Read it before touching resolution.
   went on, an error means something did not happen. `plain` is for the detail lines under a
   summary and takes the block's color (red by default). Color is dropped when stderr is not a
   tty or `NO_COLOR` is set, so a redirected log carries no escape sequences.
-- Model ids are **bare OpenRouter slugs** (`provider/name`, e.g.
-  `anthropic/claude-haiku-4.5`, `deepseek/deepseek-chat` — no `openrouter/` prefix, no dated
-  aliases); filenames slugify `/` → `_`. The same spelling is the canonical id everywhere:
-  configs, `model_specs.json5`, cache filenames, and the `slug` column of
-  `model_scores.csv` that external scores join on — a blank slug there means the model is
-  excluded, and near-miss slugs must never be guessed at. `llm_backend.to_model_id` is
-  therefore the identity under OpenRouter; it is the litellm block that has to map back
-  (passthrough prefix, dated aliases, `gemini/` for `google/`).
+- Models are named by **slug**: a bare OpenRouter model id (`provider/name`, e.g.
+  `anthropic/claude-haiku-4.5` — no `openrouter/` prefix, no dated aliases) optionally
+  followed by `:suffix` (`openai/o3:lowef`). The suffix selects a different
+  `model_specs.json5` entry for the same underlying model, e.g. a reasoning effort; the
+  **model id** is the part before the colon (`model_ids.to_model_id`), and it is used in
+  exactly two places: the `model` field of the request, inside `openrouter_completion`, and
+  the join against `model_scores.csv`, whose `slug` column holds model ids because the
+  leaderboards do not score effort settings. Everywhere else — configs, spec keys, cache
+  filenames, `data.json`, labels — the slug is the canonical id. A suffixed slug with no spec
+  entry is an error, not a fallback to the base model. Filenames use
+  `model_ids.filename_slug` (`/` → `_`, `:` → `+`), shared by both response caches. A blank
+  `slug` cell in `model_scores.csv` means the model is excluded, and near-miss slugs must
+  never be guessed at. The dormant litellm block would have to map back on its own side
+  (strip the suffix, passthrough prefix, dated aliases, `gemini/` for `google/`).
 - Scoring choices that must not be reinvented per script: horizon 0 is a read-off, not a
   forecast, and is excluded from aggregates; `totalFunds` has no scale and so is excluded
   from normalized CRPS; skill (`CRPS_model / CRPS_baseline`) is aggregated as a geometric mean with t-based

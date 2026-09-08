@@ -38,6 +38,7 @@ from micropolis_world.knowledge_eval.runner import (
     statements,
 )
 from micropolis_world.knowledge_eval.scoring import score, tally
+from micropolis_world.model_ids import FILENAME_SUFFIX_SEP, SUFFIX_SEP
 from micropolis_world.plot_labels import place_labels
 
 # The config that defines this dataset, so unlike the other scripts there is no
@@ -112,7 +113,9 @@ def load_entries() -> tuple[list[Entry], list[Unscored], list[str]]:
         model_id = slug_to_id.get(slug)
         guessed = model_id is None
         if guessed:
-            model_id = slug.replace("_", "/", 1)
+            model_id = slug.replace("_", "/", 1).replace(
+                FILENAME_SUFFIX_SEP, SUFFIX_SEP
+            )
         eci = eci_of(model_id)
         name = model_id.split("/", 1)[1]
         if eci is None:

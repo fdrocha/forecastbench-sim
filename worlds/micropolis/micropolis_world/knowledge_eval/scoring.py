@@ -61,15 +61,19 @@ def scores_by_model_name(stmts: list[Statement] | None = None) -> dict[str, floa
     the scoring to a subset, as in tally().
 
     Keyed on the bare name — "gpt-5.6-sol", not "openai/gpt-5.6-sol" — because
-    that is what ECI_MAP uses, and what the other evals' model ids reduce to
-    once the provider prefix is stripped. The cache's own keys are filename
-    slugs, whose first "_" stands in for the "/" of the original id; that holds
-    for every provider prefix in use, and a provider name containing "_" would
-    be the thing to revisit here.
+    that is what the other evals' model slugs reduce to once the provider
+    prefix is stripped (a ":suffix" stays: "o3:lowef" is its own model here).
+    The cache's own keys are filename slugs, whose first "_" stands in for the
+    "/" of the original slug and "+" for its ":"; the former holds for every
+    provider prefix in use, and a provider name containing "_" would be the
+    thing to revisit here.
     """
+    from ..model_ids import FILENAME_SUFFIX_SEP, SUFFIX_SEP
     from .runner import get_cached_answers
 
     return {
-        slug.split("_", 1)[1]: score(tally(answers, stmts))
+        slug.split("_", 1)[1].replace(FILENAME_SUFFIX_SEP, SUFFIX_SEP): score(
+            tally(answers, stmts)
+        )
         for slug, answers in get_cached_answers().items()
     }

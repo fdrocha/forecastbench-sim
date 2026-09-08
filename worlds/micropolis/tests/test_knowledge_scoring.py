@@ -145,10 +145,11 @@ def test_scores_by_model_name_keys_on_the_bare_name(monkeypatch):
     # time, so the name it resolves is runner's.
     monkeypatch.setattr(
         "micropolis_world.knowledge_eval.runner.get_cached_answers",
-        lambda: {"openai_gpt-5.6-sol": all_correct},
+        lambda: {"openai_gpt-5.6-sol": all_correct, "openai_o3+lowef": all_correct},
     )
     scores = scoring.scores_by_model_name()
-    assert scores == {"gpt-5.6-sol": 1.0}
+    # A suffixed slug is its own model; the filename's "+" is its ":" again.
+    assert scores == {"gpt-5.6-sol": 1.0, "o3:lowef": 1.0}
 
 
 def test_scores_by_model_name_restricts_to_a_subset(monkeypatch):

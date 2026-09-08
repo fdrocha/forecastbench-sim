@@ -21,6 +21,10 @@ with a different score, and guessing that the two are the same would silently
 attribute one's benchmark number to the other's forecasts. Filling in the blank
 slug in the CSV is the way to bring such a model in.
 
+The one relaxation is this world's own ":suffix" (model_ids.py): the
+leaderboards score the model, not the effort setting, so "openai/o3:lowef"
+joins the row for "openai/o3".
+
 A missing cell is a missing score, not a zero: ECI, FBOverall and the interval
 are each None when blank, and callers drop the model from that particular
 figure rather than plotting a hole at the origin.
@@ -30,6 +34,8 @@ import csv
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
+
+from .model_ids import to_model_id
 
 # In datafiles/ with the other hand-maintained tables: it is data to be edited
 # by hand as new leaderboard numbers land, not code.
@@ -75,6 +81,12 @@ def _number(value: str | None) -> float | None:
     return float(text) if text else None
 
 
+def _name(slug: str) -> str:
+    """The bare model name a slug's external scores are keyed on: no provider
+    prefix, no ":suffix"."""
+    return to_model_id(slug).split("/", 1)[-1]
+
+
 @cache
 def load_scores() -> dict[str, ModelScores]:
     """Every scored model, keyed on its bare name.
@@ -92,7 +104,7 @@ def load_scores() -> dict[str, ModelScores]:
             slug = (row.get("slug") or "").strip()
             if not slug:
                 continue
-            name = slug.split("/", 1)[-1]
+            name = _name(slug)
             out[name] = ModelScores(
                 name=name,
                 eci=_number(row.get("ECI")),
@@ -104,8 +116,8 @@ def load_scores() -> dict[str, ModelScores]:
 
 
 def scores_of(model_id: str) -> ModelScores | None:
-    """Every score for a provider/name model id, or None if the CSV has no row."""
-    return load_scores().get(model_id.split("/", 1)[-1])
+    """Every score for a provider/name[:suffix] slug, or None if the CSV has no row."""
+    return load_scores().get(_name(model_id))
 
 
 def eci_of(model_id: str) -> float | None:
@@ -161,10 +173,10 @@ def write_scores_csv(
     reader can join it back on any of the original columns. A scored model the
     source file does not list is appended at the end with only its slug filled
     in. The join is on the bare model name, the same rule scores_of applies in
-    the other direction.
+    the other direction — except that MPScore is per slug: a suffixed slug
+    ("openai/o3:lowef") cannot share its base model's row, so it is appended as
+    a copy of that row (external scores included) under its own slug.
     """
-    stats_by_name = {m.split("/", 1)[-1]: v for m, v in mp_stats.items()}
-
     # Read raw rather than through load_scores(): the artifact must preserve
     # the rows without a slug and the name columns that the parsed view drops.
     with SCORES_PATH.open(newline="") as f:
@@ -180,18 +192,28 @@ def write_scores_csv(
             "MPScoreHi": "" if hi is None else f"{hi:.4f}",
         }
 
+    def is_suffixed(slug: str) -> bool:
+        return to_model_id(slug) != slug
+
+    base_stats = {_name(s): v for s, v in mp_stats.items() if not is_suffixed(s)}
+    row_by_name: dict[str, dict] = {}
     joined = set()
     for row in rows:
         slug = (row.get("slug") or "").strip()
-        name = slug.split("/", 1)[-1] if slug else ""
-        stats = stats_by_name.get(name)
+        if not slug:
+            continue
+        name = _name(slug)
+        row_by_name[name] = dict(row)  # pre-score copy, for suffixed variants
+        stats = base_stats.get(name)
         if stats is not None:
             row.update(score_cells(stats))
             joined.add(name)
-    for model_id in sorted(mp_stats):
-        name = model_id.split("/", 1)[-1]
-        if name not in joined:
-            rows.append({"slug": model_id} | score_cells(stats_by_name[name]))
+    for slug in sorted(mp_stats):
+        name = _name(slug)
+        if not is_suffixed(slug) and name in joined:
+            continue
+        base = row_by_name.get(name, {}) if is_suffixed(slug) else {}
+        rows.append(base | {"slug": slug} | score_cells(mp_stats[slug]))
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:

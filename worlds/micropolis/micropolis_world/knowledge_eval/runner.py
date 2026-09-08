@@ -17,6 +17,7 @@ from pathlib import Path
 
 from .. import messages as msg
 from .. import module_globals as g
+from ..model_ids import filename_slug
 from ..module_globals import warn_if_truncated
 from ..prompting import PromptJob, format_eta, format_latency, run_prompts
 from ..usage import CallUsage
@@ -112,12 +113,12 @@ def save_prompt(prompt: str, phash: str) -> None:
 
 
 def model_slug(model_id: str) -> str:
-    """Model id flattened into a single filename component.
+    """Model slug flattened into a single filename component.
 
-    Model ids contain slashes ("anthropic/claude-opus-4"), which can't appear in
-    a filename.
+    The shared rule (model_ids.filename_slug): "/" -> "_", ":" -> "+", so a
+    ":suffix" stays recoverable in scoring.scores_by_model_name.
     """
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", model_id).strip("_")
+    return filename_slug(model_id)
 
 
 def response_path(model_id: str, phash: str) -> Path:
@@ -169,8 +170,9 @@ def cached_models(phash: str) -> list[str]:
     """Model slugs with a stored response for the given prompt hash.
 
     Recovered from the response filenames, so this reports what is on disk
-    rather than what some separate index claims. Slugs are returned, not the
-    original ids: the "/" separator is not recoverable from a filename.
+    rather than what some separate index claims. Filename slugs are returned,
+    not the original ids: the "/" separator is not recoverable from a filename
+    (a ":suffix" is, escaped as "+").
     """
     prefix, suffix = "response-", f"-{phash}.txt"
     return sorted(

@@ -73,10 +73,10 @@ def prompt_model(model, prompt: str) -> LLMResponse:
     the backend's model registry.
     """
     # Imported here so the simulation-only scripts don't pull in an LLM client.
-    from .llm_backend import completion, to_model_id
+    from .llm_backend import completion
 
     kwargs = {
-        "model": to_model_id(model.id),
+        "model": model.id,  # the slug; the backend maps it to its own id
         "messages": [{"role": "user", "content": prompt}],
     }
 
