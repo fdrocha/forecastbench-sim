@@ -39,7 +39,10 @@ from typing import Any
 import httpx
 import json5
 
-from .model_ids import to_model_id
+try:
+    from .model_ids import to_model_id
+except ImportError:  # run directly as a script, e.g. from the CLI below
+    from model_ids import to_model_id
 
 BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_TIMEOUT = 600.0
