@@ -266,8 +266,8 @@ def test_horizon_table_keeps_the_read_off_as_its_own_column():
         ".3f",
     )
     out = report.render(Path("."))
-    assert f"H{module.READ_OFF_HORIZON}" in out
-    assert "all*" in out
+    assert module.horizon_label(module.READ_OFF_HORIZON) in out
+    assert "overall" in out
 
 
 def _persistence_corpus():

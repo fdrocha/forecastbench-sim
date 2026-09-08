@@ -110,6 +110,15 @@ READ_OFF_HORIZON = 0
 # goes out without the exclusion attached to it.
 READ_OFF_NOTE = f"excludes H{READ_OFF_HORIZON} (a read-off, not a forecast)"
 
+# 48 city-time units make one game year (knowledge_eval's statements.py states
+# the same fact); horizons are reported in years rather than turns.
+TURNS_PER_YEAR = 48
+
+
+def horizon_label(horizon: int) -> str:
+    """A horizon in turns past the snapshot, as years (e.g. 144 -> "3y")."""
+    return f"{horizon / TURNS_PER_YEAR:g}y"
+
 # Named in one place because the string is both the legend entry and the key the
 # legend is reordered by, and the two silently disagreeing would drop the
 # baseline out of the legend while leaving it on the axes.
@@ -523,13 +532,11 @@ def print_normalized_crps_table(
     model_names: list[str],
     norm: Normalizer,
 ) -> None:
-    """Print models x metrics of normalized CRPS, each cell with its rank.
+    """Print models x metrics of normalized CRPS.
 
     Dividing by `norm`'s scale makes a cell unitless, so unlike the raw table
     above this one compares a model's performance across metrics as well as down
-    a column. The parenthesized rank is the model's standing within that metric,
-    1 being best, which is what shows whether a model is uniformly strong or
-    carried by one metric.
+    a column.
 
     Pools the horizons into each cell, so the read-off horizon is dropped first.
     """
@@ -540,10 +547,6 @@ def print_normalized_crps_table(
     metrics = [
         m for m in metrics_in_order(corpus) if m in normalized_metric_set(normalized)
     ]
-    ranks = {
-        m: ranks_within_column({mid: normalized.get((mid, m)) for mid in model_names})
-        for m in metrics
-    }
 
     # Pooled over every normalized forecast rather than averaged over the
     # per-metric cells, so a metric with more parsed forecasts weighs more.
@@ -552,31 +555,23 @@ def print_normalized_crps_table(
     pooled = normalized_by_model(corpus, responses, model_names, norm)
     overall = {model_id: pooled.get(model_id) for model_id in model_names}
 
-    labels = {m: str(g.METRIC_LABELS.get(m, m)) for m in metrics}
+    labels = {
+        m: str(g.METRIC_LABELS.get(m, m)).removeprefix("average ") for m in metrics
+    }
     model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in model_names])
-    norm_col, norm_width = "mean", 7
-
-    # One rank width for the whole table: every column ranks the same models, so
-    # a shared width keeps the columns reading as one grid.
-    rank_width = max(rank_width_for(ranks[m]) for m in metrics) if metrics else 1
+    norm_col, norm_width = "overall", 7
 
     def cell(model_id: str, metric: str) -> str:
-        return ranked_cell(
-            normalized.get((model_id, metric)),
-            ranks[metric].get(model_id),
-            ".3f",
-            rank_width,
-        )
+        value = normalized.get((model_id, metric))
+        return "n/a" if value is None else format(value, ".3f")
 
-    # Wide enough for the score plus its rank suffix, which the label alone may
-    # not cover once a two-digit rank is appended.
     widths = {
         m: max([len(labels[m])] + [len(cell(mid, m)) for mid in model_names])
         for m in metrics
     }
 
     excluded = [
-        str(g.METRIC_LABELS.get(m, m))
+        str(g.METRIC_LABELS.get(m, m)).removeprefix("average ")
         for m in metrics_in_order(corpus)
         if m not in metrics
     ]
@@ -584,8 +579,8 @@ def print_normalized_crps_table(
     report.text(
         f"pooled over every forecast horizon; {READ_OFF_NOTE}\n\n"
         f"{norm.ratio} ({norm.mode} normalization), so cells compare across metrics as"
-        " well as down them; (n) is the model's rank within that metric\n\n"
-        "mean = mean over every normalized forecast pooled, so a metric with "
+        " well as down them\n\n"
+        "overall = mean over every normalized forecast pooled, so a metric with "
         "more parsed forecasts weighs more"
         + (f"; omits {', '.join(excluded)}, which no scale covers" if excluded else "")
     )
@@ -619,41 +614,32 @@ def print_horizon_table(
     """Print models x horizons from (model, horizon, score) triples.
 
     `fmt` is the format spec for a cell, since normalized scores and raw CRPS
-    want different precision. Each cell carries the model's rank within its own
-    column in parens, 1 being best, which is what shows a model gaining or
-    losing ground as the horizon lengthens. Rows are sorted by the "all" column,
-    so the table reads best-first, and a model with nothing to average sorts
-    last rather than crashing the compare.
+    want different precision. Rows are sorted by the "overall" column, so the
+    table reads best-first, and a model with nothing to average sorts last
+    rather than crashing the compare.
 
     The read-off horizon keeps its own column — it is the comprehension check —
-    but is left out of "all", which is the column the ranking and the row order
-    come from.
+    but is left out of "overall", which is the column the row order comes from.
     """
     overall = {
         model_id: _mean([v for m, h, v in scored if m == model_id and is_forecast(h)])
         for model_id in model_names
     }
-    # Keyed by column, "all" included, so ranking is uniform across the table.
-    columns = {"all": overall} | {
+    # Keyed by column, "overall" included.
+    columns = {"overall": overall} | {
         h: {
             model_id: _mean([v for m, hz, v in scored if m == model_id and hz == h])
             for model_id in model_names
         }
         for h in horizons
     }
-    ranks = {key: ranks_within_column(values) for key, values in columns.items()}
-    # One rank width for the whole table, so the columns read as one grid.
-    rank_width = max(rank_width_for(r) for r in ranks.values())
 
     def cell(key, model_id: str) -> str:
-        return ranked_cell(
-            columns[key][model_id], ranks[key].get(model_id), fmt, rank_width
-        )
+        value = columns[key][model_id]
+        return "n/a" if value is None else format(value, fmt)
 
     model_col = max([len("Model")] + [len(m.split("/")[-1]) for m in model_names])
-    # "all" is starred rather than renamed so the column stays narrow; the
-    # subtitle each caller passes says what the star means.
-    labels = {"all": "all*"} | {h: f"H{h}" for h in horizons}
+    labels = {"overall": "overall"} | {h: horizon_label(h) for h in horizons}
     # Wide enough for the longest cell in the table, so a metric in the hundreds
     # of thousands doesn't push its columns out of alignment.
     width = max([9] + [len(cell(key, mid)) for key in columns for mid in model_names])
@@ -706,9 +692,9 @@ def print_normalized_horizon_table(
         sorted({c["horizon"] for c in corpus}),
         "Mean normalized CRPS by model and horizon (lower is better)",
         f"{norm.ratio} ({norm.mode} normalization) over {', '.join(normalized_labels)};"
-        " horizons are turns past the snapshot"
-        f"\nall* {READ_OFF_NOTE}; the H{READ_OFF_HORIZON} column is kept as the"
-        " comprehension check it is",
+        " horizons are years past the snapshot"
+        f"\noverall {READ_OFF_NOTE}; the {horizon_label(READ_OFF_HORIZON)} column is"
+        " kept as the comprehension check it is",
         ".3f",
     )
 
@@ -1009,7 +995,7 @@ def plot_normalized_by_horizon(
         )
 
     ax.set_xlabel(
-        "Horizon (turns past the snapshot; model points spread within each tick)"
+        "Horizon (years past the snapshot; model points spread within each tick)"
     )
     ax.set_ylabel(f"Normalized CRPS ({norm.ratio}, lower is better)")
     ax.set_title(
@@ -1021,6 +1007,7 @@ def plot_normalized_by_horizon(
         "with an honest interval"
     )
     ax.set_xticks(horizons)
+    ax.set_xticklabels([horizon_label(h) for h in horizons])
     ax.grid(alpha=0.3, zorder=0)
     ax.margins(x=0.04)
     ax.set_ylim(bottom=0, top=ymax)
@@ -1441,7 +1428,7 @@ def read_off_caveat(
         1 for p, actual in scored if all(v == actual for v in p.values())
     ) / len(scored)
     return (
-        f"H{READ_OFF_HORIZON} is a read-off, not a forecast:"
+        f"{horizon_label(READ_OFF_HORIZON)} is a read-off, not a forecast:"
         f" {median:.0%} of its forecasts put the median on the "
         f"actual and {exact:.0%} collapse the whole interval onto it, so its rho"
         " is mostly about "
@@ -1506,10 +1493,11 @@ def draw_horizon_correlation_axes(
         )
     ax.axhline(0, color="#666666", lw=1, ls="--", zorder=1)
 
-    ax.set_xlabel("Horizon (turns past the snapshot)")
+    ax.set_xlabel("Horizon (years past the snapshot)")
     ax.set_ylabel("Spearman ρ vs. normalized CRPS")
     ax.set_title(title)
     ax.set_xticks(sorted(all_hs))
+    ax.set_xticklabels([horizon_label(h) for h in sorted(all_hs)])
     # Zero included so distance from "no relationship" is visible, and the pro-g
     # half of the axis labelled, since the sign is the easy thing to misread.
     low, high = min(all_rhos + [0.0]), max(all_rhos + [0.0])
