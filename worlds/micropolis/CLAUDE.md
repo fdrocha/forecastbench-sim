@@ -183,8 +183,8 @@ its configs and `plot_forecasts.py` has its own:
   cannot move gives a denominator of 0; stdout and the report both say how
   many questions that floor bound. The modes are not comparable with each
   other, so every table and figure states the one it used, and the report and
-  plots carry a `-{norm}` filename suffix under any mode but the default —
-  scoring one label under two modes leaves two sets of files.
+  plots carry a `-{norm}` filename suffix (`analysis-crps-global.md`, …) —
+  scoring one label under several modes leaves a set of files per mode.
 - `analyze_baseline_skill.py` — same forecasts scored against a naive (`plain`/`sigma`)
   no-change baseline, so 1.0 is the meaningful zero point.
 - `analyze_skill_by_config.py` — that skill compared across several configs (many-config

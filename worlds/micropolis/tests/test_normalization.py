@@ -319,9 +319,9 @@ def _stub_normalizer(mode: str):
     )
 
 
-def test_norm_suffix_tags_every_mode_but_the_default():
-    """The default keeps the unsuffixed names an existing label already has."""
+def test_norm_suffix_tags_every_mode():
+    """Including the default, so a filename always names its normalization."""
     norm_suffix = _analysis_module().norm_suffix
-    assert norm_suffix(make_normalizer("global", [])) == ""
+    assert norm_suffix(make_normalizer("global", [])) == "-global"
     assert norm_suffix(_stub_normalizer("local")) == "-local"
     assert norm_suffix(_stub_normalizer("baseline")) == "-baseline"

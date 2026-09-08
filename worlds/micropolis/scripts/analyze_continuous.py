@@ -17,9 +17,9 @@ against horizon, both for ECI alone and comparing ECI to the knowledge-eval
 score. --no-plot skips the figures. Only the paths written and the report's own
 path are printed to stdout.
 
-The report and every figure carry a -{norm} suffix under any --norm but the
-default, so scoring one label under two modes leaves two sets of files rather
-than one silently overwriting the other.
+The report and every figure carry a -{norm} suffix — analysis-crps-global.md
+and so on — so scoring one label under several modes leaves a set of files per
+mode rather than one silently overwriting another.
 
 --norm picks what CRPS is divided by to make it unitless, which every
 normalized table and figure then reports:
@@ -120,11 +120,12 @@ def norm_suffix(norm: Normalizer) -> str:
     second run would overwrite the first's files while its report went on
     claiming the mode it was written for.
 
-    "global" keeps the unsuffixed names — it was the only mode before --norm
-    existed, and is still the default — so an existing label's files stay
-    where every earlier report's links already point.
+    Every mode is tagged, the default included, so a filename always says
+    which normalization produced it and no set of outputs is the odd one out.
+    Files written before this — an unsuffixed analysis-crps.md and its plots —
+    are left behind rather than overwritten, and are stale from here on.
     """
-    return "" if norm.mode == DEFAULT_NORM else f"-{norm.mode}"
+    return f"-{norm.mode}"
 
 
 def is_forecast(horizon: int) -> bool:
