@@ -1,5 +1,5 @@
 #!/usr/bin/env -S uv run python3
-"""Score the binary eval: Brier and calibration tables by question and horizon.
+"""Score the binary eval: Brier and excess Brier tables by question and horizon.
 
 Reads data/micropolis/binary/{label}/data.json, written by
 scripts/run_eval_binary.py, and the continuation tallies under
@@ -7,7 +7,7 @@ data/micropolis/ground_truth/, written by scripts/extract_ground_truth.py.
 Prompts no models and runs no simulations.
 
 Every forecast f gets two scores: the Brier score (f - outcome)^2 against the
-realized answer, and the calibration error (f - p)^2 against p, the share of
+realized answer, and the excess Brier (f - p)^2 against p, the share of
 reseeded continuations that resolved Yes. The report is split into two
 sections — "Binary forecasts", the mid-range A questions, and "Tail
 probabilities", the B ones — each with the same structure: a base-rate
@@ -19,7 +19,7 @@ two decades. Everything goes to one Markdown report,
 data/micropolis/binary/{label}/analysis-brier.md; --no-plot skips the figures.
 Beside it goes binary_scores.csv: one row per model x question type (regular =
 A, tail = B) x horizon in years plus an "all" horizon row, with the prompted
-and parsed counts and the mean Brier, expected Brier and calibration error.
+and parsed counts and the mean Brier, expected Brier and excess Brier.
 
 Usage:
     scripts/analyze_binary.py                       # configs/binary.json5
@@ -109,8 +109,8 @@ class Score:
 SCORES = [
     Score("brier", "Brier", "(f - outcome)^2 against the realized answer"),
     Score(
-        "calibration",
-        "calibration error",
+        "excess_brier",
+        "excess Brier",
         "(f - p)^2 against p, the share of reseeded continuations resolving Yes",
     ),
 ]
@@ -148,14 +148,14 @@ def score_forecasts_binary(
     model_names: list[str],
     truths: dict[str, Truth],
 ) -> list[dict]:
-    """One row per parsed forecast: its Brier score, its calibration error,
+    """One row per parsed forecast: its Brier score, its excess Brier,
     its expected Brier score, the forecast and ground truth behind them, and
     its qid and horizon.
 
     The binary counterpart of continuous_eval.score_forecasts. The scores are
     unitless and bounded, so there is no normalized twin. The expected Brier
     is what the Brier score averages to over the continuations' outcomes,
-    (f - p)^2 + p(1 - p): the calibration error plus the irreducible variance
+    (f - p)^2 + p(1 - p): the excess Brier plus the irreducible variance
     of the event itself.
     """
     rows = []
@@ -174,7 +174,7 @@ def score_forecasts_binary(
                     "forecast": r.probability,
                     "truth": truth,
                     "brier": compute_brier_score([r.probability], [c["answer"]]),
-                    "calibration": (r.probability - truth.p) ** 2,
+                    "excess_brier": (r.probability - truth.p) ** 2,
                     "expected_brier": (r.probability - truth.p) ** 2
                     + truth.p * (1 - truth.p),
                 }
@@ -219,7 +219,7 @@ SCORES_CSV_COLUMNS = [
     "nvalid",
     "brier",
     "expected_brier",
-    "calibration",
+    "excess_brier",
 ]
 
 # The pooled row's label in the horizon column.
@@ -278,7 +278,7 @@ def scores_csv_rows(
                     ),
                     "nvalid": len(valid),
                 }
-                for key in ("brier", "expected_brier", "calibration"):
+                for key in ("brier", "expected_brier", "excess_brier"):
                     row[key] = nan_mean([r[key] for r in valid])
                 rows.append(row)
     return rows
@@ -534,31 +534,30 @@ def plot_score_bars(
     section: str,  # display name, for titles
     prefix: str,  # qid prefix, for figure filenames
 ) -> Path:
-    """Mean Brier and mean calibration error per model, as stacked bar panels.
+    """Mean Brier and mean excess Brier per model, as stacked bar panels.
 
     Replaces the two models x horizons tables. Those split each model's score
     across horizons; this pools it and puts the models side by side, which is
     the comparison the section is actually for — the horizon breakdown lives
     in the by-horizon figures below. Both panels share the x axis, ordered by
-    calibration error, so a model's two bars sit in one column and the panels
-    can be read against each other: where the Brier order departs from the
-    calibration order is a model whose accuracy and whose calibration
-    disagree.
+    excess Brier, so a model's two bars sit in one column and the panels can be
+    read against each other: where the Brier order departs from the excess
+    Brier order is a model whose accuracy and whose calibration disagree.
     """
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    brier, calibration = SCORES
+    brier, excess = SCORES
     by_score = {score.key: score_by_model(rows, model_names, score) for score in SCORES}
-    # Sorted by calibration error, best first; a model with nothing to average
+    # Sorted by excess Brier, best first; a model with nothing to average
     # sorts last rather than crashing the compare.
     ordered = sorted(
         model_names,
         key=lambda m: (
-            m not in by_score[calibration.key],
-            by_score[calibration.key].get(m, 0.0),
+            m not in by_score[excess.key],
+            by_score[excess.key].get(m, 0.0),
         ),
     )
 
@@ -607,7 +606,7 @@ def plot_score_bars(
     )
     fig.suptitle(
         f"Forecast skill by model — {section}\n"
-        f"models ordered by {calibration.name}, best first;"
+        f"models ordered by {excess.name}, best first;"
         f" {len(corpus)} questions",
         fontsize=10,
     )
@@ -617,7 +616,7 @@ def plot_score_bars(
     fig.savefig(out, dpi=150)
     plt.close(fig)
 
-    report.heading(f"Mean {brier.name} and {calibration.name} by model — {section}")
+    report.heading(f"Mean {brier.name} and {excess.name} by model — {section}")
     report.image(out)
     return out
 
@@ -636,7 +635,7 @@ def plot_scores_by_horizon(
     Shows how sharply accuracy decays with distance and which models depart
     from the pack. The mean over models is a thick line in each panel, so it
     reads as the summary rather than as one more model. Both panels share the
-    x axis and one legend, ordered by calibration error like the bar figure,
+    x axis and one legend, ordered by excess Brier like the bar figure,
     so a model keeps one legend position across the whole section. Its color
     and marker come from model_style, keyed on its index in the config's
     order, so they are the ones the ECI figures and the continuous report use.
@@ -664,10 +663,10 @@ def plot_scores_by_horizon(
         for score in SCORES
     }
 
-    # One legend slot per model across both panels, ordered by calibration
-    # error to match the bar figure above.
-    calibration = SCORES[1]
-    overall = score_by_model(rows, model_names, calibration)
+    # One legend slot per model across both panels, ordered by excess Brier
+    # to match the bar figure above.
+    excess = SCORES[1]
+    overall = score_by_model(rows, model_names, excess)
     ordered = sorted(model_names, key=lambda m: (m not in overall, overall.get(m, 0.0)))
 
     # Models bunch tightly, so spread each one's points across a slice of the
@@ -767,7 +766,7 @@ def plot_scores_by_horizon(
     fig.suptitle(
         f"Forecast skill by horizon — {section}\n"
         f"{len(model_names)} models, {len(corpus)} questions;"
-        f" legend ordered by {calibration.name}",
+        f" legend ordered by {excess.name}",
         fontsize=10,
     )
 
@@ -1057,15 +1056,15 @@ def plot_calibration(
     its probabilities span two decades, and there a zero — a question no
     continuation resolved Yes, or a model that answered 0 anyway — is clipped
     to half a continuation's worth so it stays on the page rather than
-    vanishing at -inf. Panels sort best-first by mean calibration error.
+    vanishing at -inf. Panels sort best-first by mean excess Brier.
     """
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    calibration = SCORES[1]
-    overall = score_by_model(rows, model_names, calibration)
+    excess = SCORES[1]
+    overall = score_by_model(rows, model_names, excess)
     ordered = sorted(model_names, key=lambda m: overall.get(m, math.inf))
     ncols = 3
     nrows = math.ceil(len(ordered) / ncols)
@@ -1131,7 +1130,7 @@ def plot_calibration(
         ax.set_aspect("equal")
         ax.grid(alpha=0.3, zorder=0)
         mean = overall.get(model_id)
-        note = f"cal. err. {mean:.4f}" if mean is not None else "no forecasts"
+        note = f"excess Brier {mean:.4f}" if mean is not None else "no forecasts"
         # Three columns leaves little width, so the count and the score share
         # a line and the clipped-zero count gets its own.
         lines = [model_id.split("/")[-1], f"{len(mine)} forecasts, {note}"]
@@ -1243,7 +1242,7 @@ def main() -> None:
         + "\n".join(f"- {s.name}: {s.definition}" for s in SCORES)
         + f"\n\n{SCORES_CSV_NAME} carries their means per model, question type"
         " and horizon, plus the expected Brier score (f - p)^2 + p(1 - p):"
-        " the calibration error plus the event's own variance."
+        " the excess Brier plus the event's own variance."
     )
     written: list[Path] = []
     for prefix, section, description in SECTIONS:
@@ -1272,7 +1271,7 @@ def main() -> None:
 
         # The two scores are shown side by side per view rather than in two
         # separate runs of every view: the pair invites comparison — where a
-        # model's Brier and its calibration error disagree is the interesting
+        # model's Brier and its excess Brier disagree is the interesting
         # cell — and that reads far better adjacent than a page apart.
         if args.plot:
             for score in SCORES:
@@ -1316,9 +1315,7 @@ def main() -> None:
         scores_csv_rows(corpus, responses, models, truths),
     )
     print(f"Wrote {csv_path}")
-    out_path = report.write(
-        label_dir(label) / "analysis-brier.md", "Binary eval — Brier and calibration"
-    )
+    out_path = report.write(label_dir(label) / "analysis-brier.md", "Binary eval")
     print(out_path)
 
 

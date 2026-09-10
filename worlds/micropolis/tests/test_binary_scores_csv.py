@@ -101,13 +101,13 @@ def test_scores_follow_their_definitions():
     """A1@H1: f=0.7, outcome Yes, p=0.5."""
     r = _rows()["regular", "5y"]
     assert r["brier"] == pytest.approx(0.3**2)
-    assert r["calibration"] == pytest.approx(0.2**2)
+    assert r["excess_brier"] == pytest.approx(0.2**2)
     assert r["expected_brier"] == pytest.approx(0.2**2 + 0.5 * 0.5)
 
 
 def test_rows_with_no_valid_forecast_are_nan():
     r = _rows()["regular", "10y"]
-    assert all(math.isnan(r[k]) for k in ("brier", "expected_brier", "calibration"))
+    assert all(math.isnan(r[k]) for k in ("brier", "expected_brier", "excess_brier"))
 
 
 def test_same_qid_in_another_city_does_not_stand_in_for_an_unparsed_answer():
@@ -137,8 +137,8 @@ def test_write_scores_csv_columns_and_nan(tmp_path):
         reader = csv.DictReader(f)
         assert reader.fieldnames == [
             "model", "question_type", "horizon", "nforecasts", "nvalid",
-            "brier", "expected_brier", "calibration",
+            "brier", "expected_brier", "excess_brier",
         ]  # fmt: skip
         back = {(r["question_type"], r["horizon"]): r for r in reader}
     assert back["regular", "10y"]["brier"] == "nan"
-    assert float(back["tail", "5y"]["calibration"]) == pytest.approx(0.1**2)
+    assert float(back["tail", "5y"]["excess_brier"]) == pytest.approx(0.1**2)
