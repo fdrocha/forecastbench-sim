@@ -60,7 +60,6 @@ from micropolis_world.continuous_eval import (
     select_for_config,
 )
 from micropolis_world.ground_truth import Truth, load_truths
-from micropolis_world.plot_labels import place_labels
 
 # Imported rather than reimplemented so the table formatting, the correlation
 # machinery and the CI conventions are provably the same ones the continuous
@@ -77,6 +76,7 @@ from analyze_continuous import (
     format_predictor_comparison,
     format_tie_warnings,
     knowledge_predictor,
+    model_style,
     significance_handles,
     stars_for,
 )
@@ -637,8 +637,9 @@ def plot_scores_by_horizon(
     from the pack. The mean over models is a thick line in each panel, so it
     reads as the summary rather than as one more model. Both panels share the
     x axis and one legend, ordered by calibration error like the bar figure,
-    so a model keeps one color and one legend position across the whole
-    section.
+    so a model keeps one legend position across the whole section. Its color
+    and marker come from model_style, keyed on its index in the config's
+    order, so they are the ones the ECI figures and the continuous report use.
     """
     import matplotlib
 
@@ -663,14 +664,11 @@ def plot_scores_by_horizon(
         for score in SCORES
     }
 
-    n_colors = 10 if len(model_names) <= 10 else 20
-    palette = plt.get_cmap(f"tab{n_colors}")
-    # One color and one legend slot per model across both panels, ordered by
-    # calibration error to match the bar figure above.
+    # One legend slot per model across both panels, ordered by calibration
+    # error to match the bar figure above.
     calibration = SCORES[1]
     overall = score_by_model(rows, model_names, calibration)
     ordered = sorted(model_names, key=lambda m: (m not in overall, overall.get(m, 0.0)))
-    colors = {m: palette(i % n_colors) for i, m in enumerate(model_names)}
 
     # Models bunch tightly, so spread each one's points across a slice of the
     # gap between horizons — fixed per model, not random, so a model sits in the
@@ -701,7 +699,7 @@ def plot_scores_by_horizon(
 
     for ax, score in zip(axes, SCORES):
         by_model = by_score[score.key]
-        for model_id in model_names:
+        for i, model_id in enumerate(model_names):
             points = [
                 (h, by_model[model_id][h])
                 for h in horizons
@@ -709,12 +707,16 @@ def plot_scores_by_horizon(
             ]
             if not points:
                 continue
+            color, marker = model_style(i)
             ax.scatter(
                 [h + offsets[model_id] for h, _ in points],
                 [v for _, v in points],
-                color=colors[model_id],
-                s=38,
-                alpha=0.85,
+                color=color,
+                marker=marker,
+                s=44,
+                alpha=0.9,
+                linewidths=0.5,
+                edgecolors="white",
                 zorder=3,
                 label=model_id.split("/")[-1],
             )
@@ -791,7 +793,9 @@ def plot_eci_vs_score(
 
     Tests whether forecasting this world tracks general capability. Both scores
     are lower-is-better like nCRPS, so a *negative* correlation is the pro-g
-    one. Returns None when too few models carry an ECI score.
+    one. Returns None when too few models carry an ECI score. Each model keeps
+    the color and marker the by-horizon figure gave it, and the legend beside
+    the axes names them, ordered best-first.
     """
     import matplotlib
 
@@ -800,9 +804,11 @@ def plot_eci_vs_score(
     from scipy import stats
 
     scores = score_by_model(rows, model_names, score)
+    # Carries each model's index in the config's order, so its color and marker
+    # here are the ones the by-horizon figure gave it.
     points = sorted(
-        (eci_of(m), scores[m], m.split("/")[-1])
-        for m in model_names
+        (eci_of(m), scores[m], m.split("/")[-1], i)
+        for i, m in enumerate(model_names)
         if m in scores and eci_of(m) is not None
     )
     skipped = sorted(
@@ -815,8 +821,8 @@ def plot_eci_vs_score(
         )
         return None
 
-    ecis = [e for e, _, _ in points]
-    values = [v for _, v, _ in points]
+    ecis = [e for e, _, _, _ in points]
+    values = [v for _, v, _, _ in points]
     rho, p_rho = stats.spearmanr(ecis, values)
     r, p_r = stats.pearsonr(ecis, values)
 
@@ -835,8 +841,25 @@ def plot_eci_vs_score(
     report.text("\n".join(lines))
 
     outdir.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(9, 6.5))
-    ax.scatter(ecis, values, s=70, color=PLOT_BLUE, zorder=3)
+    fig, ax = plt.subplots(figsize=(10, 6.5))
+
+    # One scatter call per model: the legend replaces the labels that used to
+    # sit on the points, and it needs a handle per model to do that. Plotted
+    # best-first so the legend doubles as a ranking.
+    for eci, value, name, i in sorted(points, key=lambda p: p[1]):
+        color, marker = model_style(i)
+        ax.scatter(
+            [eci],
+            [value],
+            color=color,
+            marker=marker,
+            s=90,
+            alpha=0.9,
+            linewidths=0.5,
+            edgecolors="white",
+            zorder=3,
+            label=name,
+        )
 
     fit = stats.linregress(ecis, values)
     xs = [min(ecis), max(ecis)]
@@ -848,7 +871,6 @@ def plot_eci_vs_score(
         zorder=2,
         label=(f"fit: ρ={rho:+.3f} (p={p_rho:.4f}), r={r:+.3f} (p={p_r:.4f})"),
     )
-    ax.legend(loc="upper right", fontsize=9, framealpha=0.9)
 
     ax.set_xlabel("ECI (Epoch capability index)")
     ax.set_ylabel(f"Mean {score.name} (lower is better)")
@@ -858,10 +880,22 @@ def plot_eci_vs_score(
     )
     ax.grid(alpha=0.3, zorder=0)
     ax.margins(x=0.12, y=0.1)
-    fig.tight_layout()
 
-    fig.canvas.draw()
-    place_labels(fig, ax, [n for _, _, n in points], ecis, values)
+    # Beside the axes, as on the by-horizon figure: the legend is as tall as
+    # the model list, and over the points it would cover the scatter it
+    # explains. The fit line goes on top, since it is the figure's summary and
+    # not one more model.
+    handles, labels = ax.get_legend_handles_labels()
+    order = sorted(range(len(labels)), key=lambda j: not labels[j].startswith("fit:"))
+    ax.legend(
+        [handles[j] for j in order],
+        [labels[j] for j in order],
+        loc="center left",
+        bbox_to_anchor=(1.01, 0.5),
+        fontsize=8,
+        framealpha=0.9,
+    )
+    fig.tight_layout()
 
     out = outdir / f"eci_vs_{score.key}-{prefix}.png"
     fig.savefig(out, dpi=150)
