@@ -388,6 +388,17 @@ def _extract_answer_block(response: str, marker_re: str = r"PERCENTILES?") -> st
     reads as unanswered. This is the same convention the numbered-line passes
     use, where a later restatement overwrites an earlier one.
     """
+    return _extract_answer_span(response, marker_re)[0]
+
+
+def _extract_answer_span(
+    response: str, marker_re: str = r"PERCENTILES?"
+) -> tuple[str, int]:
+    """_extract_answer_block's block, and the 1-based response line it starts on.
+
+    The line offset is what lets a parsed answer be traced back to its line
+    in the cached response file, which is the whole response verbatim.
+    """
     matches = list(
         re.finditer(
             rf"<<<{marker_re}>>>(.*?)<<<END>>>", response, re.DOTALL | re.IGNORECASE
@@ -400,7 +411,13 @@ def _extract_answer_block(response: str, marker_re: str = r"PERCENTILES?") -> st
         if matches
         else re.search(r"(.*)<<<END>>>", response, re.DOTALL | re.IGNORECASE)
     )
-    return delimiter_match.group(1).strip() if delimiter_match else response
+    if not delimiter_match:
+        return response, 1
+    raw = delimiter_match.group(1)
+    # strip() may drop leading newlines; the block's first line is where the
+    # stripped text actually begins.
+    start = delimiter_match.start(1) + (len(raw) - len(raw.lstrip()))
+    return raw.strip(), response.count("\n", 0, start) + 1
 
 
 def parse_percentiles(
@@ -669,6 +686,15 @@ def _validate_probability(
     return None
 
 
+# A parsed probability and the 1-based line of the response it was read from;
+# both None when no usable answer was found.
+ProbabilityLine = tuple[float | None, int | None]
+
+
+def _with_line(value: float | None, lineno: int) -> ProbabilityLine:
+    return (value, lineno) if value is not None else (None, None)
+
+
 def parse_probability(
     response: str | None,
     label: str = "response",
@@ -683,12 +709,22 @@ def parse_probability(
     _validate_probability; either rejection warns naming `label` unless
     `quiet`.
     """
+    return parse_probability_with_line(response, label, quiet, source)[0]
+
+
+def parse_probability_with_line(
+    response: str | None,
+    label: str = "response",
+    quiet: bool = False,
+    source: str | Path | None = None,
+) -> ProbabilityLine:
+    """parse_probability, plus the response line the value was read from."""
     if not response:
         if not quiet:
             print(f"  {label}: empty model response{_at(source)}")
-        return None
-    content = _extract_answer_block(response, _PROBABILITIES_MARKER_RE)
-    for line in content.split("\n"):
+        return None, None
+    content, first = _extract_answer_span(response, _PROBABILITIES_MARKER_RE)
+    for offset, line in enumerate(content.split("\n")):
         # A bare decimal like "0.65" also matches the number-prefix pattern
         # (as item "0." followed by "65"), so only strip a prefix that names
         # the one question being asked.
@@ -696,13 +732,15 @@ def parse_probability(
         text = line[m.end() :] if m and m.group(1) == "1" else line
         value = _scan_probability(text)
         if value is not None:
-            return _validate_probability(value, label, quiet, source)
+            return _with_line(
+                _validate_probability(value, label, quiet, source), first + offset
+            )
     if not quiet:
         print(
             f"  {label}: unable to parse a probability from "
             f"response: {response!r}{_at(source)}"
         )
-    return None
+    return None, None
 
 
 def parse_batch_probabilities(
@@ -726,34 +764,59 @@ def parse_batch_probabilities(
     question left without a usable answer gets a warning naming its label
     (unless `quiet`). Every warning ends with `source`, the response file the text came from, so a rejection in a long run can be opened directly.
     """
+    return [
+        value
+        for value, _ in parse_batch_probabilities_with_lines(
+            response, labels, quiet, source
+        )
+    ]
+
+
+def parse_batch_probabilities_with_lines(
+    response: str | None,
+    labels: list[str],
+    quiet: bool = False,
+    source: str | Path | None = None,
+) -> list[ProbabilityLine]:
+    """parse_batch_probabilities, plus the response line each value was read from.
+
+    An answer split off a shared "Q1: 0.15, Q2: 0.05" line reports that line.
+    """
     n = len(labels)
     # A single-question prompt asks for the unnumbered single-question format,
     # so read it back with the single-question parser.
     if n == 1:
         return [
-            parse_probability(response, label=labels[0], quiet=quiet, source=source)
+            parse_probability_with_line(
+                response, label=labels[0], quiet=quiet, source=source
+            )
         ]
 
-    results: list[float | None] = [None] * n
+    results: list[ProbabilityLine] = [(None, None)] * n
     if not response:
         if not quiet:
             print(f"  {labels[0]} (+{n - 1} more): empty model response{_at(source)}")
         return results
 
-    block = _extract_answer_block(response, _PROBABILITIES_MARKER_RE)
+    block, first = _extract_answer_span(response, _PROBABILITIES_MARKER_RE)
     # Some models put the whole answer on one line, "Q1: 0.15, Q2: 0.05, ...".
     # Break before each question number so those become answer lines too; the
-    # split is harmless on properly line-separated answers.
-    block = re.sub(
-        r"[,;]\s*(?=(?:question\s*|q)?\d+\s*[.:)])", "\n", block, flags=re.IGNORECASE
-    )
-    lines = [line for line in block.split("\n") if line.strip()]
+    # split is harmless on properly line-separated answers. Done per response
+    # line so every piece keeps the line it came from.
+    lines = [
+        (first + offset, piece)
+        for offset, line in enumerate(block.split("\n"))
+        for piece in re.split(
+            r"[,;]\s*(?=(?:question\s*|q)?\d+\s*[.:)])", line, flags=re.IGNORECASE
+        )
+        if piece.strip()
+    ]
 
     # First pass: numbered answer lines, mapped by their stated number. The
     # probability must start right after the number prefix, so a numbered
     # prose sentence in the reasoning is not an answer.
     answered = [False] * n
-    for line in lines:
+    for lineno, line in lines:
         m = _QUESTION_NUMBER_RE.match(line)
         if not m:
             continue
@@ -763,14 +826,16 @@ def parse_batch_probabilities(
         value = _scan_probability(line[m.end() :])
         if value is not None:
             answered[idx] = True
-            results[idx] = _validate_probability(value, labels[idx], quiet, source)
+            results[idx] = _with_line(
+                _validate_probability(value, labels[idx], quiet, source), lineno
+            )
 
     # Positional fallback, only when nothing was numbered: each line that is
     # nothing but one probability answers the next question in order. A line
     # with any letters is prose, not an answer.
     if not any(answered):
         pos = 0
-        for line in lines:
+        for lineno, line in lines:
             if pos >= n:
                 break
             if re.search(r"[a-zA-Z]", line):
@@ -778,7 +843,9 @@ def parse_batch_probabilities(
             value = _scan_probability(line)
             if value is not None:
                 answered[pos] = True
-                results[pos] = _validate_probability(value, labels[pos], quiet, source)
+                results[pos] = _with_line(
+                    _validate_probability(value, labels[pos], quiet, source), lineno
+                )
                 pos += 1
 
     if not quiet:

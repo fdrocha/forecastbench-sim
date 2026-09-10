@@ -49,7 +49,7 @@ from micropolis_world.gather import gather_raw_responses
 from micropolis_world.scenarios import (
     build_batch_prompt_binary,
     get_base_scenarios,
-    parse_batch_probabilities,
+    parse_batch_probabilities_with_lines,
 )
 
 DEFAULT_BINARY_CONFIG_PATH = CONFIG_DIR / "binary.json5"
@@ -95,14 +95,15 @@ def gather_responses_binary(
             labels = [f"{model_name} {q['question_id']}" for q in questions]
             # The cache file the text came from, so a warning about an
             # unusable forecast points at the response to go read.
-            probabilities = parse_batch_probabilities(
-                raw, labels, source=rpaths[(bid, model_name)]
-            )
-            for q, probability in zip(questions, probabilities):
+            rpath = rpaths[(bid, model_name)]
+            parsed = parse_batch_probabilities_with_lines(raw, labels, source=rpath)
+            for q, (probability, line) in zip(questions, parsed):
                 responses[ResponseId(model_name, q["question_id"])] = BinaryResponse(
                     actual=q["answer"],
                     probability=probability,
                     response_text=raw,
+                    source=PATHS.cache_relative(rpath),
+                    line=line,
                 )
     return responses
 

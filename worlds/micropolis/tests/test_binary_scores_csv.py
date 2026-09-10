@@ -1,4 +1,4 @@
-"""Tests for analyze_binary.py's binary_scores.csv.
+"""Tests for analyze_binary.py's binary_scores.csv and results.csv.
 
 A hand-sized corpus with one model: one regular and one tail question at two
 horizons, with responses that were variously never prompted, unparsed and
@@ -41,6 +41,7 @@ def _question(qid: str, horizon: int, answer: bool, scenario: str = "s") -> dict
     return {
         "question_id": f"{scenario}:{qid}@{horizon}",
         "scenario_id": scenario,
+        "scenario": {"name": "bruce", "seed": 42, "disasters": True},
         "snapshot_turn": 960,
         "qid": qid,
         "horizon": horizon,
@@ -64,7 +65,9 @@ RESPONSES = {
     ResponseId(MODEL, f"s:A1@{H1}"): BinaryResponse(True, 0.7),
     # Prompted but the answer did not parse.
     ResponseId(MODEL, f"s:A1@{H2}"): BinaryResponse(False, None),
-    ResponseId(MODEL, f"s:B1@{H1}"): BinaryResponse(False, 0.2),
+    ResponseId(MODEL, f"s:B1@{H1}"): BinaryResponse(
+        False, 0.2, source="s_T960/response-prov_model-abc.txt", line=4
+    ),
     # B1@H2 was never prompted: no response at all.
 }
 
@@ -132,7 +135,7 @@ def test_same_qid_in_another_city_does_not_stand_in_for_an_unparsed_answer():
 def test_write_scores_csv_columns_and_nan(tmp_path):
     module = load_module()
     rows = module.scores_csv_rows(CORPUS, RESPONSES, [MODEL], TRUTHS)
-    path = module.write_scores_csv(tmp_path / "x.csv", rows)
+    path = module.write_csv(tmp_path / "x.csv", module.SCORES_CSV_COLUMNS, rows)
     with path.open(newline="") as f:
         reader = csv.DictReader(f)
         assert reader.fieldnames == [
@@ -142,3 +145,42 @@ def test_write_scores_csv_columns_and_nan(tmp_path):
         back = {(r["question_type"], r["horizon"]): r for r in reader}
     assert back["regular", "10y"]["brier"] == "nan"
     assert float(back["tail", "5y"]["excess_brier"]) == pytest.approx(0.1**2)
+
+
+def test_results_csv_one_row_per_model_and_question(tmp_path):
+    module = load_module()
+    rows = module.results_csv_rows(CORPUS, RESPONSES, [MODEL], TRUTHS)
+    assert len(rows) == len(CORPUS)
+    path = module.write_csv(tmp_path / "r.csv", module.RESULTS_CSV_COLUMNS, rows)
+    with path.open(newline="") as f:
+        reader = csv.DictReader(f)
+        assert reader.fieldnames == [
+            "model", "seed", "city", "disasters", "snapshot_turn", "horizon",
+            "question_id", "forecast", "answer", "real_prob",
+            "response_file", "response_line",
+        ]  # fmt: skip
+        back = {(r["question_id"], int(r["horizon"])): r for r in reader}
+    valid = back["A1", H1]
+    assert (valid["model"], valid["seed"], valid["city"], valid["disasters"]) == (
+        MODEL,
+        "42",
+        "bruce",
+        "1",
+    )
+    assert (valid["snapshot_turn"], valid["forecast"], valid["answer"]) == (
+        "960",
+        "0.7",
+        "1",
+    )
+    assert float(valid["real_prob"]) == pytest.approx(0.5)
+    # A response that recorded where it was read from.
+    traced = back["B1", H1]
+    assert traced["response_file"] == "s_T960/response-prov_model-abc.txt"
+    assert traced["response_line"] == "4"
+    # Without a source on record the trace columns are nan, like the forecast.
+    assert valid["response_file"] == valid["response_line"] == "nan"
+    # Unparsed and never-prompted forecasts are nan, not dropped.
+    assert back["A1", H2]["forecast"] == "nan"
+    assert back["B1", H2]["forecast"] == "nan"
+    assert back["B1", H2]["response_file"] == "nan"
+    assert back["B1", H2]["answer"] == "0"

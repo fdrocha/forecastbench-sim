@@ -8,7 +8,9 @@ from micropolis_world.scenarios import (
     _extract_answer_block,
     build_batch_prompt_binary,
     parse_batch_probabilities,
+    parse_batch_probabilities_with_lines,
     parse_probability,
+    parse_probability_with_line,
 )
 
 REPORT = "city report: population 1234, pollution 30"
@@ -129,6 +131,72 @@ class TestParseBatchProbabilities:
 
     def test_single_question_uses_single_format(self):
         assert parse_batch_probabilities(delimited("0.65"), LABELS[:1]) == [0.65]
+
+
+class TestParseWithLines:
+    """The line numbers are 1-based over the whole response, block included."""
+
+    def test_numbered_lines(self):
+        # delimited() puts one reasoning line and the marker above the block,
+        # so its first answer line is line 3.
+        response = delimited("Q1: 0.65", "Q2: 0.03", "Q3: 0.9")
+        assert parse_batch_probabilities_with_lines(response, LABELS) == [
+            (0.65, 3),
+            (0.03, 4),
+            (0.9, 5),
+        ]
+
+    def test_answers_sharing_a_line_report_it(self):
+        response = delimited("Q1: 0.65, Q2: 0.03", "Q3: 0.9")
+        assert parse_batch_probabilities_with_lines(response, LABELS) == [
+            (0.65, 3),
+            (0.03, 3),
+            (0.9, 4),
+        ]
+
+    def test_out_of_order_and_missing(self):
+        response = delimited("Q3: 0.9", "", "Q1: 0.65")
+        assert parse_batch_probabilities_with_lines(response, LABELS, quiet=True) == [
+            (0.65, 5),
+            (None, None),
+            (0.9, 3),
+        ]
+
+    def test_positional_fallback(self):
+        response = delimited("0.65", "0.03", "0.9")
+        assert parse_batch_probabilities_with_lines(response, LABELS) == [
+            (0.65, 3),
+            (0.03, 4),
+            (0.9, 5),
+        ]
+
+    def test_rejected_value_has_no_line(self):
+        response = delimited("Q1: 0.65", "Q2: 42", "Q3: 0.9")
+        assert parse_batch_probabilities_with_lines(response, LABELS, quiet=True) == [
+            (0.65, 3),
+            (None, None),
+            (0.9, 5),
+        ]
+
+    def test_no_block_counts_from_the_top(self):
+        assert parse_probability_with_line("prose\n0.65") == (0.65, 2)
+        assert parse_batch_probabilities_with_lines(
+            "prose\nQ1: 0.65\nQ2: 0.03\nQ3: 0.9", LABELS
+        ) == [(0.65, 2), (0.03, 3), (0.9, 4)]
+
+    def test_single_question(self):
+        assert parse_probability_with_line(delimited("0.65")) == (0.65, 3)
+        assert parse_probability_with_line(delimited("", "Q1: 0.65")) == (0.65, 4)
+        assert parse_probability_with_line(None, quiet=True) == (None, None)
+        assert parse_batch_probabilities_with_lines(delimited("0.65"), LABELS[:1]) == [
+            (0.65, 3)
+        ]
+
+    def test_empty_response(self):
+        assert (
+            parse_batch_probabilities_with_lines("", LABELS, quiet=True)
+            == [(None, None)] * 3
+        )
 
 
 class TestParseProbability:

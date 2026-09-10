@@ -48,9 +48,18 @@ def usage_path(batch_id: str, model_id: str, phash: str) -> Path:
 
 @dataclass(frozen=True)
 class BinaryResponse:
+    """One model's answer to one question.
+
+    `source` is the cached response file, relative to the cache root
+    (PATHS.cache_relative), and `line` the 1-based line of it the probability
+    was read from; both None when it did not parse or the dataset predates them.
+    """
+
     actual: bool
     probability: float | None
     response_text: str | None = None
+    source: str | None = None
+    line: int | None = None
 
 
 BinaryResponses = dict[ResponseId, BinaryResponse]
@@ -66,13 +75,16 @@ def save_dataset_binary(
 
     The binary eval's shape of gather.write_dataset: questions keep their
     resolved bool "answer", and each gathered (question, model) pair carries a
-    "probability" (null = answered unusably; an absent row = never gathered).
+    "probability" (null = answered unusably; an absent row = never gathered),
+    the cache-relative response file it was read from and the line within it.
     """
     forecasts = [
         {
             "model_id": model_id,
             "question_id": c["question_id"],
             "probability": r.probability,
+            "source": r.source,
+            "line": r.line,
         }
         for c in corpus
         for model_id in model_names
@@ -95,6 +107,9 @@ def load_dataset_binary(path: Path) -> tuple[list[dict], BinaryResponses, list[s
         ResponseId(f["model_id"], f["question_id"]): BinaryResponse(
             actual=actual[f["question_id"]],
             probability=f["probability"],
+            # .get: datasets written before these fields existed lack them.
+            source=f.get("source"),
+            line=f.get("line"),
         )
         for f in data["forecasts"]
     }

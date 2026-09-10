@@ -207,6 +207,14 @@ Binary forecasting eval (P(Yes), `data/micropolis/binary/`, spec in `binary_fore
   (prompted), `nvalid` (parsed) and the mean `brier`, `expected_brier`
   ((f - p)^2 + p(1 - p) over the continuations' p) and `excess_brier` ((f - p)^2). The two
   question types are never pooled. Pooled rows average datapoints, not per-horizon means.
+  Also `results.csv`: one row per model × question with `seed`, `city`, `disasters` (1/0),
+  `snapshot_turn`, `horizon` (turns), the short `question_id` (A1, B3, …), the model's
+  `forecast` (nan when unparsed), the main run's `answer` as 1/0, `real_prob` (the
+  continuations' P(Yes)), and `response_file`/`response_line`: the cached response, relative
+  to `data/micropolis/binary/cache/`, and the 1-based line the forecast was read from. Those
+  two come from `data.json`, which `run_eval_binary.py` now records them into (`source`,
+  `line` per forecast); a `data.json` written before that shows nan there until regenerated
+  with `--cache-only`.
 - `extract_ground_truth.py` — pipes the engine's `run_continuations.js` (trunk to the snapshot,
   then `branch_nseeds` reseeded continuations from a byte copy of its state) through
   `ground_truth.consume_stream`, tallying per-question Yes counts and per-metric values at

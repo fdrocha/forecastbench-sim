@@ -152,8 +152,16 @@ class EvalPaths:
 
     out_dir: Path
 
+    @property
+    def cache_dir(self) -> Path:
+        return self.out_dir / "cache"
+
     def batch_dir(self, batch_id: str) -> Path:
-        return self.out_dir / "cache" / batch_id
+        return self.cache_dir / batch_id
+
+    def cache_relative(self, path: Path) -> str:
+        """`path` as written in a dataset: relative to the cache root, POSIX."""
+        return path.relative_to(self.cache_dir).as_posix()
 
     def prompt_path(self, batch_id: str, phash: str) -> Path:
         return self.batch_dir(batch_id) / f"prompt-{phash}.txt"

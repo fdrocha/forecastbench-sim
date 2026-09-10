@@ -19,7 +19,10 @@ two decades. Everything goes to one Markdown report,
 data/micropolis/binary/{label}/analysis-brier.md; --no-plot skips the figures.
 Beside it goes binary_scores.csv: one row per model x question type (regular =
 A, tail = B) x horizon in years plus an "all" horizon row, with the prompted
-and parsed counts and the mean Brier, expected Brier and excess Brier.
+and parsed counts and the mean Brier, expected Brier and excess Brier. And
+results.csv: one row per model x question, with the model's forecast (nan
+when its response did not parse), the realized answer, the ground-truth p and
+the cached response file and line the forecast was read from.
 
 Usage:
     scripts/analyze_binary.py                       # configs/binary.json5
@@ -284,14 +287,78 @@ def scores_csv_rows(
     return rows
 
 
-def write_scores_csv(path: Path, rows: list[dict]) -> Path:
-    """Write scores_csv_rows' output; nan lands as the literal "nan"."""
+def write_csv(path: Path, columns: list[str], rows: list[dict]) -> Path:
+    """Write `rows` under `columns`; nan lands as the literal "nan"."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=SCORES_CSV_COLUMNS)
+        writer = csv.DictWriter(f, fieldnames=columns)
         writer.writeheader()
         writer.writerows(rows)
     return path
+
+
+# ---------------------------------------------------------------------------
+# results.csv
+
+RESULTS_CSV_NAME = "results.csv"
+RESULTS_CSV_COLUMNS = [
+    "model",
+    "seed",
+    "city",
+    "disasters",
+    "snapshot_turn",
+    "horizon",
+    "question_id",
+    "forecast",
+    "answer",
+    "real_prob",
+    "response_file",
+    "response_line",
+]
+
+
+def results_csv_rows(
+    corpus: list[dict],
+    responses: BinaryResponses,
+    model_names: list[str],
+    truths: dict[str, Truth],
+) -> list[dict]:
+    """The rows of results.csv: one per model x question, in corpus order.
+
+    question_id is the short qid (A1, B3, ...); horizon is in turns, like
+    snapshot_turn; disasters is 1/0. forecast is nan when the model's response
+    is missing or did not parse. answer is the main run's outcome as 1/0 and
+    real_prob the share of reseeded continuations that resolved Yes.
+    response_file is the cached response, relative to the binary cache root,
+    and response_line the 1-based line of it the forecast was read from; nan
+    when unknown (never gathered, unparsed, or a dataset written before the
+    gather recorded them).
+    """
+
+    def or_nan(value):
+        return math.nan if value is None else value
+
+    rows = []
+    for model_id in model_names:
+        for c in corpus:
+            r = responses.get(ResponseId(model_id, c["question_id"]))
+            rows.append(
+                {
+                    "model": model_id,
+                    "seed": c["scenario"]["seed"],
+                    "city": c["scenario"]["name"],
+                    "disasters": int(c["scenario"]["disasters"]),
+                    "snapshot_turn": c["snapshot_turn"],
+                    "horizon": c["horizon"],
+                    "question_id": c["qid"],
+                    "forecast": math.nan if r is None else or_nan(r.probability),
+                    "answer": int(c["answer"]),
+                    "real_prob": truths[c["question_id"]].p,
+                    "response_file": math.nan if r is None else or_nan(r.source),
+                    "response_line": math.nan if r is None else or_nan(r.line),
+                }
+            )
+    return rows
 
 
 def plot_base_rates(
@@ -1310,11 +1377,16 @@ def main() -> None:
     print()
     for out in written:
         print(f"Wrote {out}")
-    csv_path = write_scores_csv(
-        label_dir(label) / SCORES_CSV_NAME,
-        scores_csv_rows(corpus, responses, models, truths),
-    )
-    print(f"Wrote {csv_path}")
+    for name, columns, csv_rows in [
+        (SCORES_CSV_NAME, SCORES_CSV_COLUMNS, scores_csv_rows),
+        (RESULTS_CSV_NAME, RESULTS_CSV_COLUMNS, results_csv_rows),
+    ]:
+        csv_path = write_csv(
+            label_dir(label) / name,
+            columns,
+            csv_rows(corpus, responses, models, truths),
+        )
+        print(f"Wrote {csv_path}")
     out_path = report.write(label_dir(label) / "analysis-brier.md", "Binary eval")
     print(out_path)
 
