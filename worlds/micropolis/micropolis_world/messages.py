@@ -5,10 +5,10 @@ to stand out and has to be separable from the report — hence stderr rather
 than stdout, and color rather than plain. Everything that is not a warning or
 an error stays on stdout as ordinary output.
 
-Warnings are yellow and errors red, so the two are told apart at a glance
-rather than by reading the prefix: a warning means the run went on, an error
-means something did not happen at all, and only the second is worth
-interrupting a long run for.
+Warnings are yellow, errors red and retries blue, so the three are told apart
+at a glance rather than by reading the prefix: a retry means nothing is wrong
+yet, a warning means the run went on, an error means something did not happen
+at all, and only the last is worth interrupting a long run for.
 
 Color is dropped when stderr is not a terminal, so a redirected log holds no
 escape sequences, and when NO_COLOR is set (https://no-color.org).
@@ -19,6 +19,7 @@ import sys
 
 YELLOW = "\033[33m"
 RED = "\033[1;31m"
+BLUE = "\033[34m"
 RESET = "\033[0m"
 
 
@@ -45,6 +46,11 @@ def warn(text: str) -> None:
 def error(text: str) -> None:
     """One error line on stderr, bold red: something did not happen at all."""
     _emit(text, "[error] ", RED)
+
+
+def retry(text: str) -> None:
+    """One retry line on stderr, blue: a call failed transiently and is retried."""
+    _emit(text, "[retry] ", BLUE)
 
 
 def plain(text: str, color: str = RED) -> None:

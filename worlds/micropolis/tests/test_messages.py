@@ -18,10 +18,12 @@ class FakeTTY(io.StringIO):
 def test_warnings_and_errors_go_to_stderr_not_stdout(capsys):
     msg.warn("something is off")
     msg.error("something failed")
+    msg.retry("trying again")
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "[warning] something is off" in captured.err
     assert "[error] something failed" in captured.err
+    assert "[retry] trying again" in captured.err
 
 
 def test_no_ansi_codes_when_stderr_is_not_a_terminal(capsys):
@@ -36,14 +38,16 @@ def test_colors_when_stderr_is_a_terminal(monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     msg.warn("warned")
     msg.error("errored")
+    msg.retry("retried")
     out = tty.getvalue()
     assert f"{msg.YELLOW}[warning] warned{msg.RESET}" in out
     assert f"{msg.RED}[error] errored{msg.RESET}" in out
+    assert f"{msg.BLUE}[retry] retried{msg.RESET}" in out
 
 
-def test_warnings_and_errors_are_different_colors():
+def test_warnings_errors_and_retries_are_different_colors():
     """The whole point of the split: told apart without reading the prefix."""
-    assert msg.YELLOW != msg.RED
+    assert len({msg.YELLOW, msg.RED, msg.BLUE}) == 3
 
 
 def test_no_color_env_var_is_respected(monkeypatch):

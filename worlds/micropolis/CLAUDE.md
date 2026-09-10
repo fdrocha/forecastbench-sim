@@ -124,12 +124,13 @@ and the structural constraints (§5). Read it before touching resolution.
   goes for reasoning effort: a caller picks it by naming a suffixed slug, never by a kwarg.
 - **Output goes to a Markdown report**, accumulated via `continuous_eval.MdReport` and stamped
   with both this repo's and the engine checkout's commit; stdout gets only paths.
-- **Warnings and errors go to stderr, colored, via `messages.warn`/`error`/`plain`** — never
-  `print`. A prompting run scrolls hundreds of progress lines, so a failed call has to stand
-  out and has to be separable from the report by redirection. Warnings are yellow and errors
-  bold red, told apart at a glance rather than by reading the prefix: a warning means the run
-  went on, an error means something did not happen. `plain` is for the detail lines under a
-  summary and takes the block's color (red by default). Color is dropped when stderr is not a
+- **Warnings, errors and retries go to stderr, colored, via
+  `messages.warn`/`error`/`retry`/`plain`** — never `print`. A prompting run scrolls hundreds
+  of progress lines, so a failed call has to stand out and has to be separable from the report
+  by redirection. Warnings are yellow, errors bold red and retries blue, told apart at a glance
+  rather than by reading the prefix: a retry means nothing is wrong yet, a warning means the
+  run went on, an error means something did not happen. `plain` is for the detail lines under
+  a summary and takes the block's color (red by default). Color is dropped when stderr is not a
   tty or `NO_COLOR` is set, so a redirected log carries no escape sequences.
 - Models are named by **slug**: a bare OpenRouter model id (`provider/name`, e.g.
   `anthropic/claude-haiku-4.5` — no `openrouter/` prefix, no dated aliases) optionally

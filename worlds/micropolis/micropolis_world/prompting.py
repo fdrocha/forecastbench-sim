@@ -17,12 +17,12 @@ ConcurrencyLimiter, both of which are public for exactly that reason.
 
 import asyncio
 import random
-import sys
 import time
 from collections.abc import AsyncIterator, Hashable
 from dataclasses import dataclass
 from typing import Any
 
+from . import messages as msg
 from .usage import LLMResponse, usage_from_response
 
 # Max concurrent in-flight calls, across every model. One global cap rather
@@ -188,11 +188,9 @@ async def prompt_model_async(
                 )
             else:
                 delay = TRANSIENT_BACKOFF_S
-            print(
-                f"[retry] {model.id}: {type(e).__name__} on attempt"
-                f" {attempt + 1}/{num_retries + 1}, retrying in {delay:.0f}s",
-                file=sys.stderr,
-                flush=True,
+            msg.retry(
+                f"{model.id}: {type(e).__name__} on attempt"
+                f" {attempt + 1}/{num_retries + 1}, retrying in {delay:.0f}s"
             )
             await asyncio.sleep(delay)
         else:
