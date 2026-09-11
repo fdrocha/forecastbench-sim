@@ -81,7 +81,7 @@ and the structural constraints (§5). Read it before touching resolution.
   every script's keys.
 - **A prompt variant is a config plus a text file, not a code change** — see
   `micropolis_world/datafiles/preamble*.txt`, `micropolis_world/datafiles/epilogue*.txt`,
-  `micropolis_world/configs/prompt-*.json5`.
+  `configs/prompt-*.json5`.
   A config's `preamble_path`/`epilogue_path` is resolved against
   `micropolis_world/datafiles/`, not against the config's own directory.
 - **The response cache is content-addressed and never invalidated.** Prompts, raw responses
@@ -167,7 +167,7 @@ Simulation / inspection:
 - `check_determinism.py` — repeat a scenario at one seed and diff the outputs.
 
 Continuous forecasting eval (percentiles, `data/micropolis/continuous/`). The first three
-default to `micropolis_world/configs/continuous.json5`; `analyze_skill_by_config.py` requires
+default to `configs/continuous.json5`; `analyze_skill_by_config.py` requires
 its configs and `plot_forecasts.py` has its own:
 - `run_eval_continuous.py` — prompts models; writes `data.json`.
 - `analyze_continuous.py` — CRPS tables/figures under three normalizations, each to
@@ -197,7 +197,7 @@ its configs and `plot_forecasts.py` has its own:
 
 Binary forecasting eval (P(Yes), `data/micropolis/binary/`, spec in `binary_forecasts.md`):
 - `run_eval_binary.py` — prompts models; writes `data.json`. Defaults to
-  `micropolis_world/configs/binary.json5`
+  `configs/binary.json5`
   (19 eligible cities, snapshots 960/1440, horizons +240/+480, disasters on).
   `--dry-run` builds the corpus and prints per-question Yes counts, for eyeballing resolution
   against the spec's P(Yes) ranges.
@@ -239,7 +239,7 @@ Binary forecasting eval (P(Yes), `data/micropolis/binary/`, spec in `binary_fore
 Domain-knowledge eval (`micropolis_world/knowledge_eval/`, True/False/Unknown statements
 about the engine, own cache under `data/micropolis/knowledge_eval/`):
 - `run_eval_knowledge.py` — gather answers (prompts models; defaults to
-  `micropolis_world/configs/knowledge_eval.json5`).
+  `configs/knowledge_eval.json5`).
 - `analyze_knowledge.py` — score them and correlate with ECI.
 
 Cost accounting: `analyze_usage.py` — sums the usage sidecars, either for what given configs
@@ -258,6 +258,6 @@ mocking), so a change to it is verified by regenerating a `data.json` from cache
 after and diffing.
 
 When testing changes avoid doing API calls to models unless necessary.
-If API calls are needed, use `micropolis_world/configs/testing.json5` (continuous) or
-`micropolis_world/configs/binary-testing.json5` (binary) — two cheap models, a couple of
+If API calls are needed, use `configs/testing.json5` (continuous) or
+`configs/binary-testing.json5` (binary) — two cheap models, a couple of
 cities — or something derived from them, never a production config.

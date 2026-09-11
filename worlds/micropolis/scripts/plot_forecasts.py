@@ -21,7 +21,7 @@ number these figures can legibly carry; name another config to override it.
 Usage:
     scripts/plot_forecasts.py
     scripts/plot_forecasts.py subset.json5
-    scripts/plot_forecasts.py micropolis_world/configs/default.json5
+    scripts/plot_forecasts.py configs/default.json5
     scripts/plot_forecasts.py --cities kyoto --models openai/gpt-5.6-sol
 """
 

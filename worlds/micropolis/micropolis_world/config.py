@@ -28,7 +28,9 @@ import json5
 from . import messages as msg
 from . import module_globals as g
 
-CONFIG_DIR = Path(__file__).resolve().parent / "configs"
+# The runnable configs live at the world root, beside scripts/ — outside the
+# package, so they are hand-edited inputs rather than shipped package data.
+CONFIG_DIR = Path(__file__).resolve().parent.parent / "configs"
 
 # The hand-edited data beside the code: the prompt preamble/epilogue texts a
 # config names, and the model tables. Separate from configs/ so a directory

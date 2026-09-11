@@ -25,13 +25,12 @@ where = ["."]
 include = ["micropolis_world*"]
 
 # The package's data files, which the code reads by path at runtime and so must
-# ship in the wheel. configs/ and datafiles/ carry no __init__.py, so they are
-# not packages of their own — they are reached as subdirectory globs of
-# micropolis_world, which is.
+# ship in the wheel. datafiles/ carries no __init__.py, so it is not a package
+# of its own — it is reached as a subdirectory glob of micropolis_world, which
+# is. configs/ sits outside the package, at the world root.
 [tool.setuptools.package-data]
 micropolis_world = [
     "*.json5",
-    "configs/*.json5",
     "datafiles/*.txt",
     "datafiles/*.csv",
 ]

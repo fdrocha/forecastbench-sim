@@ -167,7 +167,7 @@ TICKS_PER_TURN = 16
 TURNS_PER_YEAR = 4 * 12  # 4 ticks per month, 12 months per year
 
 # Cities, snapshot turns, horizons and the rest of the per-run parameters now
-# live in the JSON config files under micropolis_world/configs/ — see the README
+# live in the JSON config files under configs/ — see the README
 # there. Notes on the city selection, for when you edit a config's "cities":
 #   - "bluebird" is a dead city with no population; nothing happens.
 #   - "deadwood" crashes the engine (WASM "memory access out of bounds")
