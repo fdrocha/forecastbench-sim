@@ -9,17 +9,22 @@ Prompts no models and runs no simulations.
 Every forecast f gets two scores: the Brier score (f - outcome)^2 against the
 realized answer, and the excess Brier (f - p)^2 against p, the share of
 reseeded continuations that resolved Yes. The report is split into two
-sections — "Binary forecasts", the mid-range A questions, and "Tail
-probabilities", the B ones — each with the same structure: a base-rate
-heatmap, then the two scores paired within each view (a models x questions
-heatmap, a per-model bar panel, a by-horizon figure and the ECI scatter), and
-finally a grid of per-model calibration scatters. The tail section draws
-its color and its scatter axes on a log scale, since its probabilities span
-two decades. Everything goes to one Markdown report,
+sections by that p: "Mid-range probabilities" (p >= 5%) and "Tail
+probabilities" (p < 5%). The split is per question instance, so one qid can be
+mid-range in one city and tail in another. Each section has the same
+structure: a histogram of its questions per ground-truth p, the two scores
+paired within each view (a per-model bar panel, a by-horizon figure), a table
+of correlations between the per-model scores and the capability predictors
+(ECI, knowledge eval) with bootstrap intervals over models and over
+questions, the ECI scatter and predictor comparison, and finally a grid of
+per-model calibration scatters. The tail section draws its histogram and its
+scatter axes on a log scale, since its probabilities span two decades.
+Everything goes to one Markdown report,
 data/micropolis/binary/{label}/analysis-brier.md; --no-plot skips the figures.
-Beside it goes binary_scores.csv: one row per model x question type (regular =
-A, tail = B) x horizon in years plus an "all" horizon row, with the prompted
-and parsed counts and the mean Brier, expected Brier and excess Brier. And
+Beside it goes binary_scores.csv: one row per model x question type (mid-range
+or tail, by the same rule) x horizon in years plus an "all" horizon row, with
+the prompted and parsed counts and the mean Brier, expected Brier and excess
+Brier. And
 results.csv: one row per model x question, with the model's forecast (nan
 when its response did not parse), the realized answer, the ground-truth p and
 the cached response file and line the forecast was read from.
@@ -36,7 +41,6 @@ import argparse
 import csv
 import math
 import sys
-from collections import Counter
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
@@ -49,7 +53,6 @@ from micropolis_world.binary_eval import (
     label_dir,
     load_dataset_binary,
 )
-from micropolis_world.binary_questions import QUESTION_IDS
 from micropolis_world.config import (
     CONFIG_DIR,
     add_config_args,
@@ -69,6 +72,8 @@ from micropolis_world.ground_truth import Truth, load_truths
 # report uses.
 sys.path.insert(0, str(Path(__file__).parent))
 from analyze_continuous import (
+    BOOTSTRAP_RESAMPLES,
+    BOOTSTRAP_SEED,
     _mean,
     band_handles,
     correlate_by_horizon,
@@ -80,24 +85,31 @@ from analyze_continuous import (
     format_tie_warnings,
     knowledge_predictor,
     model_style,
+    resample_indices,
     significance_handles,
     stars_for,
 )
 
 DEFAULT_BINARY_CONFIG_PATH = CONFIG_DIR / "binary.json5"
 
-# The report's two halves. The A questions target mid-range base rates and the
-# B questions tail ones (binary_forecasts.md §3), so their scores live on
-# different scales — an always-No forecast is already near-perfect on B — and
-# averaging them together would let the tail questions dilute the mid-range
-# signal. Everything below is computed per section.
+# The report's two halves, split on the ground-truth probability of each
+# question instance rather than on its qid: a question is tail when fewer than
+# TAIL_THRESHOLD of the reseeded continuations resolved Yes. Tail scores live
+# on a different scale — an always-No forecast is already near-perfect there —
+# and averaging them with the mid-range ones would let the tail dilute the
+# signal. Everything below is computed per section, and the section key is
+# also the question_type in binary_scores.csv and the figure filename prefix.
+TAIL_THRESHOLD = 0.05
+MID_RANGE, TAIL = "mid-range", "tail"
 SECTIONS = [
-    ("A", "Binary forecasts", "mid-range questions (target P(Yes) ~ 10-90%)"),
-    ("B", "Tail probabilities", "tail questions (target P(Yes) ~ 0.5-5%)"),
+    (MID_RANGE, "Mid-range probabilities", "ground-truth P(Yes) ≥ 5%"),
+    (TAIL, "Tail probabilities", "ground-truth P(Yes) < 5%"),
 ]
 
-# The sections' names in binary_scores.csv's question_type column.
-QUESTION_TYPES = {"A": "regular", "B": "tail"}
+
+def section_of(question: dict, truths: dict[str, Truth]) -> str:
+    """The section a corpus question falls in, by its ground-truth P(Yes)."""
+    return TAIL if truths[question["question_id"]].p < TAIL_THRESHOLD else MID_RANGE
 
 
 @dataclass(frozen=True)
@@ -134,11 +146,6 @@ def years(turns: int) -> str:
     """A turn count as years, without a trailing ".0" on the whole ones."""
     y = turns / TURNS_PER_YEAR
     return f"{y:.0f}y" if y == int(y) else f"{y:g}y"
-
-
-def window_label(snapshot_turn: int, horizon: int) -> str:
-    """A (snapshot, horizon) window as "Y20: 5y" — the city's age, then the span."""
-    return f"Y{snapshot_turn // TURNS_PER_YEAR}: {years(horizon)}"
 
 
 def plots_path(label: str) -> Path:
@@ -237,10 +244,11 @@ def scores_csv_rows(
 ) -> list[dict]:
     """The rows of binary_scores.csv, in the order they are written.
 
-    One row per model x question type x horizon, then an "all" horizon row per
-    (model, question type). The two question types are never pooled: their
-    scores live on different scales (see SECTIONS). A pooled row averages the
-    underlying forecasts, not the per-horizon means.
+    One row per model x question type (a SECTIONS key, by section_of) x
+    horizon, then an "all" horizon row per (model, question type). The two
+    question types are never pooled: their scores live on different scales
+    (see SECTIONS). A pooled row averages the underlying forecasts, not the
+    per-horizon means.
 
     Per row, nforecasts counts the questions the model was actually prompted
     with — a response on record, parsed or not — and nvalid those whose answer
@@ -256,14 +264,16 @@ def scores_csv_rows(
     def nan_mean(values: list[float]) -> float:
         return sum(values) / len(values) if values else math.nan
 
+    sections = {c["question_id"]: section_of(c, truths) for c in corpus}
     rows = []
     for model_id in model_names:
-        for prefix, question_type in QUESTION_TYPES.items():
+        for question_type, _name, _description in SECTIONS:
             for horizon_name, horizon_group in horizon_groups:
                 asked = [
                     c
                     for c in corpus
-                    if c["qid"].startswith(prefix) and c["horizon"] in horizon_group
+                    if sections[c["question_id"]] == question_type
+                    and c["horizon"] in horizon_group
                 ]
                 valid = [
                     scored[k]
@@ -361,26 +371,23 @@ def results_csv_rows(
     return rows
 
 
-def plot_base_rates(
+def plot_truth_histogram(
     report: MdReport,
     corpus: list[dict],
     truths: dict[str, Truth],
     outdir: Path,
     section: str,  # display name, for titles
-    prefix: str,  # qid prefix, for figure filenames
-    qids: list[str],
+    prefix: str,  # section key, for figure filenames
     log: bool,
 ) -> Path:
-    """Questions x windows: ground-truth P(Yes) as color, realized count as text.
+    """How many of the section's questions sit at each ground-truth P(Yes).
 
-    What the scores below are read against — how often each event fired across
-    reseeded continuations of the same state, and how many of the section's
-    scenarios actually realized it. Both live in one grid because they are the
-    same quantity measured two ways; the color carries the probability, which
-    rests on a thousand continuations, and the number carries the count, which
-    rests on the handful of scenarios the eval actually asked about. The scale
-    tops out at the section's own maximum rather than 1 — on the tail questions
-    every probability is under 5% and a 0-1 scale would render the grid blank.
+    What the scores below are read against. Every model is asked every
+    question, so the count per bin is the count per model. The tail section
+    bins in log p, since its probabilities span two decades and linear bins
+    would put nearly all of them in the first; a question no continuation
+    resolved Yes has no log, so those sit in their own bar, labeled 0, one bin
+    below the smallest probability a continuation count can express.
     """
     import matplotlib
 
@@ -388,208 +395,287 @@ def plot_base_rates(
     import matplotlib.pyplot as plt
     import numpy as np
 
-    windows = sorted({(c["snapshot_turn"], c["horizon"]) for c in corpus})
-    nscenarios = len({c["scenario_id"] for c in corpus})
-    yes = Counter(
-        (c["qid"], c["snapshot_turn"], c["horizon"]) for c in corpus if c["answer"]
-    )
-    ps: dict[tuple[str, int, int], list[float]] = {}
-    for c in corpus:
-        ps.setdefault((c["qid"], c["snapshot_turn"], c["horizon"]), []).append(
-            truths[c["question_id"]].p
-        )
-    ncont = sorted({t.n for t in truths.values()})
+    ps = np.array([truths[c["question_id"]].p for c in corpus])
+    ncont = min(t.n for t in truths.values())
 
-    counts = np.array(
-        [[yes[(qid, t, h)] for t, h in windows] for qid in qids], dtype=float
-    )
-    truth = np.array(
-        [[_mean(ps.get((qid, t, h), [])) or np.nan for t, h in windows] for qid in qids]
-    )
-
-    labels = [window_label(t, h) for t, h in windows]
     outdir.mkdir(parents=True, exist_ok=True)
-    # Square cells at a fixed size, so the axes is sized by the grid rather
-    # than stretched to the page: a 16-row section is tall and an 11-row one
-    # shorter, and both keep the same cell. The figure is only as wide as the
-    # grid plus its margins, and the axes is centered in what is left over.
-    # Every length here is in inches and scaled together, so `scale` shrinks
-    # the whole figure without changing its proportions.
-    scale = 0.6
-    cell = 0.515 * scale
-    label_w, bar_w, ticks_h, title_h = (
-        0.75 * scale,
-        1.15 * scale,
-        1.15 * scale,
-        0.85 * scale,
-    )
-    grid_w, grid_h = cell * len(windows), cell * len(qids)
-    width = max(grid_w + label_w + bar_w, 5.6 * scale)
-    height = grid_h + ticks_h + title_h
-    fig, ax = plt.subplots(figsize=(width, height))
-    left = (width - grid_w - bar_w) / 2 / width
-    fig.subplots_adjust(
-        left=left,
-        right=left + grid_w / width,
-        bottom=ticks_h / height,
-        top=1 - title_h / height,
-    )
-
-    vmax = float(np.nanmax(truth))
+    fig, ax = plt.subplots(figsize=(11, 3.7))
+    # The axes is 4:1 whatever the figure's margins come out as.
+    ax.set_box_aspect(0.25)
     if log:
-        # A zero has no place on a log ramp; floor it at half the smallest
-        # probability a continuation count can express, as the tail
-        # calibration scatter does.
-        floor = 0.5 / min(t.n for t in truths.values())
-        shade = np.where(np.isnan(truth), np.nan, np.maximum(truth, floor))
-        norm = matplotlib.colors.LogNorm(vmin=floor, vmax=vmax)
-    else:
-        floor = 0.0
-        shade = truth
-        norm = matplotlib.colors.Normalize(vmin=0.0, vmax=vmax)
-    im = ax.imshow(shade, cmap="Reds", norm=norm, aspect="auto")
-    for i in range(len(qids)):
-        for j in range(len(windows)):
-            if np.isnan(truth[i, j]):
-                continue
-            color = "white" if norm(shade[i, j]) > 0.55 else "black"
-            ax.text(
-                j,
-                i,
-                f"{counts[i, j]:.0f}",
-                ha="center",
-                va="center",
-                fontsize=8 * scale,
-                color=color,
+        lo = 1 / ncont  # the smallest nonzero p a continuation count can express
+        edges = np.logspace(np.log10(lo), np.log10(TAIL_THRESHOLD), 13)
+        ratio = edges[1] / edges[0]
+        ax.hist(ps[ps > 0], bins=edges, color=PLOT_BLUE, edgecolor="white", zorder=3)
+        ax.set_xscale("log")
+        ticks = [t for t in (0.001, 0.002, 0.005, 0.01, 0.02, 0.05) if lo <= t]
+        labels = [f"{t:g}" for t in ticks]
+        zeros = int((ps == 0).sum())
+        if zeros:
+            # One bin wide, one bin's gap below the first real bin.
+            left, right = lo / ratio**2, lo / ratio
+            ax.bar(
+                left,
+                zeros,
+                width=right - left,
+                align="edge",
+                color=PLOT_BLUE,
+                edgecolor="white",
+                hatch="///",
+                zorder=3,
             )
-    ax.set_xticks(
-        range(len(windows)), labels, fontsize=8 * scale, rotation=45, ha="right"
-    )
-    ax.set_yticks(range(len(qids)), qids, fontsize=8 * scale)
-    ax.tick_params(length=0)
-    bar = fig.colorbar(
-        im,
-        ax=ax,
-        fraction=0.03,
-        pad=0.04,
-        label="probability (log scale)" if log else "probability",
-    )
-    bar.ax.tick_params(labelsize=7 * scale)
-    # The label wears the default axis-label size, which does not scale with
-    # the rest and would tower over the shrunk grid.
-    bar.ax.yaxis.label.set_size(8 * scale)
-
-    # Wrapped to the figure's width, which is set by the grid, not the prose.
-    fig.suptitle(
-        f"How often each question resolved Yes — {section}\n"
-        f"color: ground-truth P(Yes) over {'/'.join(map(str, ncont))}"
-        " reseeded continuations\n"
-        f"number: how many of {nscenarios} scenarios realized Yes",
-        fontsize=8 * scale,
-    )
-
-    out = outdir / f"base_rates-{prefix}.png"
-    fig.savefig(out, dpi=150)
-    plt.close(fig)
-    report.image(out)
-    return out
-
-
-def plot_score_heatmap(
-    report: MdReport,
-    corpus: list[dict],
-    rows: list[dict],
-    model_names: list[str],
-    outdir: Path,
-    section: str,  # display name, for titles
-    prefix: str,  # qid prefix, for figure filenames
-    score: Score,
-    qids: list[str],
-) -> Path:
-    """Models x questions mean score as an annotated heatmap.
-
-    Replaces a models x questions table: at 13+ models by up to 16 questions
-    the grid reads better as color than as a wall of numbers. Rows sort
-    best-first by the section mean, drawn as its own separated leftmost column
-    since it pools what the other columns split. Both scores are unitless, so
-    one color scale serves the whole grid; it runs from 0 so a cell's darkness
-    reads as absolute error, not error relative to the section's worst.
-    """
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    scores: dict[tuple[str, str], list[float]] = {}
-    for r in rows:
-        scores.setdefault((r["model_id"], r["qid"]), []).append(r[score.key])
-    means = {k: _mean(v) for k, v in scores.items()}
-    overall = score_by_model(rows, model_names, score)
-    ordered = sorted(model_names, key=lambda m: (m not in overall, overall.get(m, 0.0)))
-
-    columns = ["mean"] + qids
-    data = np.full((len(ordered), len(columns)), np.nan)
-    for i, model_id in enumerate(ordered):
-        if model_id in overall:
-            data[i, 0] = overall[model_id]
-        for j, qid in enumerate(qids, start=1):
-            value = means.get((model_id, qid))
-            if value is not None:
-                data[i, j] = value
-
-    outdir.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(
-        figsize=(0.62 * len(columns) + 3.4, 0.42 * len(ordered) + 1.8)
-    )
-    vmax = float(np.nanmax(data))
-    im = ax.imshow(data, cmap="Reds", vmin=0.0, vmax=vmax, aspect="auto")
-
-    for i in range(len(ordered)):
-        for j in range(len(columns)):
-            value = data[i, j]
-            if np.isnan(value):
-                continue
-            # ".118" rather than "0.118": every value is below 1, so the
-            # leading zero is a column-width tax with no information in it.
-            text = f"{value:.3f}".removeprefix("0")
-            color = "white" if value > 0.55 * vmax else "black"
-            ax.text(j, i, text, ha="center", va="center", fontsize=7, color=color)
-
-    ax.set_xticks(range(len(columns)), columns)
-    ax.set_yticks(range(len(ordered)), [m.split("/")[-1] for m in ordered])
-    ax.tick_params(length=0)
-    # The mean column pools what the rest split, so wall it off visually.
-    ax.axvline(x=0.5, color="black", lw=1.2)
+            ticks.insert(0, math.sqrt(left * right))
+            labels.insert(0, "0")
+        ax.set_xticks(ticks, labels)
+        ax.set_xlim(lo / ratio**2.3, TAIL_THRESHOLD * 1.05)
+        ax.set_xlabel("ground-truth P(Yes), log scale (hatched bar: p = 0)")
+    else:
+        edges = np.linspace(TAIL_THRESHOLD, 1.0, 20)
+        ax.hist(ps, bins=edges, color=PLOT_BLUE, edgecolor="white", zorder=3)
+        ax.set_xlim(TAIL_THRESHOLD, 1.0)
+        ax.set_xlabel("ground-truth P(Yes)")
+    ax.set_ylabel("questions (per model)")
+    ax.grid(axis="y", alpha=0.3, zorder=0)
     ax.set_title(
-        f"Mean {score.name} by model and question — {section}"
-        " (lower is better)\n"
-        "rows sorted best-first; mean pools every scored forecast in the section"
+        f"Questions per ground-truth P(Yes) — {section}\n"
+        f"{len(corpus)} questions, each asked to every model;"
+        f" p over {ncont}+ reseeded continuations",
+        fontsize=10,
     )
-    fig.colorbar(im, ax=ax, label=f"mean {score.name}", fraction=0.03, pad=0.02)
     fig.tight_layout()
 
-    out = outdir / f"{score.key}_heatmap-{prefix}.png"
+    out = outdir / f"truth_histogram-{prefix}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
-
-    report.heading(
-        f"Mean {score.name} by model and question — {section} (lower is better)"
-    )
     report.image(out)
-
-    # A row resting on fewer questions than the section holds means some
-    # responses failed to parse; say so rather than let the means look complete.
-    counts = {k: len(v) for k, v in scores.items()}
-    used = {m: sum(counts.get((m, q), 0) for q in qids) for m in model_names}
-    missing = [
-        f"{m.split('/')[-1]}: {len(corpus) - used[m]}"
-        for m in ordered
-        if used[m] < len(corpus)
-    ]
-    if missing:
-        report.text(f"Unparseable forecasts excluded — {', '.join(missing)}")
     return out
+
+
+# ---------------------------------------------------------------------------
+# Correlations with capability, with intervals from two resampling units
+
+# A correlation over fewer models than this is not reported, matching
+# correlate_by_horizon's default.
+MIN_MODELS = 4
+
+
+@dataclass(frozen=True)
+class Correlation:
+    """One predictor against the per-model mean score of one question slice.
+
+    Each coefficient carries two 95% percentile-bootstrap intervals. `models`
+    resamples the models — the unit that would have to generalize, and the
+    convention the continuous report uses — and so says how far the
+    coefficient could move with a different model set. `questions` resamples
+    the questions with the models fixed, moving every model's forecast on a
+    question together, and so says how stable the coefficient is to which
+    questions were asked. Either is None when too few resamples had a defined
+    coefficient.
+    """
+
+    predictor: str
+    horizon: str  # a years label, or ALL for the pooled slice
+    n_models: int
+    n_questions: int
+    rho: float
+    rho_p: float
+    rho_models: tuple[float, float] | None
+    rho_questions: tuple[float, float] | None
+    r: float
+    r_p: float
+    r_models: tuple[float, float] | None
+    r_questions: tuple[float, float] | None
+
+
+def _correlations_by_row(x, y):
+    """Spearman and Pearson of each row of `x` against the same row of `y`.
+
+    Both (resamples, models) arrays. nan where a row has no spread — a
+    resample that drew one model several times over, or a constant score.
+    """
+    import numpy as np
+    from scipy import stats
+
+    def pearson(a, b):
+        ac = a - a.mean(axis=1, keepdims=True)
+        bc = b - b.mean(axis=1, keepdims=True)
+        denominator = np.sqrt((ac**2).sum(axis=1) * (bc**2).sum(axis=1))
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.where(
+                denominator > 0, (ac * bc).sum(axis=1) / denominator, np.nan
+            )
+
+    return (
+        pearson(stats.rankdata(x, axis=1), stats.rankdata(y, axis=1)),
+        pearson(x, y),
+    )
+
+
+def _percentile_interval(values, resamples: int) -> tuple[float, float] | None:
+    """The 2.5–97.5 percentile band, or None when most resamples were undefined."""
+    import numpy as np
+
+    values = values[~np.isnan(values)]
+    if len(values) < resamples // 2:
+        return None
+    lo, hi = np.percentile(values, [2.5, 97.5])
+    return float(lo), float(hi)
+
+
+def correlate(
+    predictor_name: str,
+    predictor: dict[str, float],
+    rows: list[dict],
+    score: Score,
+    model_names: list[str],
+    horizon_name: str,
+    resamples: int = BOOTSTRAP_RESAMPLES,
+    seed: int = BOOTSTRAP_SEED,
+) -> Correlation | None:
+    """Correlate `predictor` (keyed by model id) with the mean score per model.
+
+    The point estimates and p-values are scipy's on the per-model means over
+    every parsed forecast in `rows`. The model bootstrap resamples those means
+    with analyze_continuous's draws, so its Spearman interval is the one
+    bootstrap_rho_ci would give. The question bootstrap redraws the question
+    set and recomputes each model's mean over its parsed forecasts among the
+    drawn questions, so an unparsed forecast costs a model a question rather
+    than costing every model that question. Returns None when fewer than
+    MIN_MODELS models carry both a predictor value and a forecast, or when a
+    variable has no spread.
+    """
+    import numpy as np
+    from scipy import stats
+
+    questions = sorted({r["question_id"] for r in rows})
+    models = [m for m in model_names if m in predictor]
+    qpos = {q: i for i, q in enumerate(questions)}
+    mpos = {m: j for j, m in enumerate(models)}
+    scores = np.full((len(questions), len(models)), np.nan)
+    for r in rows:
+        if r["model_id"] in mpos:
+            scores[qpos[r["question_id"]], mpos[r["model_id"]]] = r[score.key]
+    present = ~np.isnan(scores)
+    keep = present.any(axis=0)
+    models = [m for m, k in zip(models, keep) if k]
+    scores, present = scores[:, keep], present[:, keep]
+    if len(models) < MIN_MODELS:
+        return None
+    x = np.array([predictor[m] for m in models])
+    y = np.nanmean(scores, axis=0)
+    if len(set(x)) < 2 or len(set(y)) < 2:
+        return None
+    rho, rho_p = stats.spearmanr(x, y)
+    r, r_p = stats.pearsonr(x, y)
+
+    idx = resample_indices(len(models), resamples, seed)
+    rho_m, r_m = _correlations_by_row(x[idx], y[idx])
+
+    # Each resample as a count per question, so the resampled means are one
+    # matrix product rather than a (resamples x questions x models) array.
+    nq = len(questions)
+    draws = np.random.default_rng(seed).integers(0, nq, (resamples, nq))
+    weights = np.zeros((resamples, nq))
+    for i, draw in enumerate(draws):
+        weights[i] = np.bincount(draw, minlength=nq)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        means = (weights @ np.where(present, scores, 0.0)) / (weights @ present)
+    rho_q, r_q = _correlations_by_row(np.broadcast_to(x, means.shape), means)
+
+    return Correlation(
+        predictor=predictor_name,
+        horizon=horizon_name,
+        n_models=len(models),
+        n_questions=nq,
+        rho=float(rho),
+        rho_p=float(rho_p),
+        rho_models=_percentile_interval(rho_m, resamples),
+        rho_questions=_percentile_interval(rho_q, resamples),
+        r=float(r),
+        r_p=float(r_p),
+        r_models=_percentile_interval(r_m, resamples),
+        r_questions=_percentile_interval(r_q, resamples),
+    )
+
+
+def capability_predictors(model_names: list[str]) -> list[tuple[str, dict[str, float]]]:
+    """(name, predictor keyed by model id) for ECI and, when cached, the knowledge eval.
+
+    Both analyze_continuous helpers key on the bare model name; this rekeys
+    them on the ids the rows carry.
+    """
+    bare = {m: m.split("/", 1)[1] for m in model_names}
+    predictors = [("ECI", eci_by_name(model_names))]
+    knowledge = knowledge_predictor(model_names)
+    if knowledge is not None:
+        predictors.append(("Knowledge", knowledge))
+    return [
+        (name, {m: p[bare[m]] for m in model_names if bare[m] in p})
+        for name, p in predictors
+    ]
+
+
+def section_correlations(
+    rows: list[dict], model_names: list[str], score: Score
+) -> list[Correlation]:
+    """Every predictor against the pooled slice and against each horizon."""
+    horizons = sorted({r["horizon"] for r in rows})
+    slices = [(ALL, rows)] + [
+        (years(h), [r for r in rows if r["horizon"] == h]) for h in horizons
+    ]
+    out = []
+    for name, predictor in capability_predictors(model_names):
+        for horizon_name, slice_rows in slices:
+            c = correlate(name, predictor, slice_rows, score, model_names, horizon_name)
+            if c is not None:
+                out.append(c)
+    return out
+
+
+def format_correlation_table(correlations: list[Correlation]) -> str:
+    """Fixed-width rows of the coefficients and both intervals per coefficient."""
+
+    def band(ci):
+        return f"[{ci[0]:+.2f}, {ci[1]:+.2f}]" if ci else "—".center(14)
+
+    header = (
+        f"{'predictor':<10} {'horizon':<7} {'models':>6} {'questions':>9}  "
+        f"{'ρ':>5} {'p':>6} {'CI models':>14} {'CI questions':>14}  "
+        f"{'r':>5} {'p':>6} {'CI models':>14} {'CI questions':>14}"
+    )
+    lines = [header]
+    for c in correlations:
+        lines.append(
+            f"{c.predictor:<10} {c.horizon:<7} {c.n_models:>6} {c.n_questions:>9}  "
+            f"{c.rho:+.2f} {c.rho_p:6.3f} {band(c.rho_models):>14} {band(c.rho_questions):>14}  "
+            f"{c.r:+.2f} {c.r_p:6.3f} {band(c.r_models):>14} {band(c.r_questions):>14}"
+        )
+    return "\n".join(lines)
+
+
+def report_correlations(
+    report: MdReport, rows: list[dict], model_names: list[str], section: str
+) -> None:
+    """The correlation table per score, ahead of the figures that draw them."""
+    report.heading(f"Correlations with capability — {section}")
+    report.text(
+        "Spearman ρ and Pearson r between each predictor and the mean score per"
+        " model, pooled and per horizon; both scores are lower-is-better, so a"
+        " negative coefficient means the more capable models forecast better."
+        f" Each coefficient has two 95% percentile-bootstrap intervals"
+        f" ({BOOTSTRAP_RESAMPLES:,} draws): 'models' resamples the models and asks"
+        " how far the coefficient could move with a different model set;"
+        " 'questions' resamples the questions with the models fixed and asks"
+        " how stable it is to which questions were asked. Questions from one"
+        " report share a prompt, so the latter is somewhat optimistic."
+    )
+    for score in SCORES:
+        correlations = section_correlations(rows, model_names, score)
+        if not correlations:
+            report.text(f"{score.name}: too few models with a predictor to correlate.")
+            continue
+        report.text(f"{score.name[0].upper()}{score.name[1:]}")
+        report.table(format_correlation_table(correlations))
 
 
 def plot_score_bars(
@@ -895,10 +981,10 @@ def plot_eci_vs_score(
     direction = "pro-g" if rho < 0 else "anti-g"
     report.heading(f"ECI vs mean {score.name} — {section} (Spearman)")
     lines = [
-        f"rho={rho:+.3f}  p={p_rho:.4f} {stars_for(p_rho):<4} ({direction}, n={len(points)})",
+        f"ρ={rho:+.3f}  p={p_rho:.4f} {stars_for(p_rho):<4} ({direction}, n={len(points)})",
         f"Pearson r={r:+.3f}  p={p_r:.4f} {stars_for(p_r)}",
         (
-            f"{score.name[0].upper()}{score.name[1:]} is lower-is-better, so rho<0"
+            f"{score.name[0].upper()}{score.name[1:]} is lower-is-better, so ρ<0"
             " means the more capable models forecast better (pro-g)."
         ),
     ]
@@ -1313,26 +1399,19 @@ def main() -> None:
     )
     written: list[Path] = []
     for prefix, section, description in SECTIONS:
-        qids = [q for q in QUESTION_IDS if q.startswith(prefix)]
-        section_corpus = [c for c in corpus if c["qid"].startswith(prefix)]
+        section_corpus = [c for c in corpus if section_of(c, truths) == prefix]
         if not section_corpus:
             continue
         rows = score_forecasts_binary(section_corpus, responses, models, truths)
         # The prefix of every per-score call below, spelled once.
         common = (report, section_corpus, rows, models, outdir, section, prefix)
+        log = prefix == TAIL
 
         report.heading(f"{section} — {description}", level=1)
         if args.plot:
             written.append(
-                plot_base_rates(
-                    report,
-                    section_corpus,
-                    truths,
-                    outdir,
-                    section,
-                    prefix,
-                    qids,
-                    log=(prefix == "B"),
+                plot_truth_histogram(
+                    report, section_corpus, truths, outdir, section, prefix, log
                 )
             )
 
@@ -1341,15 +1420,16 @@ def main() -> None:
         # model's Brier and its excess Brier disagree is the interesting
         # cell — and that reads far better adjacent than a page apart.
         if args.plot:
-            for score in SCORES:
-                written.append(plot_score_heatmap(*common, score, qids))
-        if args.plot:
             written.append(
                 plot_score_bars(
                     report, section_corpus, rows, models, outdir, section, prefix
                 )
             )
             written.append(plot_scores_by_horizon(*common))
+        # The table stands whether or not the figures are drawn: it is the
+        # report's statement of the correlations, the figures illustrate it.
+        report_correlations(report, rows, models, section)
+        if args.plot:
             for score in SCORES:
                 written += [
                     p
@@ -1370,7 +1450,7 @@ def main() -> None:
                     outdir,
                     section,
                     prefix,
-                    log=(prefix == "B"),
+                    log,
                 )
             )
 

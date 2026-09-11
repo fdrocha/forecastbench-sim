@@ -1,6 +1,6 @@
 """Tests for analyze_binary.py's binary_scores.csv and results.csv.
 
-A hand-sized corpus with one model: one regular and one tail question at two
+A hand-sized corpus with one model: one mid-range and one tail question at two
 horizons, with responses that were variously never prompted, unparsed and
 valid, so every count and mean can be checked by eye.
 """
@@ -58,7 +58,7 @@ CORPUS = [
 TRUTHS = {
     f"s:A1@{H1}": Truth(0.5, 100),
     f"s:A1@{H2}": Truth(0.3, 100),
-    f"s:B1@{H1}": Truth(0.1, 100),
+    f"s:B1@{H1}": Truth(0.01, 100),
     f"s:B1@{H2}": Truth(0.0, 100),
 }
 RESPONSES = {
@@ -82,18 +82,24 @@ def _rows() -> dict[tuple[str, str], dict]:
 def test_rows_cover_every_type_and_horizon_group_once_and_never_pool_types():
     rows = _rows()
     assert set(rows) == {
-        (t, h) for t in ("regular", "tail") for h in ("5y", "10y", "all")
+        (t, h) for t in ("mid-range", "tail") for h in ("5y", "10y", "all")
     }
 
 
 def test_counts_separate_prompted_from_parsed():
     rows = _rows()
-    assert (rows["regular", "10y"]["nforecasts"], rows["regular", "10y"]["nvalid"]) == (
+    assert (
+        rows["mid-range", "10y"]["nforecasts"],
+        rows["mid-range", "10y"]["nvalid"],
+    ) == (
         1,
         0,
     )
     assert (rows["tail", "10y"]["nforecasts"], rows["tail", "10y"]["nvalid"]) == (0, 0)
-    assert (rows["regular", "all"]["nforecasts"], rows["regular", "all"]["nvalid"]) == (
+    assert (
+        rows["mid-range", "all"]["nforecasts"],
+        rows["mid-range", "all"]["nvalid"],
+    ) == (
         2,
         1,
     )
@@ -102,14 +108,14 @@ def test_counts_separate_prompted_from_parsed():
 
 def test_scores_follow_their_definitions():
     """A1@H1: f=0.7, outcome Yes, p=0.5."""
-    r = _rows()["regular", "5y"]
+    r = _rows()["mid-range", "5y"]
     assert r["brier"] == pytest.approx(0.3**2)
     assert r["excess_brier"] == pytest.approx(0.2**2)
     assert r["expected_brier"] == pytest.approx(0.2**2 + 0.5 * 0.5)
 
 
 def test_rows_with_no_valid_forecast_are_nan():
-    r = _rows()["regular", "10y"]
+    r = _rows()["mid-range", "10y"]
     assert all(math.isnan(r[k]) for k in ("brier", "expected_brier", "excess_brier"))
 
 
@@ -126,7 +132,10 @@ def test_same_qid_in_another_city_does_not_stand_in_for_an_unparsed_answer():
         (r["question_type"], r["horizon"]): r
         for r in module.scores_csv_rows(corpus, responses, [MODEL], truths)
     }
-    assert (rows["regular", "10y"]["nforecasts"], rows["regular", "10y"]["nvalid"]) == (
+    assert (
+        rows["mid-range", "10y"]["nforecasts"],
+        rows["mid-range", "10y"]["nvalid"],
+    ) == (
         2,
         1,
     )
@@ -143,8 +152,8 @@ def test_write_scores_csv_columns_and_nan(tmp_path):
             "brier", "expected_brier", "excess_brier",
         ]  # fmt: skip
         back = {(r["question_type"], r["horizon"]): r for r in reader}
-    assert back["regular", "10y"]["brier"] == "nan"
-    assert float(back["tail", "5y"]["excess_brier"]) == pytest.approx(0.1**2)
+    assert back["mid-range", "10y"]["brier"] == "nan"
+    assert float(back["tail", "5y"]["excess_brier"]) == pytest.approx(0.19**2)
 
 
 def test_results_csv_one_row_per_model_and_question(tmp_path):

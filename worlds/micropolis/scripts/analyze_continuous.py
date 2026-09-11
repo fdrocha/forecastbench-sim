@@ -1245,7 +1245,7 @@ def plot_eci_vs_normalized(
     direction = "pro-g" if rho < 0 else "anti-g"
     report.heading(f"ECI vs mean normalized CRPS (Spearman) — {READ_OFF_NOTE}")
     lines = [
-        f"rho={rho:+.3f}  p={p_rho:.4f} {stars(p_rho):<4} ({direction}, n={len(points)})",
+        f"ρ={rho:+.3f}  p={p_rho:.4f} {stars(p_rho):<4} ({direction}, n={len(points)})",
         f"Pearson r={r:+.3f}  p={p_r:.4f} {stars(p_r)}",
         (
             "nCRPS is lower-is-better, so rho<0 means the more capable "
@@ -1526,7 +1526,7 @@ def format_horizon_correlations(results: list[tuple], indent: str = "  ") -> str
         ci = row[4] if len(row) > 4 else None
         band = f"  95% CI [{ci[0]:+.2f}, {ci[1]:+.2f}]" if ci else ""
         lines.append(
-            f"{indent}H{h:<4} rho={rho:+.3f}  p={p:.4f} {stars_for(p):<4} (n={n}){band}"
+            f"{indent}H{h:<4} ρ={rho:+.3f}  p={p:.4f} {stars_for(p):<4} (n={n}){band}"
         )
     return "\n".join(lines)
 
@@ -1569,7 +1569,7 @@ def read_off_caveat(
     return (
         f"{horizon_label(READ_OFF_HORIZON)} is a read-off, not a forecast:"
         f" {median:.0%} of its forecasts put the median on the "
-        f"actual and {exact:.0%} collapse the whole interval onto it, so its rho"
+        f"actual and {exact:.0%} collapse the whole interval onto it, so its ρ"
         " is mostly about "
         "how confidently a known value is restated; treat it apart."
     )
@@ -1724,7 +1724,7 @@ def format_predictor_comparison(
         return ""
     base_label, _color, base = restricted[0]
     lines = [
-        f"Correlation strength vs {base_label}: |rho_{base_label}| - |rho_other|,",
+        f"Correlation strength vs {base_label}: |ρ_{base_label}| - |ρ_other|,",
         f"paired bootstrap over models (positive favors {base_label})",
     ]
     for label, _color, predictor in restricted[1:]:

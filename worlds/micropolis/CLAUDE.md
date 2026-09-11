@@ -201,10 +201,19 @@ Binary forecasting eval (P(Yes), `data/micropolis/binary/`, spec in `binary_fore
   (19 eligible cities, snapshots 960/1440, horizons +240/+480, disasters on).
   `--dry-run` builds the corpus and prints per-question Yes counts, for eyeballing resolution
   against the spec's P(Yes) ranges.
-- `analyze_binary.py` — Brier and excess-Brier figures per section (A mid-range, B tail) to
-  `analysis-brier.md`, plus `binary_scores.csv`: one row per model × question type
-  (`regular` = A, `tail` = B) × horizon in years and an `all` horizon row, with `nforecasts`
-  (prompted), `nvalid` (parsed) and the mean `brier`, `expected_brier`
+- `analyze_binary.py` — Brier and excess-Brier figures per section to `analysis-brier.md`.
+  The sections split each question *instance* on its ground-truth P(Yes): `mid-range`
+  (p ≥ 5%) and `tail` (p < 5%, `TAIL_THRESHOLD`), so a qid can land in either depending on
+  the city. Each section opens with a 4:1 histogram of questions per p (log-binned for tail,
+  with a hatched bar for p = 0), then the per-model bars and by-horizon figure, a
+  fixed-width table of Spearman ρ and Pearson r between the per-model mean scores and each
+  capability predictor (ECI, knowledge eval), pooled and per horizon, each with two 95%
+  percentile-bootstrap intervals — over models (the continuous report's convention,
+  `resample_indices`/`BOOTSTRAP_SEED`) and over questions with the models fixed — then the
+  ECI scatter, predictor comparison and calibration grid. Write "ρ", never "rho", in report
+  text. Plus `binary_scores.csv`: one row per model × question type (`mid-range`/`tail`, the
+  same rule) × horizon in years and an `all` horizon row, with `nforecasts` (prompted),
+  `nvalid` (parsed) and the mean `brier`, `expected_brier`
   ((f - p)^2 + p(1 - p) over the continuations' p) and `excess_brier` ((f - p)^2). The two
   question types are never pooled. Pooled rows average datapoints, not per-horizon means.
   Also `results.csv`: one row per model × question with `seed`, `city`, `disasters` (1/0),
