@@ -1,0 +1,12 @@
+[
+  "meta-llama/llama-4-scout",
+  "deepseek/deepseek-chat",
+  "openai/gpt-4.1",
+//  "qwen/qwen3-235b-a22b:loeff",
+  "openai/gpt-5-mini:loeff",
+  "google/gemini-3-flash-preview:loeff",
+//  "deepseek/deepseek-v4-flash-0731:loeff",
+  "anthropic/claude-haiku-4.5:loeff",
+  "google/gemini-3.7-flash:loeff",
+  "anthropic/claude-fable-5:loeff",
+]

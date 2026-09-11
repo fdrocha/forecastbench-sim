@@ -32,7 +32,7 @@ from .usage import LLMResponse, usage_from_response
 # cannot express — its caps summed to their total, and exhausting that budget
 # fails a call with an HTTP 402 the retry loop does not catch. A config's
 # "concurrency" key overrides this.
-DEFAULT_CONCURRENCY = 8
+DEFAULT_CONCURRENCY = 16
 
 # Retries after the first attempt. prompt_model_async owns the retry loop:
 # litellm's own retry paths (its tenacity wrapper and the provider SDK's

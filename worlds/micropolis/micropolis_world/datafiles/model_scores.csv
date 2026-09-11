@@ -1,6 +1,8 @@
 ECI,Name,slug,FBName,FBOverall,FBOverallCILo,FBOverallCIHi
 130.52,Meta: Llama 4 Scout,meta-llama/llama-4-scout,llama-4-scout-17b-16e-instruct,56.6,56.0,57.2
+130.65,OpenAI: GPT 4.1 Nano,openai/gpt-4.1-nano,,,,
 133.03,DeepSeek: DeepSeek V3,deepseek/deepseek-chat,deepseek-v3,57.6,57.0,58.2
+135.61,OpenAI: GPT 4.1. Mini,openai/gpt-4.1-mini,,,,
 137.52,OpenAI: GPT-4.1,openai/gpt-4.1,gpt-4.1-2025-04-14,58.5,57.9,59.1
 139.61,Qwen: Qwen3 235B A22B,qwen/qwen3-235b-a22b,qwen3-235b-a22b-fp8-tput,58.6,57.8,59.4
 140.31,Google: Gemini 2.5 Flash,google/gemini-2.5-flash,gemini-2.5-flash,58.2,57.3,59.0
@@ -23,5 +25,3 @@ ECI,Name,slug,FBName,FBOverall,FBOverallCILo,FBOverallCIHi
 161.08,OpenAI: GPT-5.6 Sol,openai/gpt-5.6-sol,,,,
 161.54,Claude Opus 5,anthropic/claude-opus-5,,,,
 162.49,Anthropic: Claude Fable,anthropic/claude-fable-5,,,,
-130.65,OpenAI: GPT 4.1 Nano,openai/gpt-4.1-nano,,,,
-135.61,OpenAI: GPT 4.1. Mini,openai/gpt-4.1-mini,,,,
