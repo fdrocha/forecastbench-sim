@@ -16,6 +16,7 @@ from micropolis_world.usage_report import (
     format_table,
     grand_total,
     merge,
+    percentile,
     provider_of,
     providers_by_model,
 )
@@ -103,6 +104,75 @@ def test_grand_total_of_nothing_is_zero():
     total = grand_total({})
     assert total.calls == 0
     assert total.cost_usd == 0.0
+
+
+# --- latency ----------------------------------------------------------------
+
+
+def test_percentile_of_one_call_is_that_call():
+    """statistics.quantiles needs two points; a per-model bucket can have one."""
+    assert percentile([4.0], 0.5) == 4.0
+    assert percentile([4.0], 0.9) == 4.0
+
+
+def test_percentile_interpolates_between_neighbours():
+    assert percentile([0.0, 10.0], 0.5) == 5.0
+    assert percentile([0.0, 100.0, 200.0], 0.9) == 180.0
+
+
+def test_percentile_of_nothing_is_none():
+    assert percentile([], 0.5) is None
+
+
+def test_totals_collect_every_measured_latency():
+    t = Totals()
+    t.add(usage(latency_ms=1000.0))
+    t.add(usage(latency_ms=3000.0))
+
+    assert t.latency_percentile(0.5) == 2000.0
+
+
+def test_untimed_calls_are_left_out_rather_than_counted_as_zero():
+    """Sidecars predating the field record None; a 0 would drag the median down."""
+    t = Totals()
+    t.add(usage(latency_ms=None))
+    t.add(usage(latency_ms=4000.0))
+
+    assert t.latencies == [4000.0]
+    assert t.latency_percentile(0.5) == 4000.0
+
+
+def test_a_bucket_with_no_timed_call_has_no_percentile():
+    t = Totals()
+    t.add(usage(latency_ms=None))
+    assert t.latency_percentile(0.5) is None
+
+
+def test_grand_total_pools_the_calls_not_the_percentiles():
+    """The total's p50 is over every call, not an average of the buckets'."""
+    buckets = by_provider(
+        [
+            usage("a/x", latency_ms=1000.0),
+            usage("a/x", latency_ms=1000.0),
+            usage("a/x", latency_ms=1000.0),
+            usage("b/y", latency_ms=9000.0),
+        ]
+    )
+    assert grand_total(buckets).latency_percentile(0.5) == 1000.0
+
+
+def test_table_shows_the_latency_percentiles_in_seconds():
+    buckets = by_provider([usage("a/x", latency_ms=1500.0)])
+    lines = format_table(buckets, "provider").splitlines()
+
+    assert lines[0].endswith("p50 s  p90 s")
+    assert lines[2].split()[-2:] == ["1.5", "1.5"]
+
+
+def test_table_dashes_a_bucket_that_was_never_timed():
+    buckets = by_provider([usage("a/x", latency_ms=None)])
+    lines = format_table(buckets, "provider").splitlines()
+    assert lines[2].split()[-2:] == ["-", "-"]
 
 
 # --- table ------------------------------------------------------------------

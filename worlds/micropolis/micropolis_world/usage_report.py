@@ -3,14 +3,15 @@
 Every kept model response has a usage-{model}-{hash}.json beside it recording
 what that call cost (see continuous_eval.usage_path and knowledge_eval.runner's
 equivalent). This module sums those records into per-provider and per-model
-tables, and flags any model that more than one upstream provider served. It
-reads only what is already on disk, so it costs nothing and works offline.
+tables — tokens, cost, and the p50/p90 of the calls' latencies — and flags any
+model that more than one upstream provider served. It reads only what is
+already on disk, so it costs nothing and works offline.
 
 Backs scripts/analyze_usage.py.
 """
 
 import glob
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import module_globals as g
@@ -26,6 +27,14 @@ TOKEN_COLUMNS = [
     ("cache_write_tokens", "cache wr"),
 ]
 
+# The latency columns, as (heading, quantile). Reported as percentiles of the
+# individual call times rather than a mean, since the tail is what determines
+# how long a run takes.
+LATENCY_COLUMNS = [
+    ("p50 s", 0.5),
+    ("p90 s", 0.9),
+]
+
 
 def provider_of(model_id: str) -> str:
     """The provider a model id belongs to, e.g. "anthropic/x" -> "anthropic".
@@ -37,6 +46,34 @@ def provider_of(model_id: str) -> str:
     return model_id.split("/")[0] if "/" in model_id else "(unprefixed)"
 
 
+def percentile(values: list[float], q: float) -> float | None:
+    """The q-th percentile (0-1) of `values` by linear interpolation, or None.
+
+    Written out rather than taken from statistics.quantiles, which needs at
+    least two data points and cuts a distribution into fixed intervals: a
+    bucket here can hold a single call, and p50/p90 of one call is that call.
+    """
+    if not values:
+        return None
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    pos = q * (len(ordered) - 1)
+    lo = int(pos)
+    hi = min(lo + 1, len(ordered) - 1)
+    return ordered[lo] + (ordered[hi] - ordered[lo]) * (pos - lo)
+
+
+def format_latency_cell(latency_ms: float | None) -> str:
+    """A latency percentile in seconds, or "-" when nothing in the bucket was timed.
+
+    A dash rather than 0.0, which would read as an instant call: sidecars
+    written before latency was recorded have none, and a bucket of only those
+    has no percentile to show.
+    """
+    return "-" if latency_ms is None else f"{latency_ms / 1000:,.1f}"
+
+
 @dataclass
 class Totals:
     """Running sums over a set of calls.
@@ -44,6 +81,12 @@ class Totals:
     unpriced is tracked apart from cost_usd because a call the backend has no price
     for records None, and adding it as 0.0 would understate the total with no
     way to tell. The table reports both.
+
+    latencies keeps every measured call time rather than a running sum, since
+    percentiles cannot be folded incrementally. Calls that recorded no latency
+    — sidecars written before the field existed — are left out of the list
+    entirely, so the percentiles describe the calls that were actually timed
+    rather than counting a missing measurement as zero.
     """
 
     calls: int = 0
@@ -54,6 +97,7 @@ class Totals:
     cache_write_tokens: int = 0
     cost_usd: float = 0.0
     unpriced: int = 0
+    latencies: list[float] = field(default_factory=list)
 
     def add(self, usage: CallUsage) -> None:
         """Fold one call's usage in. Unreported counts are treated as zero."""
@@ -67,6 +111,12 @@ class Totals:
             self.unpriced += 1
         else:
             self.cost_usd += usage.cost_usd
+        if usage.latency_ms is not None:
+            self.latencies.append(usage.latency_ms)
+
+    def latency_percentile(self, q: float) -> float | None:
+        """The q-th percentile of this bucket's call latencies, in ms."""
+        return percentile(self.latencies, q)
 
 
 def aggregate(usages: list[CallUsage], key) -> dict[str, Totals]:
@@ -146,6 +196,7 @@ def grand_total(buckets: dict[str, Totals]) -> Totals:
         total.cache_write_tokens += bucket.cache_write_tokens
         total.cost_usd += bucket.cost_usd
         total.unpriced += bucket.unpriced
+        total.latencies.extend(bucket.latencies)
     return total
 
 
@@ -154,7 +205,10 @@ def format_table(buckets: dict[str, Totals], key_heading: str) -> str:
 
     Rows are sorted by cost so the spend that matters is at the top. Costs are
     shown to four decimals: a single cheap call is worth a fraction of a cent,
-    and two decimals would print most individual providers as 0.00.
+    and two decimals would print most individual providers as 0.00. The two
+    latency columns are the median and 90th percentile of the calls in the
+    bucket that recorded a time, in seconds — a spread rather than a mean,
+    since a handful of slow calls is what makes a run drag.
     """
     total = grand_total(buckets)
     rows = sorted(buckets.items(), key=lambda kv: -kv[1].cost_usd)
@@ -170,6 +224,14 @@ def format_table(buckets: dict[str, Totals], key_heading: str) -> str:
         for attr, heading in TOKEN_COLUMNS
     }
     cost_width = max(len("cost USD"), *(len(f"{t.cost_usd:,.4f}") for _, t in labelled))
+    latencies = {
+        heading: [format_latency_cell(t.latency_percentile(q)) for _, t in labelled]
+        for heading, q in LATENCY_COLUMNS
+    }
+    latency_widths = {
+        heading: max(len(heading), *(len(cell) for cell in cells))
+        for heading, cells in latencies.items()
+    }
 
     header = (
         f"{key_heading:<{key_width}}  {'calls':>{calls_width}}  "
@@ -177,6 +239,9 @@ def format_table(buckets: dict[str, Totals], key_heading: str) -> str:
             f"{heading:>{token_widths[attr]}}" for attr, heading in TOKEN_COLUMNS
         )
         + f"  {'cost USD':>{cost_width}}"
+        + "".join(
+            f"  {heading:>{latency_widths[heading]}}" for heading, _ in LATENCY_COLUMNS
+        )
     )
     lines = [header, "-" * len(header)]
     for i, (name, t) in enumerate(labelled):
@@ -189,6 +254,10 @@ def format_table(buckets: dict[str, Totals], key_heading: str) -> str:
             for attr, _ in TOKEN_COLUMNS
         ]
         row.append(f"{f'{t.cost_usd:,.4f}':>{cost_width}}")
+        row += [
+            f"{latencies[heading][i]:>{latency_widths[heading]}}"
+            for heading, _ in LATENCY_COLUMNS
+        ]
         lines.append("  ".join(row))
     return "\n".join(lines)
 
