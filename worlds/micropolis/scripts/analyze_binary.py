@@ -81,6 +81,7 @@ from analyze_continuous import (
     correlate,
     correlate_rows_by_horizon,
     draw_horizon_correlation_axes,
+    draw_score_error_bars,
     eci_by_name,
     eci_of,
     format_correlation_table,
@@ -790,11 +791,13 @@ def plot_eci_vs_score(
         model_names,
         ALL,
     )
-    # Carries each model's index in the config's order, so its color and marker
-    # here are the ones the by-horizon figure gave it.
+    # (ECI, mean score, legend name, model id). The id keys the error bars and,
+    # through the config's order, the color and marker the by-horizon figure
+    # gave the model.
+    order = {m: i for i, m in enumerate(model_names)}
     points = sorted(
-        (eci_of(m), scores[m], m.split("/")[-1], i)
-        for i, m in enumerate(model_names)
+        (eci_of(m), scores[m], m.split("/")[-1], m)
+        for m in model_names
         if m in scores and eci_of(m) is not None
     )
     skipped = sorted(
@@ -828,8 +831,8 @@ def plot_eci_vs_score(
     # One scatter call per model: the legend replaces the labels that used to
     # sit on the points, and it needs a handle per model to do that. Plotted
     # best-first so the legend doubles as a ranking.
-    for eci, value, name, i in sorted(points, key=lambda p: p[1]):
-        color, marker = model_style(i)
+    for eci, value, name, model_id in sorted(points, key=lambda p: p[1]):
+        color, marker = model_style(order[model_id])
         ax.scatter(
             [eci],
             [value],
@@ -843,6 +846,8 @@ def plot_eci_vs_score(
             label=name,
         )
 
+    bars = draw_score_error_bars(ax, c, points)
+
     fit = stats.linregress(ecis, values)
     xs = [min(ecis), max(ecis)]
     ax.plot(
@@ -850,7 +855,7 @@ def plot_eci_vs_score(
         [fit.intercept + fit.slope * x for x in xs],
         color="#c2432d",
         lw=1.5,
-        zorder=2,
+        zorder=4,
         label=(f"fit: ρ={rho:+.3f} (p={p_rho:.4f}), r={r:+.3f} (p={p_r:.4f})"),
     )
 
@@ -859,6 +864,7 @@ def plot_eci_vs_score(
     ax.set_title(
         f"Forecast skill vs. ECI — {section}, {score.name}"
         f"  ({len(points)} models, {len(corpus)} questions)"
+        + ("\nbars are 95% CIs over questions" if bars else "")
     )
     ax.grid(alpha=0.3, zorder=0)
     ax.margins(x=0.12, y=0.1)
@@ -868,10 +874,13 @@ def plot_eci_vs_score(
     # explains. The fit line goes on top, since it is the figure's summary and
     # not one more model.
     handles, labels = ax.get_legend_handles_labels()
-    order = sorted(range(len(labels)), key=lambda j: not labels[j].startswith("fit:"))
+    lead = sorted(
+        range(len(labels)),
+        key=lambda j: not (labels[j].startswith("fit:") or labels[j].startswith("95%")),
+    )
     ax.legend(
-        [handles[j] for j in order],
-        [labels[j] for j in order],
+        [handles[j] for j in lead],
+        [labels[j] for j in lead],
         loc="center left",
         bbox_to_anchor=(1.01, 0.5),
         fontsize=8,

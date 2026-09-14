@@ -5,6 +5,7 @@ bootstrap intervals, and the per-horizon rows carrying both.
 Nothing here calls a model or reads the data directory.
 """
 
+import dataclasses
 import importlib.util
 import sys
 from pathlib import Path
@@ -165,3 +166,48 @@ def test_rows_by_horizon_matches_the_means_based_rows_and_adds_both_bands():
     text = ac.format_horizon_correlations(new)
     assert text.count("models [") == 3 and text.count("questions [") == 3
     assert "rho" not in text
+
+
+def test_per_model_intervals_bracket_the_means_the_scatter_draws():
+    """The scatter's error bars must come from the same resampled means as the
+    coefficient's questions interval, and cover every model it kept."""
+    ab = load("analyze_binary")
+    rng = np.random.default_rng(11)
+    matrix = np.array(
+        [[0.5 - 0.05 * j + rng.normal(0, 0.1) for j in range(6)] for _ in range(40)]
+    )
+    c = ab.correlate(
+        "ECI", PREDICTOR, rows_for(matrix), "brier", MODELS, ab.ALL, resamples=400
+    )
+    assert set(c.scores) == set(MODELS) == set(c.score_questions)
+    for model_id, mean in c.scores.items():
+        assert mean == pytest.approx(matrix[:, MODELS.index(model_id)].mean())
+        lo, hi = c.score_questions[model_id]
+        assert lo < mean < hi
+
+
+def test_error_bars_are_drawn_once_for_the_models_that_have_one():
+    """One gray errorbar call for every point with an interval, and no bars at
+    all when none of the models carry one."""
+    ac = load("analyze_continuous")
+    matrix = np.tile(np.array([0.6, 0.5, 0.4, 0.3, 0.2, 0.1]), (20, 1))
+    c = ac.correlate(
+        "ECI", PREDICTOR, rows_for(matrix), "brier", MODELS, ac.ALL, resamples=200
+    )
+    points = [(PREDICTOR[m], c.scores[m], m.split("/")[-1], m) for m in MODELS]
+
+    calls = []
+
+    class FakeAxes:
+        def errorbar(self, x, y, **kwargs):
+            calls.append((list(x), list(y), kwargs))
+
+    assert ac.draw_score_error_bars(FakeAxes(), c, points) is True
+    (xs, ys, kwargs) = calls[0]
+    assert len(calls) == 1 and len(xs) == len(ys) == 6
+    assert kwargs["label"].startswith("95%")
+    # Every bar is non-negative in both directions, or matplotlib would raise.
+    assert all(v >= 0 for direction in kwargs["yerr"] for v in direction)
+
+    stripped = dataclasses.replace(c, score_questions={})
+    assert ac.draw_score_error_bars(FakeAxes(), stripped, points) is False

@@ -1232,9 +1232,13 @@ def plot_eci_vs_normalized(
     # Carries each model's index in the config's order, so its color and marker
     # here are the ones the horizon figure gave it and the two can be read
     # together.
+    # (ECI, mean nCRPS, legend name, model id). The id is what the error bars
+    # and model_style are keyed on; the index the style needs is recovered from
+    # the config's order rather than carried, so the tuple stays the scatter's.
+    order = {m: i for i, m in enumerate(model_names)}
     points = sorted(
-        (eci_of(m), scores[m], m.split("/")[-1], i)
-        for i, m in enumerate(model_names)
+        (eci_of(m), scores[m], m.split("/")[-1], m)
+        for m in model_names
         if m in scores and eci_of(m) is not None
     )
     skipped = sorted(
@@ -1289,8 +1293,8 @@ def plot_eci_vs_normalized(
     # replaces the labels that used to sit on the points, and it needs a handle
     # per model to do that. Plotted best-first so the legend doubles as a
     # ranking, the same order the horizon figure's legend uses.
-    for eci, value, name, i in sorted(points, key=lambda p: p[1]):
-        color, marker = model_style(i)
+    for eci, value, name, model_id in sorted(points, key=lambda p: p[1]):
+        color, marker = model_style(order[model_id])
         ax.scatter(
             [eci],
             [value],
@@ -1304,6 +1308,8 @@ def plot_eci_vs_normalized(
             label=name,
         )
 
+    bars = draw_score_error_bars(ax, c, points)
+
     fit = stats.linregress(ecis, values)
     xs = [min(ecis), max(ecis)]
     ax.plot(
@@ -1311,7 +1317,7 @@ def plot_eci_vs_normalized(
         [fit.intercept + fit.slope * x for x in xs],
         color="#c2432d",
         lw=1.5,
-        zorder=2,
+        zorder=4,
         label=(f"fit: ρ={rho:+.3f} (p={p_rho:.4f}), r={r:+.3f} (p={p_r:.4f})"),
     )
 
@@ -1320,6 +1326,7 @@ def plot_eci_vs_normalized(
     ax.set_title(
         f"Forecast skill vs. ECI  ({len(points)} models,"
         f" {len(forecasts)} questions)\n{READ_OFF_NOTE}"
+        + ("; bars are 95% CIs over questions" if bars else "")
     )
     ax.grid(alpha=0.3, zorder=0)
     ax.margins(x=0.12, y=0.1)
@@ -1329,10 +1336,13 @@ def plot_eci_vs_normalized(
     # The fit line goes on top, since it is the figure's summary and not one
     # more model.
     handles, labels = ax.get_legend_handles_labels()
-    order = sorted(range(len(labels)), key=lambda j: not labels[j].startswith("fit:"))
+    lead = sorted(
+        range(len(labels)),
+        key=lambda j: not (labels[j].startswith("fit:") or labels[j].startswith("95%")),
+    )
     ax.legend(
-        [handles[j] for j in order],
-        [labels[j] for j in order],
+        [handles[j] for j in lead],
+        [labels[j] for j in lead],
         loc="center left",
         bbox_to_anchor=(1.01, 0.5),
         fontsize=8,
@@ -1471,6 +1481,10 @@ class Correlation:
     models fixed, moving every model's forecast on a question together, and so
     says how stable the coefficient is to which questions were asked. Either
     is None when too few resamples had a defined coefficient.
+
+    `scores` and `score_questions` are the scatter's own data: each model's
+    mean score, and that mean's interval under the same question resampling.
+    Keyed by model id, and covering only the models the correlation kept.
     """
 
     predictor: str
@@ -1485,6 +1499,8 @@ class Correlation:
     r_p: float
     r_models: tuple[float, float] | None
     r_questions: tuple[float, float] | None
+    scores: dict[str, float]
+    score_questions: dict[str, tuple[float, float]]
 
 
 def by_model_id(
@@ -1594,6 +1610,16 @@ def correlate(
         means = (weights @ np.where(present, scores, 0.0)) / (weights @ present)
     rho_q, r_q = _correlations_by_row(np.broadcast_to(x, means.shape), means)
 
+    # The columns of `means` are each model's mean over the resampled question
+    # sets — the scatter's y value, redrawn — so the per-model interval the
+    # figures put error bars on is already computed here rather than by a
+    # second bootstrap that could disagree with the coefficient's.
+    score_questions = {}
+    for j, model_id in enumerate(models):
+        interval = _percentile_interval(means[:, j], resamples)
+        if interval is not None:
+            score_questions[model_id] = interval
+
     return Correlation(
         predictor=predictor_name,
         horizon=horizon_name,
@@ -1607,6 +1633,8 @@ def correlate(
         r_p=float(r_p),
         r_models=_percentile_interval(r_m, resamples),
         r_questions=_percentile_interval(r_q, resamples),
+        scores={m: float(v) for m, v in zip(models, y)},
+        score_questions=score_questions,
     )
 
 
@@ -1685,6 +1713,47 @@ def format_scatter_correlations(c: Correlation) -> list[str]:
             f"  questions {format_band(c.r_questions, 0)}"
         ),
     ]
+
+
+def draw_score_error_bars(ax, c: Correlation, points: list[tuple]) -> bool:
+    """Bracket each scatter point with its question-bootstrap interval.
+
+    `points` are the (predictor, score, name, index) tuples the ECI scatters
+    build, and the bars come from `c.score_questions`, so they are the same
+    resampled means behind the coefficient's questions interval — the bar says
+    how far a model's own mean could move had other questions been asked. The
+    bars are drawn under the markers in one gray call rather than per model: at
+    two dozen models, coloring each to its series turns the axes into a thicket,
+    and the marker already carries the model's identity. Returns whether any
+    bar was drawn, so the caller can label them only when there are some.
+
+    The bars are not a significance test between two models: every model is
+    scored on the same questions, so their intervals move together and can
+    overlap heavily while the ranking is stable. That is what the coefficient's
+    own questions interval is for.
+    """
+    drawn = [
+        (x, value, c.score_questions[model_id])
+        for x, value, _name, model_id in points
+        if model_id in c.score_questions
+    ]
+    if not drawn:
+        return False
+    ax.errorbar(
+        [x for x, _, _ in drawn],
+        [v for _, v, _ in drawn],
+        yerr=[
+            [v - lo for _, v, (lo, _) in drawn],
+            [hi - v for _, v, (_, hi) in drawn],
+        ],
+        fmt="none",
+        ecolor="#999999",
+        elinewidth=1.0,
+        capsize=3,
+        zorder=2,
+        label="95% CI (bootstrap over questions)",
+    )
+    return True
 
 
 def report_correlations(
