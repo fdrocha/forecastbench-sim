@@ -1,5 +1,6 @@
-"""Tests for analyze_binary.py's correlation table: sections by ground truth,
-and the two bootstrap intervals.
+"""Tests for the correlation table analyze_binary.py builds on
+analyze_continuous.py's machinery: sections by ground truth, the two
+bootstrap intervals, and the per-horizon rows carrying both.
 
 Nothing here calls a model or reads the data directory.
 """
@@ -67,7 +68,7 @@ def test_model_bootstrap_matches_the_continuous_reports_interval():
     )
     score = ab.SCORES[1]
     c = ab.correlate(
-        "ECI", PREDICTOR, rows_for(matrix), score, MODELS, ab.ALL, resamples=500
+        "ECI", PREDICTOR, rows_for(matrix), score.key, MODELS, ab.ALL, resamples=500
     )
     xs = [PREDICTOR[m] for m in MODELS]
     ys = list(matrix.mean(axis=0))
@@ -83,7 +84,13 @@ def test_question_bootstrap_collapses_when_questions_agree():
     ab = load("analyze_binary")
     matrix = np.tile(np.array([0.6, 0.5, 0.4, 0.3, 0.2, 0.1]), (20, 1))
     c = ab.correlate(
-        "ECI", PREDICTOR, rows_for(matrix), ab.SCORES[1], MODELS, ab.ALL, resamples=300
+        "ECI",
+        PREDICTOR,
+        rows_for(matrix),
+        ab.SCORES[1].key,
+        MODELS,
+        ab.ALL,
+        resamples=300,
     )
     assert c.rho == pytest.approx(-1.0)
     assert c.rho_questions == (pytest.approx(-1.0), pytest.approx(-1.0))
@@ -94,7 +101,13 @@ def test_unparsed_forecasts_cost_a_model_a_question_not_everyone():
     matrix = np.tile(np.array([0.6, 0.5, 0.4, 0.3, 0.2, 0.1]), (10, 1))
     matrix[0, 0] = np.nan  # model 0 did not parse question 0
     c = ab.correlate(
-        "ECI", PREDICTOR, rows_for(matrix), ab.SCORES[1], MODELS, ab.ALL, resamples=100
+        "ECI",
+        PREDICTOR,
+        rows_for(matrix),
+        ab.SCORES[1].key,
+        MODELS,
+        ab.ALL,
+        resamples=100,
     )
     assert c.n_questions == 10 and c.n_models == 6
 
@@ -104,7 +117,9 @@ def test_too_few_models_gives_none():
     matrix = np.tile(np.array([0.6, 0.5, 0.4]), (10, 1))
     predictor = {m: PREDICTOR[m] for m in MODELS[:3]}
     assert (
-        ab.correlate("ECI", predictor, rows_for(matrix), ab.SCORES[1], MODELS, ab.ALL)
+        ab.correlate(
+            "ECI", predictor, rows_for(matrix), ab.SCORES[1].key, MODELS, ab.ALL
+        )
         is None
     )
 
@@ -114,7 +129,7 @@ def test_table_uses_the_rho_symbol_and_one_row_per_correlation():
     matrix = np.tile(np.array([0.6, 0.5, 0.4, 0.3, 0.2, 0.1]), (12, 1))
     rows = rows_for(matrix, horizons=(240, 480))
     correlations = [
-        ab.correlate("ECI", PREDICTOR, rows, ab.SCORES[1], MODELS, h, resamples=50)
+        ab.correlate("ECI", PREDICTOR, rows, ab.SCORES[1].key, MODELS, h, resamples=50)
         for h in (ab.ALL, "5y", "10y")
     ]
     table = ab.format_correlation_table(correlations)
@@ -122,3 +137,31 @@ def test_table_uses_the_rho_symbol_and_one_row_per_correlation():
     assert len(lines) == 4
     assert "ρ" in lines[0] and "rho" not in table
     assert lines[1].split()[:2] == ["ECI", ab.ALL]
+
+
+def test_rows_by_horizon_matches_the_means_based_rows_and_adds_both_bands():
+    ac = load("analyze_continuous")
+    rng = np.random.default_rng(5)
+    matrix = np.array(
+        [[0.5 - 0.05 * j + rng.normal(0, 0.1) for j in range(6)] for _ in range(30)]
+    )
+    rows = rows_for(matrix, horizons=(48, 240, 480))
+    by_horizon = {}
+    for r in rows:
+        by_horizon.setdefault(r["horizon"], {}).setdefault(r["model_id"], []).append(
+            r["brier"]
+        )
+    by_horizon = {
+        h: {m: sum(v) / len(v) for m, v in ms.items()} for h, ms in by_horizon.items()
+    }
+    bare = {m.split("/", 1)[1]: v for m, v in PREDICTOR.items()}
+    old = ac.correlate_by_horizon(bare, by_horizon, with_ci=True)
+    new = ac.correlate_rows_by_horizon(PREDICTOR, rows, "brier", MODELS)
+    assert [row[:4] for row in new] == pytest.approx([row[:4] for row in old])
+    assert [row[4] for row in new] == [row[4] for row in old]
+    for h, rho, _p, _n, ci_models, ci_questions in new:
+        assert ci_models[0] <= rho <= ci_models[1]
+        assert ci_questions[0] <= rho <= ci_questions[1]
+    text = ac.format_horizon_correlations(new)
+    assert text.count("models [") == 3 and text.count("questions [") == 3
+    assert "rho" not in text

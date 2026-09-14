@@ -15,9 +15,9 @@ mid-range in one city and tail in another. Each section has the same
 structure: a histogram of its questions per ground-truth p, the two scores
 paired within each view (a per-model bar panel, a by-horizon figure), a table
 of correlations between the per-model scores and the capability predictors
-(ECI, knowledge eval) with bootstrap intervals over models and over
-questions, the ECI scatter and predictor comparison, and finally a grid of
-per-model calibration scatters. The tail section draws its histogram and its
+(ECI, knowledge eval), the ECI scatter and predictor comparison — every
+correlation with two 95% bootstrap intervals, over models and over questions
+— and finally a grid of per-model calibration scatters. The tail section draws its histogram and its
 scatter axes on a log scale, since its probabilities span two decades.
 Everything goes to one Markdown report,
 data/micropolis/binary/{label}/analysis-brier.md; --no-plot skips the figures.
@@ -67,27 +67,30 @@ from micropolis_world.continuous_eval import (
 )
 from micropolis_world.ground_truth import Truth, load_truths
 
-# Imported rather than reimplemented so the table formatting, the correlation
-# machinery and the CI conventions are provably the same ones the continuous
-# report uses.
+# Imported rather than reimplemented so the correlation machinery, its two
+# bootstrap intervals and the table formatting are provably the ones the
+# continuous report uses.
 sys.path.insert(0, str(Path(__file__).parent))
 from analyze_continuous import (
-    BOOTSTRAP_RESAMPLES,
-    BOOTSTRAP_SEED,
+    ALL,
+    BOOTSTRAP_NOTE,
+    Correlation,
     _mean,
     band_handles,
-    correlate_by_horizon,
+    by_model_id,
+    correlate,
+    correlate_rows_by_horizon,
     draw_horizon_correlation_axes,
     eci_by_name,
     eci_of,
+    format_correlation_table,
     format_horizon_correlations,
     format_predictor_comparison,
+    format_scatter_correlations,
     format_tie_warnings,
     knowledge_predictor,
     model_style,
-    resample_indices,
     significance_handles,
-    stars_for,
 )
 
 DEFAULT_BINARY_CONFIG_PATH = CONFIG_DIR / "binary.json5"
@@ -231,9 +234,6 @@ SCORES_CSV_COLUMNS = [
     "expected_brier",
     "excess_brier",
 ]
-
-# The pooled row's label in the horizon column.
-ALL = "all"
 
 
 def scores_csv_rows(
@@ -452,167 +452,16 @@ def plot_truth_histogram(
 
 
 # ---------------------------------------------------------------------------
-# Correlations with capability, with intervals from two resampling units
-
-# A correlation over fewer models than this is not reported, matching
-# correlate_by_horizon's default.
-MIN_MODELS = 4
-
-
-@dataclass(frozen=True)
-class Correlation:
-    """One predictor against the per-model mean score of one question slice.
-
-    Each coefficient carries two 95% percentile-bootstrap intervals. `models`
-    resamples the models — the unit that would have to generalize, and the
-    convention the continuous report uses — and so says how far the
-    coefficient could move with a different model set. `questions` resamples
-    the questions with the models fixed, moving every model's forecast on a
-    question together, and so says how stable the coefficient is to which
-    questions were asked. Either is None when too few resamples had a defined
-    coefficient.
-    """
-
-    predictor: str
-    horizon: str  # a years label, or ALL for the pooled slice
-    n_models: int
-    n_questions: int
-    rho: float
-    rho_p: float
-    rho_models: tuple[float, float] | None
-    rho_questions: tuple[float, float] | None
-    r: float
-    r_p: float
-    r_models: tuple[float, float] | None
-    r_questions: tuple[float, float] | None
-
-
-def _correlations_by_row(x, y):
-    """Spearman and Pearson of each row of `x` against the same row of `y`.
-
-    Both (resamples, models) arrays. nan where a row has no spread — a
-    resample that drew one model several times over, or a constant score.
-    """
-    import numpy as np
-    from scipy import stats
-
-    def pearson(a, b):
-        ac = a - a.mean(axis=1, keepdims=True)
-        bc = b - b.mean(axis=1, keepdims=True)
-        denominator = np.sqrt((ac**2).sum(axis=1) * (bc**2).sum(axis=1))
-        with np.errstate(invalid="ignore", divide="ignore"):
-            return np.where(
-                denominator > 0, (ac * bc).sum(axis=1) / denominator, np.nan
-            )
-
-    return (
-        pearson(stats.rankdata(x, axis=1), stats.rankdata(y, axis=1)),
-        pearson(x, y),
-    )
-
-
-def _percentile_interval(values, resamples: int) -> tuple[float, float] | None:
-    """The 2.5–97.5 percentile band, or None when most resamples were undefined."""
-    import numpy as np
-
-    values = values[~np.isnan(values)]
-    if len(values) < resamples // 2:
-        return None
-    lo, hi = np.percentile(values, [2.5, 97.5])
-    return float(lo), float(hi)
-
-
-def correlate(
-    predictor_name: str,
-    predictor: dict[str, float],
-    rows: list[dict],
-    score: Score,
-    model_names: list[str],
-    horizon_name: str,
-    resamples: int = BOOTSTRAP_RESAMPLES,
-    seed: int = BOOTSTRAP_SEED,
-) -> Correlation | None:
-    """Correlate `predictor` (keyed by model id) with the mean score per model.
-
-    The point estimates and p-values are scipy's on the per-model means over
-    every parsed forecast in `rows`. The model bootstrap resamples those means
-    with analyze_continuous's draws, so its Spearman interval is the one
-    bootstrap_rho_ci would give. The question bootstrap redraws the question
-    set and recomputes each model's mean over its parsed forecasts among the
-    drawn questions, so an unparsed forecast costs a model a question rather
-    than costing every model that question. Returns None when fewer than
-    MIN_MODELS models carry both a predictor value and a forecast, or when a
-    variable has no spread.
-    """
-    import numpy as np
-    from scipy import stats
-
-    questions = sorted({r["question_id"] for r in rows})
-    models = [m for m in model_names if m in predictor]
-    qpos = {q: i for i, q in enumerate(questions)}
-    mpos = {m: j for j, m in enumerate(models)}
-    scores = np.full((len(questions), len(models)), np.nan)
-    for r in rows:
-        if r["model_id"] in mpos:
-            scores[qpos[r["question_id"]], mpos[r["model_id"]]] = r[score.key]
-    present = ~np.isnan(scores)
-    keep = present.any(axis=0)
-    models = [m for m, k in zip(models, keep) if k]
-    scores, present = scores[:, keep], present[:, keep]
-    if len(models) < MIN_MODELS:
-        return None
-    x = np.array([predictor[m] for m in models])
-    y = np.nanmean(scores, axis=0)
-    if len(set(x)) < 2 or len(set(y)) < 2:
-        return None
-    rho, rho_p = stats.spearmanr(x, y)
-    r, r_p = stats.pearsonr(x, y)
-
-    idx = resample_indices(len(models), resamples, seed)
-    rho_m, r_m = _correlations_by_row(x[idx], y[idx])
-
-    # Each resample as a count per question, so the resampled means are one
-    # matrix product rather than a (resamples x questions x models) array.
-    nq = len(questions)
-    draws = np.random.default_rng(seed).integers(0, nq, (resamples, nq))
-    weights = np.zeros((resamples, nq))
-    for i, draw in enumerate(draws):
-        weights[i] = np.bincount(draw, minlength=nq)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        means = (weights @ np.where(present, scores, 0.0)) / (weights @ present)
-    rho_q, r_q = _correlations_by_row(np.broadcast_to(x, means.shape), means)
-
-    return Correlation(
-        predictor=predictor_name,
-        horizon=horizon_name,
-        n_models=len(models),
-        n_questions=nq,
-        rho=float(rho),
-        rho_p=float(rho_p),
-        rho_models=_percentile_interval(rho_m, resamples),
-        rho_questions=_percentile_interval(rho_q, resamples),
-        r=float(r),
-        r_p=float(r_p),
-        r_models=_percentile_interval(r_m, resamples),
-        r_questions=_percentile_interval(r_q, resamples),
-    )
+# Correlations with capability
 
 
 def capability_predictors(model_names: list[str]) -> list[tuple[str, dict[str, float]]]:
-    """(name, predictor keyed by model id) for ECI and, when cached, the knowledge eval.
-
-    Both analyze_continuous helpers key on the bare model name; this rekeys
-    them on the ids the rows carry.
-    """
-    bare = {m: m.split("/", 1)[1] for m in model_names}
+    """(name, predictor keyed by model id) for ECI and, when cached, the knowledge eval."""
     predictors = [("ECI", eci_by_name(model_names))]
     knowledge = knowledge_predictor(model_names)
     if knowledge is not None:
         predictors.append(("Knowledge", knowledge))
-    return [
-        (name, {m: p[bare[m]] for m in model_names if bare[m] in p})
-        for name, p in predictors
-    ]
+    return [(name, by_model_id(p, model_names)) for name, p in predictors]
 
 
 def section_correlations(
@@ -626,31 +475,12 @@ def section_correlations(
     out = []
     for name, predictor in capability_predictors(model_names):
         for horizon_name, slice_rows in slices:
-            c = correlate(name, predictor, slice_rows, score, model_names, horizon_name)
+            c = correlate(
+                name, predictor, slice_rows, score.key, model_names, horizon_name
+            )
             if c is not None:
                 out.append(c)
     return out
-
-
-def format_correlation_table(correlations: list[Correlation]) -> str:
-    """Fixed-width rows of the coefficients and both intervals per coefficient."""
-
-    def band(ci):
-        return f"[{ci[0]:+.2f}, {ci[1]:+.2f}]" if ci else "—".center(14)
-
-    header = (
-        f"{'predictor':<10} {'horizon':<7} {'models':>6} {'questions':>9}  "
-        f"{'ρ':>5} {'p':>6} {'CI models':>14} {'CI questions':>14}  "
-        f"{'r':>5} {'p':>6} {'CI models':>14} {'CI questions':>14}"
-    )
-    lines = [header]
-    for c in correlations:
-        lines.append(
-            f"{c.predictor:<10} {c.horizon:<7} {c.n_models:>6} {c.n_questions:>9}  "
-            f"{c.rho:+.2f} {c.rho_p:6.3f} {band(c.rho_models):>14} {band(c.rho_questions):>14}  "
-            f"{c.r:+.2f} {c.r_p:6.3f} {band(c.r_models):>14} {band(c.r_questions):>14}"
-        )
-    return "\n".join(lines)
 
 
 def report_correlations(
@@ -661,13 +491,7 @@ def report_correlations(
     report.text(
         "Spearman ρ and Pearson r between each predictor and the mean score per"
         " model, pooled and per horizon; both scores are lower-is-better, so a"
-        " negative coefficient means the more capable models forecast better."
-        f" Each coefficient has two 95% percentile-bootstrap intervals"
-        f" ({BOOTSTRAP_RESAMPLES:,} draws): 'models' resamples the models and asks"
-        " how far the coefficient could move with a different model set;"
-        " 'questions' resamples the questions with the models fixed and asks"
-        " how stable it is to which questions were asked. Questions from one"
-        " report share a prompt, so the latter is somewhat optimistic."
+        f" negative coefficient means the more capable models forecast better. {BOOTSTRAP_NOTE}"
     )
     for score in SCORES:
         correlations = section_correlations(rows, model_names, score)
@@ -956,6 +780,16 @@ def plot_eci_vs_score(
     from scipy import stats
 
     scores = score_by_model(rows, model_names, score)
+    # The same per-model means the scatter draws, correlated once more with
+    # both bootstrap intervals.
+    c = correlate(
+        "ECI",
+        capability_predictors(model_names)[0][1],
+        rows,
+        score.key,
+        model_names,
+        ALL,
+    )
     # Carries each model's index in the config's order, so its color and marker
     # here are the ones the by-horizon figure gave it.
     points = sorted(
@@ -966,27 +800,23 @@ def plot_eci_vs_score(
     skipped = sorted(
         m.split("/")[-1] for m in model_names if m in scores and eci_of(m) is None
     )
-    if len(points) < 4:
+    if len(points) < 4 or c is None:
         report.text(
             f"ECI vs mean {score.name} ({section}): only {len(points)} model(s)"
-            " have an ECI score; skipping the plot."
+            " have an ECI score, or no spread to correlate; skipping the plot."
         )
         return None
 
     ecis = [e for e, _, _, _ in points]
     values = [v for _, v, _, _ in points]
-    rho, p_rho = stats.spearmanr(ecis, values)
-    r, p_r = stats.pearsonr(ecis, values)
+    rho, p_rho, r, p_r = c.rho, c.rho_p, c.r, c.r_p
 
-    direction = "pro-g" if rho < 0 else "anti-g"
     report.heading(f"ECI vs mean {score.name} — {section} (Spearman)")
-    lines = [
-        f"ρ={rho:+.3f}  p={p_rho:.4f} {stars_for(p_rho):<4} ({direction}, n={len(points)})",
-        f"Pearson r={r:+.3f}  p={p_r:.4f} {stars_for(p_r)}",
+    lines = format_scatter_correlations(c) + [
         (
             f"{score.name[0].upper()}{score.name[1:]} is lower-is-better, so ρ<0"
-            " means the more capable models forecast better (pro-g)."
-        ),
+            f" means the more capable models forecast better (pro-g). {BOOTSTRAP_NOTE}"
+        )
     ]
     if skipped:
         lines.append(f"no ECI score, excluded: {', '.join(skipped)}")
@@ -1099,7 +929,9 @@ def plot_predictors_correlation_by_horizon_binary(
     ]
     series = []
     for label, color, predictor in restricted:
-        results = correlate_by_horizon(predictor, by_horizon, with_ci=True)
+        results = correlate_rows_by_horizon(
+            by_model_id(predictor, model_names), rows, score.key, model_names
+        )
         if results:
             series.append((label, color, results))
 
@@ -1119,6 +951,7 @@ def plot_predictors_correlation_by_horizon_binary(
     for label, _color, results in series:
         lines.append(f"{label}")
         lines.append(format_horizon_correlations(results, indent="  "))
+    lines.append(f"{BOOTSTRAP_NOTE} The figure's band is the models interval.")
     comparison = format_predictor_comparison(restricted, by_horizon)
     if comparison:
         lines.append(comparison)
