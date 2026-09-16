@@ -62,4 +62,5 @@
   "censorCityFunds": true,
 
   "models": "models-loeff.json5",
+  "questions_per_prompt" : 50
 }
