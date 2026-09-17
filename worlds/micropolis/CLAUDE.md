@@ -201,6 +201,10 @@ its configs and `plot_forecasts.py` has its own:
   `nCRPS_{global,local,baseline}`, then `excess_CRPS` and `excess_nCRPS_{mode}` side by
   side. Pooled rows and the tables' `mean` column both average datapoints, not
   per-metric means.
+- `derive_scales.py` — prints, per metric, the FreeCiv-style normalization constant
+  (median over the config's forecast questions of the continuations' p10–p90 range,
+  rounded to one significant figure; p05–p95 beside it) next to `GLOBAL_SCALES`, for
+  deciding whether the two worlds' excess figures are on one footing. Changes nothing.
 - `analyze_baseline_skill.py` — same forecasts scored against a naive (`plain`/`sigma`)
   no-change baseline, so 1.0 is the meaningful zero point.
 - `analyze_skill_by_config.py` — that skill compared across several configs (many-config
