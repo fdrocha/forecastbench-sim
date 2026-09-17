@@ -28,11 +28,11 @@ def _question(metric: str, value: float, horizon: int = 48) -> dict:
 def test_global_scales_are_the_documented_numbers():
     """Pinned, because the whole point of the mode is that they never move."""
     assert GLOBAL_SCALES == {
-        "cityPop": 20_000.0,
-        "trafficAverage": 20.0,
-        "pollutionAverage": 60.0,
-        "crimeAverage": 60.0,
-        "landValueAverage": 60.0,
+        "cityPop": 5_000.0,
+        "trafficAverage": 5.0,
+        "pollutionAverage": 9.0,
+        "crimeAverage": 6.0,
+        "landValueAverage": 3.0,
     }
 
 
@@ -44,9 +44,9 @@ def test_every_asked_metric_has_a_scale_or_is_excluded():
 
 def test_global_scale_ignores_the_question_and_the_actual():
     norm = make_normalizer("global", [])
-    assert norm.scale(_question("cityPop", 1.0)) == 20_000.0
-    assert norm.scale(_question("cityPop", 900_000.0, horizon=480)) == 20_000.0
-    assert norm.scale(_question("trafficAverage", 0.0)) == 20.0
+    assert norm.scale(_question("cityPop", 1.0)) == 5_000.0
+    assert norm.scale(_question("cityPop", 900_000.0, horizon=480)) == 5_000.0
+    assert norm.scale(_question("trafficAverage", 0.0)) == 5.0
 
 
 def test_global_has_no_scale_for_the_excluded_metric():
@@ -91,7 +91,7 @@ def test_score_forecasts_divides_by_the_metric_scale():
 
     pop = rows["cityPop"]
     assert pop["crps"] == pytest.approx(compute_crps(_percentiles(5_100.0), 5_000.0))
-    assert pop["normalized"] == pytest.approx(pop["crps"] / 20_000.0)
+    assert pop["normalized"] == pytest.approx(pop["crps"] / 5_000.0)
     # Raw CRPS is still reported for the metric that has no scale.
     assert rows["totalFunds"]["crps"] > 0
     assert rows["totalFunds"]["normalized"] is None
@@ -150,8 +150,8 @@ def test_local_floors_a_zero_mean_at_a_share_of_the_global_scale(tmp_path, monke
     _write_ground_truth(tmp_path, monkeypatch, {48: {"trafficAverage": [0.0, 0.0]}})
     corpus = [_question("trafficAverage", 3.0)]
     norm = make_normalizer("local", corpus, global_frac=0.01)
-    # 1% of trafficAverage's global scale of 20, not a division by zero.
-    assert norm.scale(corpus[0]) == pytest.approx(0.2)
+    # 1% of trafficAverage's global scale of 5, not a division by zero.
+    assert norm.scale(corpus[0]) == pytest.approx(0.05)
     assert norm.floored.n == 1
     assert norm.floored.by_metric == {"trafficAverage": 1}
 
@@ -160,12 +160,12 @@ def test_the_floor_is_configurable(tmp_path, monkeypatch):
     """--norm-global-frac moves the floor, and so what it binds on."""
     _write_ground_truth(tmp_path, monkeypatch, {48: {"trafficAverage": [0.1, 0.1]}})
     corpus = [_question("trafficAverage", 3.0)]
-    # A mean of 0.1 clears a 0.005 floor (0.1 of a scale of 20) but not a 0.01 one.
-    loose = make_normalizer("local", corpus, global_frac=0.00025)
+    # A mean of 0.1 clears a 0.005 floor (0.1% of a scale of 5) but not a 0.25 one.
+    loose = make_normalizer("local", corpus, global_frac=0.001)
     assert loose.scale(corpus[0]) == pytest.approx(0.1)
     assert loose.floored.n == 0
     tight = make_normalizer("local", corpus, global_frac=0.05)
-    assert tight.scale(corpus[0]) == pytest.approx(1.0)
+    assert tight.scale(corpus[0]) == pytest.approx(0.25)
     assert tight.floored.n == 1
 
 
@@ -194,7 +194,7 @@ def test_baseline_floors_a_metric_that_never_moves(tmp_path, monkeypatch):
     )
     corpus = [_question("trafficAverage", 0.0)]
     norm = make_normalizer("baseline", corpus, global_frac=0.01, seed=42)
-    assert norm.scale(corpus[0]) == pytest.approx(0.2)
+    assert norm.scale(corpus[0]) == pytest.approx(0.05)
     assert norm.floored.n == 1
 
 

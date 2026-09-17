@@ -65,18 +65,25 @@ def plots_path(label: str) -> Path:
 UNNORMALIZED_METRICS = {"totalFunds"}
 
 # Denominators for the global normalization: one fixed scale per metric, the same for
-# every question. Round numbers on the order of a metric's plausible range over
-# a run rather than anything fitted to the data, so they hold still as cities,
-# snapshots and models come and go, and a normalized cell can be compared
-# across all of them. The alternative modes divide by something the question
-# itself supplies, which makes a cell easier to interpret in isolation and
-# harder to compare.
+# every question, so a normalized cell can be compared across cities, snapshots
+# and horizons. The alternative modes divide by something the question itself
+# supplies, which makes a cell easier to interpret in isolation and harder to
+# compare.
+#
+# Derived by FreeCiv's rule for its per-family constant, so the two worlds'
+# excess nCRPS figures are on one footing: per metric, the median over the
+# default continuous config's forecast questions (configs/continuous.json5,
+# 120 per metric at horizons 3-10y from snapshots at 20y and 30y) of the
+# p10-p90 range of the 1,000 reseeded continuations' outcomes, rounded to one
+# significant figure. Fixed by the ground-truth draw, before any forecast, and
+# not fitted to any model. Recompute with scripts/derive_scales.py; the
+# unrounded medians were 5,110 / 5.0 / 9.0 / 6.0 / 3.0 (September 2026).
 GLOBAL_SCALES: dict[str, float] = {
-    "cityPop": 20_000.0,
-    "trafficAverage": 20.0,
-    "pollutionAverage": 60.0,
-    "crimeAverage": 60.0,
-    "landValueAverage": 60.0,
+    "cityPop": 5_000.0,
+    "trafficAverage": 5.0,
+    "pollutionAverage": 9.0,
+    "crimeAverage": 6.0,
+    "landValueAverage": 3.0,
 }
 
 # The normalizations analyze_continuous.py reports, in the order its reports,

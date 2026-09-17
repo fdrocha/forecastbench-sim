@@ -7,6 +7,7 @@ from fbsim_core.metrics import compute_crps
 
 import micropolis_world.ground_truth as gt
 from micropolis_world.continuous_eval import (
+    GLOBAL_SCALES,
     Response,
     ResponseId,
     attach_outcomes,
@@ -93,7 +94,9 @@ def test_attach_outcomes_gives_score_forecasts_its_excess(monkeypatch):
     dist = crps_distribution(quantile_array(forecast), ys)
     assert pop["crps_dist"] == pytest.approx(dist)
     assert pop["excess_crps"] == pytest.approx(dist - crps_floor(ys))
-    assert pop["excess_normalized"] == pytest.approx(pop["excess_crps"] / 20_000.0)
+    assert pop["excess_normalized"] == pytest.approx(
+        pop["excess_crps"] / GLOBAL_SCALES["cityPop"]
+    )
     assert pop["excess_crps"] >= 0
     # The realized-outcome CRPS is untouched by the attachment.
     assert pop["crps"] == pytest.approx(compute_crps(forecast, 5_000.0))
