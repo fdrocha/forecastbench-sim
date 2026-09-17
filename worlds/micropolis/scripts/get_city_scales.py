@@ -60,6 +60,47 @@ def print_table(title: str, rows: dict[str, dict[str, float]]) -> None:
     print()
 
 
+def collect_views(
+    cfg,
+    seed: int,
+    start: int,
+    snapshot: int,
+    cities: list[str] | None = None,
+    disasters: list[bool] | None = None,
+) -> dict[str, dict[str, dict[str, float]]]:
+    """The four views, each city -> metric -> value, read from the cached logs.
+
+    Values do not depend on the disaster setting before anything strikes, but
+    the window views do, so a city is read from the first variant the config
+    lists for it. A city with no cached log is reported and skipped.
+    """
+    views: dict[str, dict[str, dict[str, float]]] = {
+        "start": {},
+        "mean": {},
+        "snapshot": {},
+        "max": {},
+    }
+    for city, dis in scenarios_from(cfg, cities, disasters):
+        if city in views["start"]:
+            continue
+        sim = CitySimulation(city_name=city, seed=seed, disasters=dis)
+        try:
+            sim.load_from_disk()
+        except FileNotFoundError as e:
+            error(f"{city}: {e}")
+            continue
+        assert sim.log_data is not None
+        if snapshot >= len(sim.log_data):
+            error(f"{city}: only {len(sim.log_data)} turns logged, need turn {snapshot}")
+            continue
+        window = sim.log_data[start : snapshot + 1]
+        views["start"][city] = {m: sim.log_data[start][m] for m in METRICS}
+        views["mean"][city] = {m: statistics.fmean(r[m] for r in window) for m in METRICS}
+        views["snapshot"][city] = {m: sim.log_data[snapshot][m] for m in METRICS}
+        views["max"][city] = {m: max(r[m] for r in window) for m in METRICS}
+    return views
+
+
 @main_with_config
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
@@ -80,33 +121,7 @@ def main() -> None:
     if snapshot < start:
         sys.exit(f"[error] first snapshot turn {snapshot} is before start turn {start}")
 
-    # Values do not depend on the disaster setting before anything strikes, but
-    # the mean up to the snapshot does, so a row names the variant it read.
-    views: dict[str, dict[str, dict[str, float]]] = {
-        "start": {},
-        "mean": {},
-        "snapshot": {},
-        "max": {},
-    }
-    for city, disasters in scenarios_from(cfg, args.cities, args.disasters):
-        if city in views["start"]:
-            continue
-        sim = CitySimulation(city_name=city, seed=seed, disasters=disasters)
-        try:
-            sim.load_from_disk()
-        except FileNotFoundError as e:
-            error(f"{city}: {e}")
-            continue
-        assert sim.log_data is not None
-        if snapshot >= len(sim.log_data):
-            error(f"{city}: only {len(sim.log_data)} turns logged, need turn {snapshot}")
-            continue
-        window = sim.log_data[start : snapshot + 1]
-        views["start"][city] = {m: sim.log_data[start][m] for m in METRICS}
-        views["mean"][city] = {m: statistics.fmean(r[m] for r in window) for m in METRICS}
-        views["snapshot"][city] = {m: sim.log_data[snapshot][m] for m in METRICS}
-        views["max"][city] = {m: max(r[m] for r in window) for m in METRICS}
-
+    views = collect_views(cfg, seed, start, snapshot, args.cities, args.disasters)
     if not views["start"]:
         sys.exit("[error] no city had a cached log; run scripts/run_sim.py first")
 

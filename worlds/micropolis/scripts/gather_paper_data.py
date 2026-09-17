@@ -11,6 +11,9 @@ actually computed at, not a per-model mean:
   the Brier, excess Brier and excess bits.
 - continuous_forecasts.csv: model, question, metric, horizon, the raw CRPS and
   its global normalization, and the excess CRPS and its normalization.
+- city_metric_scales.csv: one row per city of the continuous config, the mean
+  each metric took over the turns up to the first snapshot, floored at a
+  per-metric minimum so a quiet city cannot give a near-zero scale.
 - model_scores.csv, copied verbatim from the package's datafiles/, so the
   paper's directory carries the ECI and ForecastBench numbers its figures plot
   against rather than depending on the repo's copy at drawing time.
@@ -79,6 +82,8 @@ from analyze_binary import (
     write_csv,
 )
 from analyze_continuous import UNNORMALIZED_METRICS, forecast_questions, is_forecast
+from get_city_scales import METRICS as SCALE_METRICS
+from get_city_scales import collect_views
 
 DEFAULT_CONTINUOUS_CONFIG_PATH = CONFIG_DIR / "continuous.json5"
 DEFAULT_BINARY_CONFIG_PATH = CONFIG_DIR / "binary.json5"
@@ -114,6 +119,24 @@ BINARY_COLUMNS = [
 # are drawn: the paper's directory should hold everything its numbers rest on,
 # and the repo's copy will keep gaining rows as leaderboards publish.
 MODEL_SCORES_CSV_NAME = "model_scores.csv"
+
+SCALES_CSV_NAME = "city_metric_scales.csv"
+SCALES_COLUMNS = ["city", *SCALE_METRICS]
+
+# The turn the scale window starts at: the city as shipped, before any of it
+# has run.
+SCALES_START_TURN = 0
+
+# Floors on those means, per metric. A city that never gets going would
+# otherwise contribute a scale near zero, which as a denominator turns its
+# small absolute errors into large relative ones.
+SCALE_FLOORS = {
+    "cityPop": 10_000,
+    "trafficAverage": 10,
+    "pollutionAverage": 40,
+    "crimeAverage": 40,
+    "landValueAverage": 40,
+}
 
 CONTINUOUS_CSV_NAME = "continuous_forecasts.csv"
 CONTINUOUS_COLUMNS = [
@@ -295,6 +318,26 @@ def continuous_rows(cfg: Config) -> list[dict]:
     return rows
 
 
+def scale_rows(cfg: Config) -> list[dict]:
+    """One row per city: its metric means up to the first snapshot, floored."""
+    seed = cfg.get_seed(None)
+    snapshot = cfg.get_int_list("snapshot_turns")[0]
+    views = collect_views(cfg, seed, SCALES_START_TURN, snapshot)
+    means = views["mean"]
+    if len(means) != len(cfg.get_cities(None)):
+        sys.exit(
+            "[error] no cached sim log for: "
+            + ", ".join(c for c in cfg.get_cities(None) if c not in means)
+            + "\n  run scripts/run_sim.py for this config"
+        )
+    print(f"scales:     {len(means)} cities, mean over turns "
+          f"{SCALES_START_TURN}-{snapshot}, floored")
+    return [
+        {"city": city, **{m: max(values[m], SCALE_FLOORS[m]) for m in SCALE_METRICS}}
+        for city, values in means.items()
+    ]
+
+
 @main_with_config
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
@@ -325,11 +368,13 @@ def main() -> None:
 
     binary = binary_rows(binary_cfg)
     continuous = continuous_rows(continuous_cfg)
+    scales = scale_rows(continuous_cfg)
 
     print()
     for name, columns, rows in [
         (BINARY_CSV_NAME, BINARY_COLUMNS, binary),
         (CONTINUOUS_CSV_NAME, CONTINUOUS_COLUMNS, continuous),
+        (SCALES_CSV_NAME, SCALES_COLUMNS, scales),
     ]:
         print(f"Wrote {write_csv(OUT_DIR / name, columns, rows)}")
 
