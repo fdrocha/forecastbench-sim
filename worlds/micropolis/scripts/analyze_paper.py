@@ -3,10 +3,17 @@
 
 The reporting half of the paper pipeline. Reads only what
 scripts/gather_paper_data.py wrote — binary_forecasts.csv,
-continuous_forecasts.csv and its copy of model_scores.csv, which the package's
-own parser is pointed at so the ECI plotted is the one the gather run captured.
-No dataset, no ground truth, no config, and nothing outside that directory:
-rerunning this to nudge a legend costs a second and cannot change a number.
+continuous_forecasts.csv, city_metric_scales.csv and its copy of
+model_scores.csv, which the package's own parser is pointed at so the ECI
+plotted is the one the gather run captured. No dataset, no ground truth, no
+config, and nothing outside that directory: rerunning this to nudge a legend
+costs a second and cannot change a number.
+
+The continuous CRPS arrives unnormalized and is divided here, per row, by the
+scale its own city and metric carry in city_metric_scales.csv — each metric's
+mean over that city's turns up to the first snapshot, floored. One city's
+population moving by a thousand is not the same event as another's, so the
+division has to happen before the rows are averaged together, not after.
 
 Writes to data/micropolis/paper/figures/:
 
@@ -57,11 +64,16 @@ from gather_paper_data import (
     BINARY_CSV_NAME,
     CONTINUOUS_CSV_NAME,
     MODEL_SCORES_CSV_NAME,
-    NORM_MODE,
     OUT_DIR,
+    SCALES_CSV_NAME,
 )
 
 FIGURES_DIR = OUT_DIR / "figures"
+
+# Names the normalization in the continuous figure's filename and axis note,
+# the way the reports' modes name theirs: here the denominator is per city and
+# metric rather than per metric alone.
+NORM_MODE = "city"
 
 # A \textwidth figure in a single-column article. The report's 10x6.5 would be
 # scaled down by \includegraphics and take the fonts with it. This is the axes'
@@ -143,9 +155,7 @@ def read_rows(path: Path) -> list[dict]:
         "excess_brier",
         "excess_bits",
         "crps",
-        "ncrps",
         "excess_crps",
-        "excess_ncrps",
     }
     with path.open(newline="") as f:
         rows = []
@@ -158,6 +168,61 @@ def read_rows(path: Path) -> list[dict]:
     if not rows:
         sys.exit(f"[error] {path} holds no rows")
     return rows
+
+
+def read_scales(path: Path) -> dict[str, dict[str, float]]:
+    """city_metric_scales.csv as {city: {metric: scale}}.
+
+    The metric columns are the engine's own field names, the same ones the
+    forecast rows carry, so the join is by name and nothing here has to know
+    which metrics the paper covers.
+    """
+    if not path.exists():
+        sys.exit(
+            f"[error] {path} not found\n"
+            "  run scripts/gather_paper_data.py first; it writes the per-city"
+            " scales this script normalizes with"
+        )
+    with path.open(newline="") as f:
+        scales = {
+            row["city"]: {k: float(v) for k, v in row.items() if k != "city"}
+            for row in csv.DictReader(f)
+        }
+    if not scales:
+        sys.exit(f"[error] {path} holds no rows")
+    return scales
+
+
+def normalize(
+    rows: list[dict], scales: dict[str, dict[str, float]]
+) -> list[dict]:
+    """Divide each row's CRPS by its city's scale for that metric.
+
+    Adds "ncrps" and "excess_ncrps" and returns the rows the paper can plot.
+    A missing city or metric is an error: the figures average over whatever is
+    present, so a silent gap would move every number without saying so. A row
+    whose excess is empty — a question the gather run found no continuations
+    for — is dropped instead, since the figure it would join averages the
+    excess and cannot carry a blank.
+    """
+    kept = []
+    for r in rows:
+        city, metric = r["city"], r["metric"]
+        scale = scales.get(city, {}).get(metric)
+        if not scale:
+            sys.exit(
+                f"[error] no scale for {city}/{metric} in {SCALES_CSV_NAME}\n"
+                "  rerun scripts/gather_paper_data.py so the scales cover the"
+                " same run as the forecasts"
+            )
+        r["ncrps"] = r["crps"] / scale
+        if r["excess_crps"] == "":
+            continue
+        r["excess_ncrps"] = r["excess_crps"] / scale
+        kept.append(r)
+    if len(kept) != len(rows):
+        print(f"[warn] dropped {len(rows) - len(kept)} rows with no excess CRPS")
+    return kept
 
 
 def models_in_order(rows: list[dict]) -> list[str]:
@@ -311,6 +376,8 @@ def main() -> None:
     scores_path = use_copied_model_scores(args.datadir)
     binary = read_rows(args.datadir / BINARY_CSV_NAME)
     continuous = read_rows(args.datadir / CONTINUOUS_CSV_NAME)
+    scales = read_scales(args.datadir / SCALES_CSV_NAME)
+    continuous = normalize(continuous, scales)
 
     print("=" * 70)
     print("MICROPOLIS WORLD — paper figures")
@@ -319,7 +386,10 @@ def main() -> None:
     print(f"scores: {scores_path}")
     print(f"out:    {args.outdir}")
     print(f"binary:     {len(binary)} scored forecasts")
-    print(f"continuous: {len(continuous)} scored forecasts")
+    print(
+        f"continuous: {len(continuous)} scored forecasts, normalized by"
+        f" {len(scales)} cities' scales"
+    )
     print()
 
     figures = PaperFigures(args.outdir)

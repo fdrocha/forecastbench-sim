@@ -9,8 +9,10 @@ actually computed at, not a per-model mean:
 - binary_forecasts.csv: model, question, section (mid-range or tail, by the
   question instance's ground-truth P(Yes)), horizon, the forecast, that p, and
   the Brier, excess Brier and excess bits.
-- continuous_forecasts.csv: model, question, metric, horizon, the raw CRPS and
-  its global normalization, and the excess CRPS and its normalization.
+- continuous_forecasts.csv: model, question, city, metric, horizon, the raw
+  CRPS and the excess CRPS. Both are unnormalized: the paper divides by the
+  city's own scale, which is a join analyze_paper.py does against the file
+  below, so the scale can be changed without re-scoring.
 - city_metric_scales.csv: one row per city of the continuous config, the mean
   each metric took over the turns up to the first snapshot, floored at a
   per-metric minimum so a quiet city cannot give a near-zero scale.
@@ -60,10 +62,10 @@ from micropolis_world.binary_eval import (
 from micropolis_world.config import CONFIG_DIR, Config, ConfigError, main_with_config
 from micropolis_world.continuous_eval import (
     DatasetError,
+    Normalizer,
     attach_outcomes,
     data_path,
     load_dataset,
-    make_normalizer,
     score_forecasts,
     select_for_config,
 )
@@ -93,13 +95,16 @@ DEFAULT_BINARY_CONFIG_PATH = CONFIG_DIR / "binary.json5"
 # these land.
 OUT_DIR = g.DATA_DIR / "paper"
 
-# The one continuous normalization the paper reports. The three modes are not
-# comparable with each other, and `global` is the one whose scale is fixed per
-# metric — so a cell means the same thing across scenarios, snapshots and
-# horizons, and derive_scales.py can check it against FreeCiv's. The other two
-# modes are not built at all, which is also what keeps this script off
-# load_averages and load_expected_persistence.
-NORM_MODE = "global"
+# The paper normalizes downstream, per city and metric, so nothing is divided
+# here: score_forecasts still takes a Normalizer, and this one has no scale for
+# any question, which leaves its normalized columns empty. They are not
+# written. Scoring stays the reports' own; only the denominator moves.
+RAW = Normalizer(
+    mode="none",
+    ratio="CRPS",
+    detail="nothing — the paper's rows are unnormalized",
+    scale=lambda c: None,
+)
 
 BINARY_CSV_NAME = "binary_forecasts.csv"
 BINARY_COLUMNS = [
@@ -142,12 +147,11 @@ CONTINUOUS_CSV_NAME = "continuous_forecasts.csv"
 CONTINUOUS_COLUMNS = [
     "model",
     "question_id",
+    "city",
     "metric",
     "horizon",
     "crps",
-    "ncrps",
     "excess_crps",
-    "excess_ncrps",
 ]
 
 
@@ -185,6 +189,17 @@ def check_no_suffix_collisions(models: list[str]) -> None:
             + "\n  the paper names models by model id, so select one variant per"
             " model (--models, or the config's list)"
         )
+
+
+def city_of(scenario_id: str) -> str:
+    """The city a scenario id names.
+
+    CitySimulation builds it as {city}_{disasters flag}_seed{n}, and a city
+    name can itself hold underscores ("med_isle"), so the suffixes are stripped
+    rather than the first segment taken.
+    """
+    head = scenario_id.rsplit("_seed", 1)[0]
+    return head.removesuffix("_disasters").removesuffix("_nodisasters")
 
 
 def binary_rows(cfg: Config) -> list[dict]:
@@ -243,13 +258,16 @@ def binary_rows(cfg: Config) -> list[dict]:
 
 
 def continuous_rows(cfg: Config) -> list[dict]:
-    """One row per scored continuous forecast, under the global normalization.
+    """One row per scored continuous forecast, unnormalized.
 
     The read-off horizon is excluded, as in every pooled figure the reports
     draw: it asks for a number the snapshot report already prints, so averaging
     it in with real forecasts flatters every model by the same trick.
-    Unnormalized metrics (city funds) are dropped too — they have no scale
-    under any mode, so their normalized columns would be empty.
+    Unnormalized metrics (city funds) are dropped too — they have no scale, so
+    the paper could not pool them with the rest.
+
+    The city is carried as a column: it is what analyze_paper.py joins the
+    per-city scales on, and the question id encodes it only by convention.
     """
     label = cfg.get_label(None)
     seed = cfg.get_seed(None)
@@ -270,12 +288,6 @@ def continuous_rows(cfg: Config) -> list[dict]:
         c for c in forecast_questions(corpus) if c["metric"] not in UNNORMALIZED_METRICS
     ]
     try:
-        norm = make_normalizer(
-            NORM_MODE,
-            scorable,
-            global_frac=cfg.get_norm_global_frac(None),
-            seed=seed,
-        )
         without_outcomes = attach_outcomes(scorable)
     except (NotImplementedError, FileNotFoundError) as e:
         sys.exit(
@@ -283,15 +295,15 @@ def continuous_rows(cfg: Config) -> list[dict]:
             "  the excess measure needs the ground truth; run "
             "scripts/extract_ground_truth.py for this config"
         )
-    # A metric with no scale would silently drop out of the normalized columns,
-    # leaving the CSV quieter than it looks.
-    unscaled = norm.unscaled_metrics(scorable)
+    # A metric the scales table has no column for could not be normalized
+    # downstream, and would drop out of the paper's figures there rather than
+    # here, where the corpus is in hand to say so.
+    unscaled = sorted({c["metric"] for c in scorable} - set(SCALE_METRICS))
     if unscaled:
         sys.exit(
-            f"[error] the {NORM_MODE} normalization has no scale for: "
-            f"{', '.join(unscaled)}\n"
-            "  add one to continuous_eval.GLOBAL_SCALES, or to "
-            "UNNORMALIZED_METRICS to leave the metric out"
+            f"[error] {SCALES_CSV_NAME} has no scale for: {', '.join(unscaled)}\n"
+            "  add the metric to get_city_scales.METRICS, or to "
+            "UNNORMALIZED_METRICS to leave it out of the paper"
         )
     if without_outcomes:
         warn(
@@ -299,22 +311,22 @@ def continuous_rows(cfg: Config) -> list[dict]:
             " outcomes; their excess columns are empty"
         )
 
+    cities = {c["question_id"]: city_of(c["scenario_id"]) for c in scorable}
     rows = [
         {
             "model": to_model_id(r["model_id"]),
             "question_id": r["question_id"],
+            "city": cities[r["question_id"]],
             "metric": r["metric"],
             "horizon": years(r["horizon"]),
             "crps": r["crps"],
-            "ncrps": r["normalized"],
             "excess_crps": r["excess_crps"],
-            "excess_ncrps": r["excess_normalized"],
         }
-        for r in score_forecasts(scorable, responses, models, norm)
+        for r in score_forecasts(scorable, responses, models, RAW)
         # Belt and braces: forecast_questions already removed the read-off.
         if is_forecast(r["horizon"])
     ]
-    print(f"            {len(rows)} scored forecasts, {NORM_MODE} normalization")
+    print(f"            {len(rows)} scored forecasts, unnormalized")
     return rows
 
 
