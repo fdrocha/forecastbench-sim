@@ -98,7 +98,7 @@ def main() -> None:
     width = max(len(v) for v in label.values())
     header = (
         f"{'metric':<{width}}  {'questions':>9}  {'median p10-p90':>14}  "
-        f"{'1 s.f.':>8}  {'median p05-p95':>14}  {'1 s.f.':>8}  {'GLOBAL_SCALES':>13}  ratio"
+        f"{'rounded':>8}  {'median p05-p95':>14}  {'rounded':>8}  {'GLOBAL_SCALES':>13}  ratio"
     )
     print(header)
     print("-" * len(header))
@@ -125,8 +125,8 @@ def main() -> None:
         )
     print()
     print(
-        "ratio = the p10-p90 constant over the current GLOBAL_SCALES entry; the "
-        "constant is the FreeCiv C_family analog, fixed by the draw before any forecast."
+        "rounded = the median to one significant figure, FreeCiv's rule for C_family;"
+        " ratio = the rounded p10-p90 constant over the current GLOBAL_SCALES entry."
     )
 
 
