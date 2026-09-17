@@ -1,12 +1,12 @@
 #!/usr/bin/env -S uv run python3
-"""Draw the article's figures from data/micropolis/paper/, as PDF for LaTeX.
+"""Analyze the gathered paper data: the article's figures, as PDF for LaTeX.
 
-The drawing half of the paper pipeline. Reads only what
-scripts/gather_paper_data.py wrote — binary_forecasts.csv and
-continuous_forecasts.csv — plus each model's ECI from the package's
-model_scores.csv, which is where every other script gets it. No dataset, no
-ground truth, no config: rerunning this to nudge a legend costs a second and
-cannot change a number.
+The reporting half of the paper pipeline. Reads only what
+scripts/gather_paper_data.py wrote — binary_forecasts.csv,
+continuous_forecasts.csv and its copy of model_scores.csv, which the package's
+own parser is pointed at so the ECI plotted is the one the gather run captured.
+No dataset, no ground truth, no config, and nothing outside that directory:
+rerunning this to nudge a legend costs a second and cannot change a number.
 
 Writes to data/micropolis/paper/figures/:
 
@@ -25,12 +25,14 @@ column is wider than the scatter it explains; and the whole sized for a
 
 Model order fixes each model's color and marker, and is taken from the CSV's
 own order of first appearance, so a model keeps one identity across the
-figures without a config being read.
+figures without a config being read. Models are named by model id, the gather
+step having dropped this world's ":suffix", so nothing here or in the figures
+carries a ":loeff".
 
 Usage:
-    scripts/plot_paper.py
-    scripts/plot_paper.py --outdir /tmp/figures
-    scripts/plot_paper.py --datadir /tmp/paper-data --outdir /tmp/figures
+    scripts/analyze_paper.py
+    scripts/analyze_paper.py --outdir /tmp/figures
+    scripts/analyze_paper.py --datadir /tmp/paper-data --outdir /tmp/figures
 """
 
 import argparse
@@ -38,6 +40,7 @@ import csv
 import sys
 from pathlib import Path
 
+from micropolis_world import model_scores
 from micropolis_world.continuous_eval import MdReport
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -53,6 +56,7 @@ from analyze_continuous import EXCESS
 from gather_paper_data import (
     BINARY_CSV_NAME,
     CONTINUOUS_CSV_NAME,
+    MODEL_SCORES_CSV_NAME,
     NORM_MODE,
     OUT_DIR,
 )
@@ -94,6 +98,28 @@ EXCESS_NCRPS = Score("excess_ncrps", EXCESS.name, EXCESS.definition)
 # What the continuous scatter's section slot carries: it is one eval-wide
 # figure, not a section of one, so this names the eval instead.
 CONTINUOUS_SECTION = "continuous eval"
+
+
+def use_copied_model_scores(datadir: Path) -> Path:
+    """Point the package's score reader at the gather run's copy.
+
+    Every ECI on these figures is reached through model_scores.eci_of, down
+    inside the reports' plot functions, so redirecting the module's path is
+    what makes the whole run read the paper's directory instead of the repo's
+    datafiles/ — no plot function has to learn where the numbers came from.
+    The parsed view is cached, so the cache is dropped in case something has
+    already read it.
+    """
+    path = datadir / MODEL_SCORES_CSV_NAME
+    if not path.exists():
+        sys.exit(
+            f"[error] {path} not found\n"
+            "  run scripts/gather_paper_data.py first; it copies model_scores.csv"
+            " into the paper's directory"
+        )
+    model_scores.SCORES_PATH = path
+    model_scores.load_scores.cache_clear()
+    return path
 
 
 def read_rows(path: Path) -> list[dict]:
@@ -282,6 +308,7 @@ def main() -> None:
     )
     args = ap.parse_args()
 
+    scores_path = use_copied_model_scores(args.datadir)
     binary = read_rows(args.datadir / BINARY_CSV_NAME)
     continuous = read_rows(args.datadir / CONTINUOUS_CSV_NAME)
 
@@ -289,6 +316,7 @@ def main() -> None:
     print("MICROPOLIS WORLD — paper figures")
     print("=" * 70)
     print(f"data:   {args.datadir}")
+    print(f"scores: {scores_path}")
     print(f"out:    {args.outdir}")
     print(f"binary:     {len(binary)} scored forecasts")
     print(f"continuous: {len(continuous)} scored forecasts")

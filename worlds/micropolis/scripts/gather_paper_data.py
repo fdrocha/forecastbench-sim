@@ -11,6 +11,16 @@ actually computed at, not a per-model mean:
   the Brier, excess Brier and excess bits.
 - continuous_forecasts.csv: model, question, metric, horizon, the raw CRPS and
   its global normalization, and the excess CRPS and its normalization.
+- model_scores.csv, copied verbatim from the package's datafiles/, so the
+  paper's directory carries the ECI and ForecastBench numbers its figures plot
+  against rather than depending on the repo's copy at drawing time.
+
+Model names are written as model *ids*: this world's ":suffix" (":loeff", the
+reasoning effort a run was gathered under) is dropped, since the paper reports
+one run per model and the leaderboards score the model rather than the effort
+setting. The suffix stays the canonical id everywhere upstream — configs, the
+response cache, data.json — so it is stripped here, at the boundary, and not
+before.
 
 Aggregates are deliberately not written here: every mean, correlation and
 bootstrap interval the paper reports is recoverable from these rows, and a
@@ -24,7 +34,7 @@ reports. Both datasets are required — the paper's data is all-or-nothing — a
 there is no --incomplete, since a ragged selection makes per-model figures
 cover different question sets.
 
-scripts/plot_paper.py draws the figures from these two files alone.
+scripts/analyze_paper.py draws the figures from this directory alone.
 
 Usage:
     scripts/gather_paper_data.py
@@ -33,6 +43,7 @@ Usage:
 """
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -55,6 +66,8 @@ from micropolis_world.continuous_eval import (
 )
 from micropolis_world.ground_truth import load_truths
 from micropolis_world.messages import error, warn
+from micropolis_world.model_ids import to_model_id
+from micropolis_world.model_scores import SCORES_PATH
 
 # Imported rather than reimplemented so the paper's scores are the reports'
 # scores: the same section rule, the same Brier/excess/bits, the same CRPS.
@@ -97,6 +110,11 @@ BINARY_COLUMNS = [
     "excess_bits",
 ]
 
+# Copied beside the scores rather than read from the package when the figures
+# are drawn: the paper's directory should hold everything its numbers rest on,
+# and the repo's copy will keep gaining rows as leaderboards publish.
+MODEL_SCORES_CSV_NAME = "model_scores.csv"
+
 CONTINUOUS_CSV_NAME = "continuous_forecasts.csv"
 CONTINUOUS_COLUMNS = [
     "model",
@@ -122,6 +140,28 @@ def load_config_at(path: Path | str) -> Config:
 def years(turns: int) -> str:
     """A horizon in turns as the years the CSV reports it in."""
     return f"{turns / TURNS_PER_YEAR:g}y"
+
+
+def check_no_suffix_collisions(models: list[str]) -> None:
+    """Fail if dropping the ":suffix" would merge two of the run's models.
+
+    The paper names models by model id, so two slugs of one base model — "o3"
+    and "o3:loeff" gathered together — would land in the CSV under one name and
+    have their forecasts averaged as if they were one model. That is a config
+    the paper cannot report as it stands, so it is an error here rather than a
+    silent merge downstream.
+    """
+    merged: dict[str, list[str]] = {}
+    for slug in models:
+        merged.setdefault(to_model_id(slug), []).append(slug)
+    clashes = {mid: slugs for mid, slugs in merged.items() if len(slugs) > 1}
+    if clashes:
+        sys.exit(
+            "[error] dropping the ':suffix' would merge these models:\n"
+            + "\n".join(f"  {mid}: {', '.join(s)}" for mid, s in clashes.items())
+            + "\n  the paper names models by model id, so select one variant per"
+            " model (--models, or the config's list)"
+        )
 
 
 def binary_rows(cfg: Config) -> list[dict]:
@@ -150,12 +190,13 @@ def binary_rows(cfg: Config) -> list[dict]:
 
     print(f"binary:     {data_file}")
     print(f"            {len(corpus)} questions x {len(models)} models")
+    check_no_suffix_collisions(models)
 
     sections = {c["question_id"]: section_of(c, truths) for c in corpus}
     scored = score_forecasts_binary(corpus, responses, models, truths)
     rows = [
         {
-            "model": r["model_id"],
+            "model": to_model_id(r["model_id"]),
             "question_id": r["question_id"],
             "qid": r["qid"],
             "section": sections[r["question_id"]],
@@ -200,6 +241,7 @@ def continuous_rows(cfg: Config) -> list[dict]:
 
     print(f"continuous: {data_file}")
     print(f"            {len(corpus)} questions x {len(models)} models")
+    check_no_suffix_collisions(models)
 
     scorable = [
         c for c in forecast_questions(corpus) if c["metric"] not in UNNORMALIZED_METRICS
@@ -236,7 +278,7 @@ def continuous_rows(cfg: Config) -> list[dict]:
 
     rows = [
         {
-            "model": r["model_id"],
+            "model": to_model_id(r["model_id"]),
             "question_id": r["question_id"],
             "metric": r["metric"],
             "horizon": years(r["horizon"]),
@@ -290,6 +332,13 @@ def main() -> None:
         (CONTINUOUS_CSV_NAME, CONTINUOUS_COLUMNS, continuous),
     ]:
         print(f"Wrote {write_csv(OUT_DIR / name, columns, rows)}")
+
+    # Verbatim, header and blank cells included: analyze_paper.py reads it
+    # through the package's own parser, so it has to stay in that format.
+    scores_copy = OUT_DIR / MODEL_SCORES_CSV_NAME
+    scores_copy.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(SCORES_PATH, scores_copy)
+    print(f"Wrote {scores_copy}")
 
 
 if __name__ == "__main__":
