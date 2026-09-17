@@ -22,7 +22,7 @@
 // reasoning_effort set to that value.
 {
   "meta-llama/llama-4-scout": {
-    endpoint: "google-vertex"
+    endpoint: "deepinfra"
   },
   "deepseek/deepseek-chat": {
     endpoint: "streamlake"
