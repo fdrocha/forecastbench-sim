@@ -44,11 +44,22 @@ could not move — a city whose traffic is pinned at 0 across every continuation
 questions that floor bound. The modes are not comparable with each other, so
 the mode is stated wherever a normalized number is.
 
+Every normalized view comes twice, once per measure: normalized CRPS scores
+the five percentiles against the one realized continuation, and excess
+normalized CRPS scores them against all the reseeded continuations of the
+question's scenario, snapshot and horizon — the mean pinball loss over every
+continuation's outcome — minus the floor that the continuations' own five
+quantiles would score, so it is 0 only for a forecast equal to the replay
+distribution and never rewards a lucky draw. The excess is divided by the same
+per-question scale as the plain measure. This is FreeCiv's excess CRPS, so the
+two worlds' excess figures are on one footing.
+
 Beside the reports it writes continuous_scores.csv: one row per model x metric
 x horizon, plus an "all" metric and an "all" horizon per model, with the
 forecast counts, the raw CRPS and the normalized CRPS under every mode side by
-side — the tables' numbers in a form the next analysis can load rather than
-parse out of fixed-width text. One file for all three modes, so unsuffixed.
+side, then the raw excess CRPS and the excess normalized CRPS under every mode
+— the tables' numbers in a form the next analysis can load rather than parse
+out of fixed-width text. One file for all three modes, so unsuffixed.
 
 Usage:
     scripts/analyze_continuous.py                   # configs/continuous.json5
@@ -81,17 +92,21 @@ from micropolis_world.config import (
 )
 from micropolis_world.continuous_eval import (
     NORM_MODES,
+    PERCENTILE_LEVELS,
     UNNORMALIZED_METRICS,
     DatasetError,
     MdReport,
     Normalizer,
     ResponseId,
     Responses,
+    attach_outcomes,
+    crps_distribution,
     data_path,
     label_dir,
     load_dataset,
     make_normalizer,
     plots_path,
+    quantile_array,
     scenario_history,
     score_forecasts,
     select_for_config,
@@ -171,6 +186,56 @@ def norm_suffix(norm: Normalizer) -> str:
     return f"-{norm.mode}"
 
 
+@dataclass(frozen=True)
+class Measure:
+    """One normalized quantity a forecast is scored by.
+
+    Every normalized table and figure is made once per measure; `key` is the
+    score_forecasts row field it reads, `tag` the infix of its figure files.
+    """
+
+    key: str
+    name: str  # in headings: "Mean {name} by ..."
+    short: str  # on axes: "Mean {short} ({norm.ratio})"
+    tag: str
+    definition: str
+
+    def raw(self, percentiles: dict[str, float], c: dict) -> float | None:
+        """The unnormalized score of `percentiles` on question `c`.
+
+        What score_forecasts divides by the scale, for a forecast the dataset
+        does not hold — the baselines. None where the question lacks the
+        continuation outcomes the excess needs (see attach_outcomes).
+        """
+        if self.key == "normalized":
+            return compute_crps(percentiles, c["value"])
+        if "outcomes" not in c:
+            return None
+        dist = crps_distribution(quantile_array(percentiles), c["outcomes"])
+        return dist - c["crps_floor"]
+
+
+NCRPS = Measure(
+    "normalized",
+    "normalized CRPS",
+    "nCRPS",
+    "",
+    "the CRPS of the five percentiles against the one realized continuation,"
+    " over the scale",
+)
+EXCESS = Measure(
+    "excess_normalized",
+    "excess normalized CRPS",
+    "excess nCRPS",
+    "excess_",
+    "the mean CRPS of the five percentiles over every reseeded continuation of"
+    " the question, minus the floor the continuations' own five quantiles score"
+    " (0 only for a forecast equal to the replay distribution), over the same"
+    " scale",
+)
+MEASURES = [NCRPS, EXCESS]
+
+
 def is_forecast(horizon: int) -> bool:
     """Whether `horizon` asks the model to predict rather than to read off."""
     return horizon != READ_OFF_HORIZON
@@ -201,6 +266,7 @@ def persistence_by_horizon(
     corpus: list[dict],
     norm: Normalizer,
     scored: set[tuple[str, int, str, int]] | None = None,
+    measure: Measure = NCRPS,
 ) -> dict[int, float | None]:
     """Mean normalized CRPS of a persistence forecast, per horizon.
 
@@ -230,6 +296,10 @@ def persistence_by_horizon(
     for some of them, and comparing a line over all questions with a line over a
     subset would attribute the difference between two question sets to the
     difference between two forecasts.
+
+    `measure` picks the quantity, as everywhere: under EXCESS the point
+    forecast is scored against every continuation, which is the mean
+    |snapshot - outcome| the baseline normalization divides by, minus the floor.
     """
     # Keyed on everything but the horizon, so a question can find the snapshot
     # reading of its own metric in its own run.
@@ -263,7 +333,10 @@ def persistence_by_horizon(
         )
         if snapshot is None:
             continue
-        scores[c["horizon"]].append(abs(snapshot - c["value"]) / scale)
+        raw = measure.raw(dict.fromkeys(PERCENTILE_LEVELS, snapshot), c)
+        if raw is None:
+            continue
+        scores[c["horizon"]].append(raw / scale)
 
     return {h: _mean(v) for h, v in scores.items()}
 
@@ -306,7 +379,7 @@ def historical_sigma(
 
 
 def persistence_sigma_by_horizon(
-    corpus: list[dict], seed: int, norm: Normalizer
+    corpus: list[dict], seed: int, norm: Normalizer, measure: Measure = NCRPS
 ) -> tuple[dict[int, float | None], set[tuple[str, int, str, int]]]:
     """Mean normalized CRPS of persistence widened by historical spread.
 
@@ -367,7 +440,10 @@ def persistence_sigma_by_horizon(
         if sigma is None:
             continue
         percentiles = {k: snapshot + z * sigma for k, z in NORMAL_Z.items()}
-        scores[c["horizon"]].append(compute_crps(percentiles, c["value"]) / scale)
+        raw = measure.raw(percentiles, c)
+        if raw is None:
+            continue
+        scores[c["horizon"]].append(raw / scale)
         scored.add(question_key(c))
 
     return {h: _mean(v) for h, v in scores.items()}, scored
@@ -410,19 +486,18 @@ def normalized_by_model_and_metric(
     responses: Responses,
     model_names: list[str],
     norm: Normalizer,
+    measure: Measure = NCRPS,
 ) -> dict[tuple[str, str], float]:
-    """Mean normalized CRPS per (model, metric).
+    """Mean `measure` per (model, metric).
 
     A cell is absent where no forecast for that metric had a scale to divide
-    by under `norm`.
+    by under `norm` (or, for the excess, no continuation outcomes).
     """
     scores: dict[tuple[str, str], list[float]] = {}
     for row in score_forecasts(corpus, responses, model_names, norm):
-        if row["normalized"] is None:
+        if row[measure.key] is None:
             continue
-        scores.setdefault((row["model_id"], row["metric"]), []).append(
-            row["normalized"]
-        )
+        scores.setdefault((row["model_id"], row["metric"]), []).append(row[measure.key])
     return {k: sum(v) / len(v) for k, v in scores.items()}
 
 
@@ -564,8 +639,9 @@ def print_normalized_crps_table(
     responses: Responses,
     model_names: list[str],
     norm: Normalizer,
+    measure: Measure = NCRPS,
 ) -> None:
-    """Print models x metrics of normalized CRPS.
+    """Print models x metrics of `measure`.
 
     Dividing by `norm`'s scale makes a cell unitless, so unlike the raw table
     above this one compares a model's performance across metrics as well as down
@@ -574,7 +650,9 @@ def print_normalized_crps_table(
     Pools the horizons into each cell, so the read-off horizon is dropped first.
     """
     corpus = forecast_questions(corpus)
-    normalized = normalized_by_model_and_metric(corpus, responses, model_names, norm)
+    normalized = normalized_by_model_and_metric(
+        corpus, responses, model_names, norm, measure
+    )
     # Only the metrics that actually normalize get a column: one that never does
     # would be a column of n/a, which the raw table above already covers.
     metrics = [
@@ -585,7 +663,7 @@ def print_normalized_crps_table(
     # per-metric cells, so a metric with more parsed forecasts weighs more.
     # The same pooling as the ECI figures and continuous_scores.csv's (all,
     # all) row, so one number per model is quoted the same way everywhere.
-    pooled = normalized_by_model(corpus, responses, model_names, norm)
+    pooled = normalized_by_model(corpus, responses, model_names, norm, measure)
     overall = {model_id: pooled.get(model_id) for model_id in model_names}
 
     labels = {
@@ -608,11 +686,11 @@ def print_normalized_crps_table(
         for m in metrics_in_order(corpus)
         if m not in metrics
     ]
-    report.heading("Mean normalized CRPS by model and metric (lower is better)")
+    report.heading(f"Mean {measure.name} by model and metric (lower is better)")
     report.text(
         f"pooled over every forecast horizon; {READ_OFF_NOTE}\n\n"
-        f"{norm.ratio} ({norm.mode} normalization), so cells compare across metrics as"
-        " well as down them\n\n"
+        f"{measure.short} is {measure.definition}; {norm.ratio} ({norm.mode}"
+        " normalization), so cells compare across metrics as well as down them\n\n"
         "overall = mean over every normalized forecast pooled, so a metric with "
         "more parsed forecasts weighs more"
         + (f"; omits {', '.join(excluded)}, which no scale covers" if excluded else "")
@@ -698,8 +776,9 @@ def print_normalized_horizon_table(
     responses: Responses,
     model_names: list[str],
     norm: Normalizer,
+    measure: Measure = NCRPS,
 ) -> None:
-    """Print models x horizons, each cell the mean normalized CRPS.
+    """Print models x horizons, each cell the mean `measure`.
 
     The scale does not depend on the horizon, so the horizon trend survives:
     later horizons stay harder rather than each being flattened against a
@@ -708,9 +787,9 @@ def print_normalized_horizon_table(
     rows = [
         r
         for r in score_forecasts(corpus, responses, model_names, norm)
-        if r["normalized"] is not None
+        if r[measure.key] is not None
     ]
-    scored = [(r["model_id"], r["horizon"], r["normalized"]) for r in rows]
+    scored = [(r["model_id"], r["horizon"], r[measure.key]) for r in rows]
     # The metrics that actually made it into the cells, so the note names the
     # question set the means are over rather than the corpus's whole metric
     # list.
@@ -723,8 +802,9 @@ def print_normalized_horizon_table(
         scored,
         model_names,
         sorted({c["horizon"] for c in corpus}),
-        "Mean normalized CRPS by model and horizon (lower is better)",
-        f"{norm.ratio} ({norm.mode} normalization) over {', '.join(normalized_labels)};"
+        f"Mean {measure.name} by model and horizon (lower is better)",
+        f"{measure.short}, {norm.ratio} ({norm.mode} normalization) over"
+        f" {', '.join(normalized_labels)};"
         " horizons are years past the snapshot"
         f"\noverall {READ_OFF_NOTE}; the {horizon_label(READ_OFF_HORIZON)} column is"
         " kept as the comprehension check it is",
@@ -771,7 +851,9 @@ def scores_csv_rows(
     parsed; the means are over the latter. The two differ per model under
     --incomplete and agree otherwise. The normalized columns are one per
     normalization mode, computed from the same forecasts, so a row compares the
-    modes on an identical question set.
+    modes on an identical question set. excess_CRPS and the excess_nCRPS
+    columns are the same for the excess measure (see EXCESS), nan where the
+    questions carry no continuation outcomes.
 
     Only the normalizable metrics get rows: city funds has no scale under any
     mode, and a row of nans would say nothing the raw table does not. The
@@ -832,6 +914,25 @@ def scores_csv_rows(
                             if by_key[k]["normalized"] is not None
                         ]
                     )
+                row["excess_CRPS"] = (
+                    math.nan
+                    if metric_name == ALL
+                    else nan_mean(
+                        [
+                            first[k]["excess_crps"]
+                            for k in valid
+                            if first[k]["excess_crps"] is not None
+                        ]
+                    )
+                )
+                for mode, by_key in scored.items():
+                    row[f"excess_nCRPS_{mode}"] = nan_mean(
+                        [
+                            by_key[k]["excess_normalized"]
+                            for k in valid
+                            if by_key[k]["excess_normalized"] is not None
+                        ]
+                    )
                 rows.append(row)
     return rows
 
@@ -842,9 +943,12 @@ def write_scores_csv(path: Path, rows: list[dict], modes: list[str]) -> Path:
     nan lands as the literal "nan", which pandas and R both read back as
     missing without being told to.
     """
-    columns = ["model", "metric", "horizon", "nforecasts", "nvalid", "CRPS"] + [
-        f"nCRPS_{mode}" for mode in modes
-    ]
+    columns = (
+        ["model", "metric", "horizon", "nforecasts", "nvalid", "CRPS"]
+        + [f"nCRPS_{mode}" for mode in modes]
+        + ["excess_CRPS"]
+        + [f"excess_nCRPS_{mode}" for mode in modes]
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=columns)
@@ -861,8 +965,9 @@ def plot_normalized_by_horizon(
     seed: int,
     outdir: Path,
     norm: Normalizer,
+    measure: Measure = NCRPS,
 ) -> Path:
-    """Scatter normalized CRPS against horizon, one series per model.
+    """Scatter `measure` against horizon, one series per model.
 
     The horizon table says the same thing, but reading a trend across a row of
     numbers is work; here the shape is immediate — how steeply accuracy decays
@@ -886,14 +991,14 @@ def plot_normalized_by_horizon(
     rows = [
         r
         for r in score_forecasts(corpus, responses, model_names, norm)
-        if r["normalized"] is not None
+        if r[measure.key] is not None
     ]
     horizons = sorted({c["horizon"] for c in corpus})
     by_model = {
         model_id: {
             h: _mean(
                 [
-                    r["normalized"]
+                    r[measure.key]
                     for r in rows
                     if r["model_id"] == model_id and r["horizon"] == h
                 ]
@@ -983,10 +1088,10 @@ def plot_normalized_by_horizon(
     # points above it are worse than assuming the city stands still.
     # Sigma first, because its question set is the narrower of the two and the
     # plain line is then held to it.
-    sigma_by_horizon, scored = persistence_sigma_by_horizon(corpus, seed, norm)
+    sigma_by_horizon, scored = persistence_sigma_by_horizon(corpus, seed, norm, measure)
     baseline_points = [
         (h, v)
-        for h, v in persistence_by_horizon(corpus, norm, scored).items()
+        for h, v in persistence_by_horizon(corpus, norm, scored, measure).items()
         if v is not None
     ]
     if baseline_points:
@@ -1022,9 +1127,9 @@ def plot_normalized_by_horizon(
     ax.set_xlabel(
         "Horizon (years past the snapshot; model points spread within each tick)"
     )
-    ax.set_ylabel(f"Normalized CRPS ({norm.ratio}, lower is better)")
+    ax.set_ylabel(f"{measure.short} ({norm.ratio}, lower is better)")
     ax.set_title(
-        "Normalized CRPS by horizon\n"
+        f"{measure.name[0].upper()}{measure.name[1:]} by horizon\n"
         f"{len(model_names)} models, {len(corpus)} questions, "
         f"{norm.mode} normalization\n"
         f"legend ranks on the forecast horizons only ({READ_OFF_NOTE})\n"
@@ -1051,7 +1156,7 @@ def plot_normalized_by_horizon(
     )
     if ymax <= 0:
         raise ValueError(
-            "no normalized scores to plot: every forecast either failed to "
+            f"no {measure.name} scores to plot: every forecast either failed to "
             "parse or resolved on a metric with no scale under the "
             f"{norm.mode} normalization ({norm.detail})"
         )
@@ -1084,11 +1189,32 @@ def plot_normalized_by_horizon(
     )
     fig.tight_layout()
 
-    out = outdir / f"normalized_crps_by_horizon{norm_suffix(norm)}.png"
+    out = outdir / f"{measure.tag}normalized_crps_by_horizon{norm_suffix(norm)}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     report.image(out)
     return out
+
+
+def normalized_values_by_model(
+    corpus: list[dict],
+    responses: Responses,
+    model_names: list[str],
+    norm: Normalizer,
+    measure: Measure = NCRPS,
+) -> dict[str, list[float]]:
+    """Every `measure` score per model, over the forecast horizons.
+
+    What normalized_by_model averages, kept apart for the bootstrap over
+    questions behind the bar figure's intervals. The read-off horizon is left
+    out; a model with no scored forecast is absent.
+    """
+    scores: dict[str, list[float]] = {}
+    for row in score_forecasts(corpus, responses, model_names, norm):
+        if row[measure.key] is None or not is_forecast(row["horizon"]):
+            continue
+        scores.setdefault(row["model_id"], []).append(row[measure.key])
+    return scores
 
 
 def normalized_by_model(
@@ -1096,17 +1222,18 @@ def normalized_by_model(
     responses: Responses,
     model_names: list[str],
     norm: Normalizer,
+    measure: Measure = NCRPS,
 ) -> dict[str, float]:
-    """Mean normalized CRPS per model, over every forecast that normalizes.
+    """Mean `measure` per model, over every forecast that normalizes.
 
     Pools the horizons, so the read-off horizon is left out.
     """
-    scores: dict[str, list[float]] = {}
-    for row in score_forecasts(corpus, responses, model_names, norm):
-        if row["normalized"] is None or not is_forecast(row["horizon"]):
-            continue
-        scores.setdefault(row["model_id"], []).append(row["normalized"])
-    return {m: sum(v) / len(v) for m, v in scores.items()}
+    return {
+        m: sum(v) / len(v)
+        for m, v in normalized_values_by_model(
+            corpus, responses, model_names, norm, measure
+        ).items()
+    }
 
 
 def plot_overall_bars(
@@ -1116,19 +1243,22 @@ def plot_overall_bars(
     model_names: list[str],
     outdir: Path,
     norm: Normalizer,
+    measure: Measure = NCRPS,
 ) -> Path | None:
-    """Bar the pooled mean normalized CRPS per model, best-first.
+    """Bar the pooled mean `measure` per model, best-first.
 
     The report's headline: one number per model, the same one the normalized
-    table's "overall" column carries, in the order that column sorts. Returns
-    None when nothing normalized.
+    table's "overall" column carries, in the order that column sorts, with a
+    95% bootstrap interval over its questions. Returns None when nothing
+    normalized.
     """
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    scores = normalized_by_model(corpus, responses, model_names, norm)
+    values = normalized_values_by_model(corpus, responses, model_names, norm, measure)
+    scores = {m: sum(v) / len(v) for m, v in values.items()}
     ranked = sorted(
         ((m, scores[m]) for m in model_names if m in scores), key=lambda p: p[1]
     )
@@ -1154,11 +1284,12 @@ def plot_overall_bars(
         linewidth=0.6,
         zorder=3,
     )
+    tops = draw_mean_intervals(ax, list(xs), [(v, values[m]) for m, v in ranked])
 
     for x, (_m, v) in zip(xs, ranked):
         ax.annotate(
             f"{v:.3f}",
-            xy=(x, v),
+            xy=(x, tops.get(x, v)),
             xytext=(0, 3),
             textcoords="offset points",
             ha="center",
@@ -1170,10 +1301,11 @@ def plot_overall_bars(
     ax.set_xticklabels(
         [m.split("/")[-1] for m, _ in ranked], rotation=40, ha="right", fontsize=8
     )
-    ax.set_ylabel(f"Mean nCRPS ({norm.ratio})")
+    ax.set_ylabel(f"Mean {measure.short} ({norm.ratio})")
     ax.set_title(
-        f"Overall forecast skill — mean normalized CRPS, lower is better  "
-        f"({len(ranked)} models, {norm.mode} normalization)\n{READ_OFF_NOTE}"
+        f"Overall forecast skill — mean {measure.name}, lower is better  "
+        f"({len(ranked)} models, {norm.mode} normalization)\n{READ_OFF_NOTE};"
+        " bars are 95% bootstrap intervals over questions"
     )
     ax.margins(x=0.01)
     ax.grid(alpha=0.3, axis="y", zorder=0)
@@ -1185,7 +1317,7 @@ def plot_overall_bars(
     width_in = box.width * fig.get_figwidth()
     ax.set_position([box.x0, box.y0, box.width, (width_in / 4) / fig.get_figheight()])
 
-    out = outdir / f"overall_normalized_crps{norm_suffix(norm)}.png"
+    out = outdir / f"overall_{measure.tag}normalized_crps{norm_suffix(norm)}.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
     report.image(out)
@@ -1210,8 +1342,9 @@ def plot_eci_vs_normalized(
     model_names: list[str],
     outdir: Path,
     norm: Normalizer,
+    measure: Measure = NCRPS,
 ) -> Path | None:
-    """Scatter each model's ECI against its mean normalized CRPS.
+    """Scatter each model's ECI against its mean `measure`.
 
     Tests whether forecasting this world tracks general capability. Returns None
     when too few models carry an ECI score for a correlation to mean anything.
@@ -1227,7 +1360,7 @@ def plot_eci_vs_normalized(
     import matplotlib.pyplot as plt
     from scipy import stats
 
-    scores = normalized_by_model(corpus, responses, model_names, norm)
+    scores = normalized_by_model(corpus, responses, model_names, norm, measure)
     forecasts = forecast_questions(corpus)
     # Carries each model's index in the config's order, so its color and marker
     # here are the ones the horizon figure gave it and the two can be read
@@ -1246,7 +1379,7 @@ def plot_eci_vs_normalized(
     )
     if len(points) < 4:
         report.text(
-            f"ECI vs normalized CRPS: only {len(points)} model(s) have an ECI "
+            f"ECI vs {measure.name}: only {len(points)} model(s) have an ECI "
             "score; skipping the plot."
         )
         return None
@@ -1264,22 +1397,22 @@ def plot_eci_vs_normalized(
             for r in score_forecasts(corpus, responses, model_names, norm)
             if is_forecast(r["horizon"])
         ],
-        "normalized",
+        measure.key,
         model_names,
         ALL,
     )
     if c is None:
         report.text(
-            "ECI vs normalized CRPS: no spread to correlate; skipping the plot."
+            f"ECI vs {measure.name}: no spread to correlate; skipping the plot."
         )
         return None
     rho, p_rho, r, p_r = c.rho, c.rho_p, c.r, c.r_p
 
-    report.heading(f"ECI vs mean normalized CRPS (Spearman) — {READ_OFF_NOTE}")
+    report.heading(f"ECI vs mean {measure.name} (Spearman) — {READ_OFF_NOTE}")
     lines = format_scatter_correlations(c) + [
         (
-            "nCRPS is lower-is-better, so ρ<0 means the more capable models"
-            f" forecast better (pro-g). {BOOTSTRAP_NOTE}"
+            f"{measure.short} is lower-is-better, so ρ<0 means the more capable"
+            f" models forecast better (pro-g). {BOOTSTRAP_NOTE}"
         )
     ]
     if skipped:
@@ -1322,9 +1455,9 @@ def plot_eci_vs_normalized(
     )
 
     ax.set_xlabel("ECI (Epoch capability index)")
-    ax.set_ylabel(f"Mean normalized CRPS ({norm.ratio}, lower is better)")
+    ax.set_ylabel(f"Mean {measure.name} ({norm.ratio}, lower is better)")
     ax.set_title(
-        f"Forecast skill vs. ECI  ({len(points)} models,"
+        f"Forecast skill vs. ECI — {measure.short}  ({len(points)} models,"
         f" {len(forecasts)} questions)\n{READ_OFF_NOTE}"
         + ("; bars are 95% CIs over questions" if bars else "")
     )
@@ -1350,7 +1483,7 @@ def plot_eci_vs_normalized(
     )
     fig.tight_layout()
 
-    out = outdir / f"eci_vs_normalized_crps{norm_suffix(norm)}.png"
+    out = outdir / f"eci_vs_{measure.tag}normalized_crps{norm_suffix(norm)}.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     report.image(out)
@@ -1367,14 +1500,15 @@ def normalized_by_model_and_horizon(
     responses: Responses,
     model_names: list[str],
     norm: Normalizer,
+    measure: Measure = NCRPS,
 ) -> dict[int, dict[str, float]]:
-    """Mean normalized CRPS per model, per horizon."""
+    """Mean `measure` per model, per horizon."""
     per_horizon: dict[int, dict[str, list[float]]] = {}
     for row in score_forecasts(corpus, responses, model_names, norm):
-        if row["normalized"] is None:
+        if row[measure.key] is None:
             continue
         by_model = per_horizon.setdefault(row["horizon"], {})
-        by_model.setdefault(row["model_id"], []).append(row["normalized"])
+        by_model.setdefault(row["model_id"], []).append(row[measure.key])
     return {
         h: {m: sum(v) / len(v) for m, v in by_model.items()}
         for h, by_model in per_horizon.items()
@@ -1545,6 +1679,53 @@ def _percentile_interval(values, resamples: int) -> tuple[float, float] | None:
         return None
     lo, hi = np.percentile(values, [2.5, 97.5])
     return float(lo), float(hi)
+
+
+def bootstrap_mean_ci(
+    values: list[float],
+    resamples: int = BOOTSTRAP_RESAMPLES,
+    seed: int = BOOTSTRAP_SEED,
+) -> tuple[float, float] | None:
+    """95% percentile-bootstrap interval of the mean of `values`, over items.
+
+    The per-model interval of the bar figures: the questions are resampled
+    with replacement and the mean recomputed each time. None below two items.
+    """
+    import numpy as np
+
+    arr = np.asarray(values, dtype=float)
+    if len(arr) < 2:
+        return None
+    means = arr[resample_indices(len(arr), resamples, seed)].mean(axis=1)
+    return _percentile_interval(means, resamples)
+
+
+def draw_mean_intervals(ax, xs: list, bars: list[tuple[float, list[float]]]) -> dict:
+    """Error bars on a bar chart: one bootstrap_mean_ci per (mean, items).
+
+    Returns each bar's interval top by x, so a value label can clear it.
+    """
+    lows, highs, at, tops = [], [], [], {}
+    for x, (mean, items) in zip(xs, bars):
+        ci = bootstrap_mean_ci(items)
+        if ci is None:
+            continue
+        at.append(x)
+        lows.append(mean - ci[0])
+        highs.append(ci[1] - mean)
+        tops[x] = ci[1]
+    if at:
+        ax.errorbar(
+            at,
+            [bars[xs.index(x)][0] for x in at],
+            yerr=[lows, highs],
+            fmt="none",
+            ecolor="#333333",
+            elinewidth=1.0,
+            capsize=3,
+            zorder=4,
+        )
+    return tops
 
 
 def correlate(
@@ -1762,9 +1943,10 @@ def report_correlations(
     responses: Responses,
     model_names: list[str],
     norm: Normalizer,
+    measure: Measure = NCRPS,
 ) -> None:
-    """The correlation table: every predictor against mean nCRPS, pooled and
-    per horizon, with both intervals. Written whether or not figures are."""
+    """The correlation table: every predictor against mean `measure`, pooled
+    and per horizon, with both intervals. Written whether or not figures are."""
     rows = score_forecasts(corpus, responses, model_names, norm)
     predictors = [("ECI", by_model_id(eci_by_name(model_names), model_names))]
     knowledge = knowledge_predictor(model_names)
@@ -1780,17 +1962,17 @@ def report_correlations(
         for horizon_name, slice_rows in slices
         if (
             c := correlate(
-                name, predictor, slice_rows, "normalized", model_names, horizon_name
+                name, predictor, slice_rows, measure.key, model_names, horizon_name
             )
         )
         is not None
     ]
-    report.heading(f"Correlations with capability — nCRPS ({norm.mode})")
+    report.heading(f"Correlations with capability — {measure.short} ({norm.mode})")
     report.text(
-        "Spearman ρ and Pearson r between each predictor and the mean normalized"
-        f" CRPS per model, pooled ({READ_OFF_NOTE}) and per horizon; nCRPS is"
-        " lower-is-better, so a negative coefficient means the more capable"
-        f" models forecast better. {BOOTSTRAP_NOTE}"
+        "Spearman ρ and Pearson r between each predictor and the mean"
+        f" {measure.name} per model, pooled ({READ_OFF_NOTE}) and per horizon;"
+        f" {measure.short} is lower-is-better, so a negative coefficient means"
+        f" the more capable models forecast better. {BOOTSTRAP_NOTE}"
     )
     if not correlations:
         report.text("Too few models with a predictor to correlate.")
@@ -2200,6 +2382,7 @@ def plot_predictors_correlation_by_horizon(
     model_names: list[str],
     outdir: Path,
     norm: Normalizer,
+    measure: Measure = NCRPS,
 ) -> Path | None:
     """Compare ECI and knowledge-eval score as predictors of forecast skill.
 
@@ -2237,7 +2420,9 @@ def plot_predictors_correlation_by_horizon(
         ("Knowledge score", "#c2432d", knowledge),
     ]
 
-    by_horizon = normalized_by_model_and_horizon(corpus, responses, model_names, norm)
+    by_horizon = normalized_by_model_and_horizon(
+        corpus, responses, model_names, norm, measure
+    )
     rows = score_forecasts(corpus, responses, model_names, norm)
     restricted = [
         (label, color, {k: v for k, v in predictor.items() if k in shared})
@@ -2246,7 +2431,7 @@ def plot_predictors_correlation_by_horizon(
     series = []
     for label, color, predictor in restricted:
         results = correlate_rows_by_horizon(
-            by_model_id(predictor, model_names), rows, "normalized", model_names
+            by_model_id(predictor, model_names), rows, measure.key, model_names
         )
         if results:
             series.append((label, color, results))
@@ -2259,7 +2444,8 @@ def plot_predictors_correlation_by_horizon(
         return None
 
     report.heading(
-        f"Predictors of nCRPS by horizon (Spearman, {len(shared)} shared models)"
+        f"Predictors of {measure.short} by horizon (Spearman, {len(shared)}"
+        " shared models)"
     )
     lines = []
     for label, _color, results in series:
@@ -2283,8 +2469,10 @@ def plot_predictors_correlation_by_horizon(
         ax,
         series,
         "What predicts forecast skill: general capability or world knowledge?\n"
-        f"{len(shared)} models with both scores, {len(corpus)} questions",
+        f"{measure.short}: {len(shared)} models with both scores,"
+        f" {len(corpus)} questions",
     )
+    ax.set_ylabel(f"Spearman ρ vs. mean {measure.short}")
     annotate_read_off(ax, series[0][2])
     handles, labels = ax.get_legend_handles_labels()
     extra = significance_handles("#666666", plt) + band_handles("#666666", plt)
@@ -2297,7 +2485,10 @@ def plot_predictors_correlation_by_horizon(
     )
     fig.tight_layout()
 
-    out = outdir / f"predictors_correlation_by_horizon{norm_suffix(norm)}.png"
+    out = (
+        outdir
+        / f"{measure.tag}predictors_correlation_by_horizon{norm_suffix(norm)}.png"
+    )
     fig.savefig(out, dpi=150)
     plt.close(fig)
     report.image(out)
@@ -2377,11 +2568,20 @@ def main() -> None:
             )
             for mode in NORM_MODES
         }
+        # The continuation outcomes the excess measure scores against, from
+        # the same files; a question the files hold no values for is scored
+        # under NCRPS only.
+        without_outcomes = attach_outcomes(corpus)
     except (NotImplementedError, FileNotFoundError) as e:
         sys.exit(
             f"[error] {e}\n"
             "  every normalization is computed on every run, so the ground truth "
             "is needed even for the global report"
+        )
+    if without_outcomes:
+        print(
+            f"excess: {without_outcomes} question(s) have no continuation outcomes"
+            " and get no excess CRPS"
         )
 
     # A metric with no scale and no place on the exclusion list would drop out
@@ -2408,7 +2608,17 @@ def main() -> None:
             print(f"floor:  {norm.floored.note()}")
 
         report = MdReport()
-        report.text(f"Normalized CRPS is {norm.ratio}: {norm.detail}.")
+        report.text(
+            f"Normalized CRPS is {norm.ratio}: {norm.detail}.\n\n"
+            "Two measures, each lower-is-better and each with its own section:\n"
+            + "\n".join(f"- {m.short}: {m.definition}" for m in MEASURES)
+            + (
+                f"\n\n{without_outcomes} question(s) have no continuation"
+                " outcomes and are scored under nCRPS only."
+                if without_outcomes
+                else ""
+            )
+        )
         # Beside the numbers it affected rather than only on stdout: a floored
         # cell is scored against the floor, not against its own scenario, and
         # a reader of the report alone has to be told how much of the table
@@ -2416,33 +2626,48 @@ def main() -> None:
         if norm.floored is not None:
             report.text(norm.floored.note().capitalize() + ".")
 
-        # The headline figure, so it is appended before the tables it summarizes
-        # rather than with the rest of the plots.
-        overall_bars = (
-            plot_overall_bars(report, corpus, responses, models, outdir, norm)
-            if args.plot
-            else None
-        )
-
+        # The raw table is the same under every measure, so it comes once,
+        # ahead of the two measure sections.
         print_crps_table(report, corpus, responses, models, norm)
-        print_normalized_crps_table(report, corpus, responses, models, norm)
-        print_normalized_horizon_table(report, corpus, responses, models, norm)
-        report_correlations(report, corpus, responses, models, norm)
 
-        if args.plot:
-            plots = [
-                overall_bars,
-                plot_normalized_by_horizon(
-                    report, corpus, responses, models, seed, outdir, norm
-                ),
-                plot_eci_vs_normalized(report, corpus, responses, models, outdir, norm),
-                plot_predictors_correlation_by_horizon(
-                    report, corpus, responses, models, outdir, norm
-                ),
-            ]
-            for out in plots:
-                if out is not None:
-                    print(f"Wrote {out}")
+        for measure in MEASURES:
+            report.heading(
+                f"{measure.name[0].upper()}{measure.name[1:]} — {norm.mode}",
+                level=1,
+            )
+            # The headline figure, so it is appended before the tables it
+            # summarizes rather than with the rest of the plots.
+            overall_bars = (
+                plot_overall_bars(
+                    report, corpus, responses, models, outdir, norm, measure
+                )
+                if args.plot
+                else None
+            )
+            print_normalized_crps_table(
+                report, corpus, responses, models, norm, measure
+            )
+            print_normalized_horizon_table(
+                report, corpus, responses, models, norm, measure
+            )
+            report_correlations(report, corpus, responses, models, norm, measure)
+
+            if args.plot:
+                plots = [
+                    overall_bars,
+                    plot_normalized_by_horizon(
+                        report, corpus, responses, models, seed, outdir, norm, measure
+                    ),
+                    plot_eci_vs_normalized(
+                        report, corpus, responses, models, outdir, norm, measure
+                    ),
+                    plot_predictors_correlation_by_horizon(
+                        report, corpus, responses, models, outdir, norm, measure
+                    ),
+                ]
+                for out in plots:
+                    if out is not None:
+                        print(f"Wrote {out}")
 
         out_path = report.write(
             label_dir(label) / f"analysis-crps{norm_suffix(norm)}.md",

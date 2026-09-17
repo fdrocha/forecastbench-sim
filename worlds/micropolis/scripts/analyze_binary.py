@@ -11,8 +11,13 @@ realized answer, and the excess Brier (f - p)^2 against p, the share of
 reseeded continuations that resolved Yes. The report is split into two
 sections by that p: "Mid-range probabilities" (p >= 5%) and "Tail
 probabilities" (p < 5%). The split is per question instance, so one qid can be
-mid-range in one city and tail in another. Each section has the same
-structure: a histogram of its questions per ground-truth p, the two scores
+mid-range in one city and tail in another. The tail section adds a third
+score, the excess bits KL(p || f) — the log loss in bits of f under the
+continuations' p, minus p's own entropy, with f clipped to [0.001, 0.999] —
+since it penalizes the ratio f/p rather than the difference, which is what
+tells forecasts apart at p below 5%. It is FreeCiv's tail score, so the two
+worlds' tail figures are on one footing. Each section has the same
+structure: a histogram of its questions per ground-truth p, the scores
 paired within each view (a per-model bar panel, a by-horizon figure), a table
 of correlations between the per-model scores and the capability predictors
 (ECI, knowledge eval), the ECI scatter and predictor comparison — every
@@ -23,8 +28,9 @@ Everything goes to one Markdown report,
 data/micropolis/binary/{label}/analysis-brier.md; --no-plot skips the figures.
 Beside it goes binary_scores.csv: one row per model x question type (mid-range
 or tail, by the same rule) x horizon in years plus an "all" horizon row, with
-the prompted and parsed counts and the mean Brier, expected Brier and excess
-Brier. And
+the prompted and parsed counts and the mean Brier, expected Brier, excess
+Brier and excess bits (the last for both types, though only reported on the
+tail). And
 results.csv: one row per model x question, with the model's forecast (nan
 when its response did not parse), the realized answer, the ground-truth p and
 the cached response file and line the forecast was read from.
@@ -77,6 +83,7 @@ from analyze_continuous import (
     Correlation,
     _mean,
     band_handles,
+    bootstrap_mean_ci,
     by_model_id,
     correlate,
     correlate_rows_by_horizon,
@@ -134,6 +141,44 @@ SCORES = [
     ),
 ]
 
+# The forecast is clipped to [BITS_CLIP, 1 - BITS_CLIP] before the log loss,
+# so a model saying 0 on a question a continuation resolved Yes is charged a
+# large finite penalty rather than an infinite one. FreeCiv's bound.
+BITS_CLIP = 0.001
+EXCESS_BITS = Score(
+    "excess_bits",
+    "excess bits",
+    f"KL(p || f) in bits: the log loss of f under p minus p's entropy, f clipped"
+    f" to [{BITS_CLIP:g}, {1 - BITS_CLIP:g}]; 0 only at f = p, and a penalty on"
+    " the ratio f/p rather than the difference",
+)
+# The tail is where the ratio matters — an always-No forecast has a near-zero
+# excess Brier there and tells the models apart on nothing — so the tail
+# section carries the excess bits as well. Each section's last score is its
+# headline: what orders the models in its figures.
+SCORES_BY_SECTION = {MID_RANGE: SCORES, TAIL: SCORES + [EXCESS_BITS]}
+
+
+def scores_for(section_key: str) -> list[Score]:
+    """The scores a section reports, headline last."""
+    return SCORES_BY_SECTION[section_key]
+
+
+def excess_bits(forecast: float, p: float) -> float:
+    """KL(p || forecast) in bits, the forecast clipped to [BITS_CLIP, 1 - BITS_CLIP].
+
+    The log loss of the forecast under the continuations' p, less the entropy
+    of p, so the irreducible part is removed and only miscalibration remains.
+    """
+    f = min(max(forecast, BITS_CLIP), 1 - BITS_CLIP)
+    bits = 0.0
+    if p > 0:
+        bits += p * math.log2(p / f)
+    if p < 1:
+        bits += (1 - p) * math.log2((1 - p) / (1 - f))
+    return bits
+
+
 PLOT_BLUE = "#3266a8"
 
 # Bins for the calibration line. Ten over ~1700 tail forecasts per model
@@ -162,9 +207,9 @@ def score_forecasts_binary(
     model_names: list[str],
     truths: dict[str, Truth],
 ) -> list[dict]:
-    """One row per parsed forecast: its Brier score, its excess Brier,
-    its expected Brier score, the forecast and ground truth behind them, and
-    its qid and horizon.
+    """One row per parsed forecast: its Brier score, its excess Brier, its
+    excess bits, its expected Brier score, the forecast and ground truth
+    behind them, and its qid and horizon.
 
     The binary counterpart of continuous_eval.score_forecasts. The scores are
     unitless and bounded, so there is no normalized twin. The expected Brier
@@ -191,6 +236,7 @@ def score_forecasts_binary(
                     "excess_brier": (r.probability - truth.p) ** 2,
                     "expected_brier": (r.probability - truth.p) ** 2
                     + truth.p * (1 - truth.p),
+                    "excess_bits": excess_bits(r.probability, truth.p),
                 }
             )
     return rows
@@ -234,6 +280,7 @@ SCORES_CSV_COLUMNS = [
     "brier",
     "expected_brier",
     "excess_brier",
+    "excess_bits",
 ]
 
 
@@ -292,7 +339,7 @@ def scores_csv_rows(
                     ),
                     "nvalid": len(valid),
                 }
-                for key in ("brier", "expected_brier", "excess_brier"):
+                for key in ("brier", "expected_brier", "excess_brier", "excess_bits"):
                     row[key] = nan_mean([r[key] for r in valid])
                 rows.append(row)
     return rows
@@ -485,16 +532,20 @@ def section_correlations(
 
 
 def report_correlations(
-    report: MdReport, rows: list[dict], model_names: list[str], section: str
+    report: MdReport,
+    rows: list[dict],
+    model_names: list[str],
+    section: str,
+    scores: list[Score],
 ) -> None:
     """The correlation table per score, ahead of the figures that draw them."""
     report.heading(f"Correlations with capability — {section}")
     report.text(
         "Spearman ρ and Pearson r between each predictor and the mean score per"
-        " model, pooled and per horizon; both scores are lower-is-better, so a"
+        " model, pooled and per horizon; every score is lower-is-better, so a"
         f" negative coefficient means the more capable models forecast better. {BOOTSTRAP_NOTE}"
     )
-    for score in SCORES:
+    for score in scores:
         correlations = section_correlations(rows, model_names, score)
         if not correlations:
             report.text(f"{score.name}: too few models with a predictor to correlate.")
@@ -511,31 +562,34 @@ def plot_score_bars(
     outdir: Path,
     section: str,  # display name, for titles
     prefix: str,  # qid prefix, for figure filenames
+    scores: list[Score],
 ) -> Path:
-    """Mean Brier and mean excess Brier per model, as stacked bar panels.
+    """The mean of each of the section's scores per model, as stacked bar panels.
 
-    Replaces the two models x horizons tables. Those split each model's score
+    Replaces the models x horizons tables. Those split each model's score
     across horizons; this pools it and puts the models side by side, which is
     the comparison the section is actually for — the horizon breakdown lives
-    in the by-horizon figures below. Both panels share the x axis, ordered by
-    excess Brier, so a model's two bars sit in one column and the panels can be
-    read against each other: where the Brier order departs from the excess
-    Brier order is a model whose accuracy and whose calibration disagree.
+    in the by-horizon figures below. The panels share the x axis, ordered by
+    the section's headline score (the last one), so a model's bars sit in one
+    column and the panels can be read against each other: where the Brier
+    order departs from the excess order is a model whose accuracy and whose
+    calibration disagree. Each bar carries a 95% bootstrap interval over the
+    section's questions.
     """
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    brier, excess = SCORES
-    by_score = {score.key: score_by_model(rows, model_names, score) for score in SCORES}
-    # Sorted by excess Brier, best first; a model with nothing to average
-    # sorts last rather than crashing the compare.
+    headline = scores[-1]
+    by_score = {score.key: score_by_model(rows, model_names, score) for score in scores}
+    # Sorted by the headline score, best first; a model with nothing to
+    # average sorts last rather than crashing the compare.
     ordered = sorted(
         model_names,
         key=lambda m: (
-            m not in by_score[excess.key],
-            by_score[excess.key].get(m, 0.0),
+            m not in by_score[headline.key],
+            by_score[headline.key].get(m, 0.0),
         ),
     )
 
@@ -544,9 +598,11 @@ def plot_score_bars(
     # labels do not collide.
     width = max(0.62 * len(ordered) + 2.2, 9.0)
     panel_h = width / 4
-    fig, axes = plt.subplots(2, 1, figsize=(width, 2 * panel_h + 1.5), sharex=True)
+    fig, axes = plt.subplots(
+        len(scores), 1, figsize=(width, len(scores) * panel_h + 1.5), sharex=True
+    )
 
-    for ax, score in zip(axes, SCORES):
+    for ax, score in zip(axes, scores):
         values = [by_score[score.key].get(m) for m in ordered]
         ax.bar(
             range(len(ordered)),
@@ -557,12 +613,40 @@ def plot_score_bars(
             linewidth=0.5,
             zorder=3,
         )
+        intervals = [
+            (i, v, ci)
+            for i, (m, v) in enumerate(zip(ordered, values))
+            if v is not None
+            and (
+                ci := bootstrap_mean_ci(
+                    [r[score.key] for r in rows if r["model_id"] == m]
+                )
+            )
+            is not None
+        ]
+        if intervals:
+            ax.errorbar(
+                [i for i, _, _ in intervals],
+                [v for _, v, _ in intervals],
+                yerr=[
+                    [v - ci[0] for _, v, ci in intervals],
+                    [ci[1] - v for _, v, ci in intervals],
+                ],
+                fmt="none",
+                ecolor="#333333",
+                elinewidth=0.9,
+                capsize=2.5,
+                zorder=4,
+            )
+        # The value label sits above the interval where there is one, so
+        # the cap does not strike through the digits.
+        tops = {i: ci[1] for i, _, ci in intervals}
         for i, v in enumerate(values):
             if v is None:
                 continue
             ax.text(
                 i,
-                v,
+                tops.get(i, v),
                 f"{v:.3f}".removeprefix("0"),
                 ha="center",
                 va="bottom",
@@ -584,8 +668,8 @@ def plot_score_bars(
     )
     fig.suptitle(
         f"Forecast skill by model — {section}\n"
-        f"models ordered by {excess.name}, best first;"
-        f" {len(corpus)} questions",
+        f"models ordered by {headline.name}, best first;"
+        f" {len(corpus)} questions; bars are 95% bootstrap intervals over questions",
         fontsize=10,
     )
     fig.tight_layout()
@@ -594,7 +678,8 @@ def plot_score_bars(
     fig.savefig(out, dpi=150)
     plt.close(fig)
 
-    report.heading(f"Mean {brier.name} and {excess.name} by model — {section}")
+    names = [s.name for s in scores]
+    report.heading(f"Mean {', '.join(names[:-1])} and {names[-1]} by model — {section}")
     report.image(out)
     return out
 
@@ -607,13 +692,15 @@ def plot_scores_by_horizon(
     outdir: Path,
     section: str,  # display name, for titles
     prefix: str,  # qid prefix, for figure filenames
+    scores: list[Score],
 ) -> Path:
-    """Scatter both scores against horizon, one series per model, two panels.
+    """Scatter the section's scores against horizon, one series per model, a
+    panel per score.
 
     Shows how sharply accuracy decays with distance and which models depart
     from the pack. The mean over models is a thick line in each panel, so it
-    reads as the summary rather than as one more model. Both panels share the
-    x axis and one legend, ordered by excess Brier like the bar figure,
+    reads as the summary rather than as one more model. The panels share the
+    x axis and one legend, ordered by the headline score like the bar figure,
     so a model keeps one legend position across the whole section. Its color
     and marker come from model_style, keyed on its index in the config's
     order, so they are the ones the ECI figures and the continuous report use.
@@ -638,12 +725,12 @@ def plot_scores_by_horizon(
             }
             for model_id in model_names
         }
-        for score in SCORES
+        for score in scores
     }
 
-    # One legend slot per model across both panels, ordered by excess Brier
-    # to match the bar figure above.
-    excess = SCORES[1]
+    # One legend slot per model across the panels, ordered by the headline
+    # score to match the bar figure above.
+    excess = scores[-1]
     overall = score_by_model(rows, model_names, excess)
     ordered = sorted(model_names, key=lambda m: (m not in overall, overall.get(m, 0.0)))
 
@@ -664,8 +751,8 @@ def plot_scores_by_horizon(
     panel_h = panel_w / 2
     title_h, xlabel_h, gap_h = 0.75, 0.75, 0.5
     width = panel_w + legend_w + 0.85
-    height = 2 * panel_h + title_h + xlabel_h + gap_h
-    fig, axes = plt.subplots(2, 1, figsize=(width, height), sharex=True)
+    height = len(scores) * panel_h + title_h + xlabel_h + (len(scores) - 1) * gap_h
+    fig, axes = plt.subplots(len(scores), 1, figsize=(width, height), sharex=True)
     fig.subplots_adjust(
         left=0.85 / width,
         right=(0.85 + panel_w) / width,
@@ -674,7 +761,7 @@ def plot_scores_by_horizon(
         hspace=gap_h / panel_h,
     )
 
-    for ax, score in zip(axes, SCORES):
+    for ax, score in zip(axes, scores):
         by_model = by_score[score.key]
         for i, model_id in enumerate(model_names):
             points = [
@@ -1042,6 +1129,7 @@ def plot_calibration(
     section: str,  # display name, for titles
     prefix: str,  # qid prefix, for figure filenames
     log: bool,
+    headline: Score,
 ) -> Path:
     """One scatter per model of ground-truth p against forecast f, in three columns.
 
@@ -1051,15 +1139,14 @@ def plot_calibration(
     its probabilities span two decades, and there a zero — a question no
     continuation resolved Yes, or a model that answered 0 anyway — is clipped
     to half a continuation's worth so it stays on the page rather than
-    vanishing at -inf. Panels sort best-first by mean excess Brier.
+    vanishing at -inf. Panels sort best-first by the section's headline score.
     """
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    excess = SCORES[1]
-    overall = score_by_model(rows, model_names, excess)
+    overall = score_by_model(rows, model_names, headline)
     ordered = sorted(model_names, key=lambda m: overall.get(m, math.inf))
     ncols = 3
     nrows = math.ceil(len(ordered) / ncols)
@@ -1125,7 +1212,7 @@ def plot_calibration(
         ax.set_aspect("equal")
         ax.grid(alpha=0.3, zorder=0)
         mean = overall.get(model_id)
-        note = f"excess Brier {mean:.4f}" if mean is not None else "no forecasts"
+        note = f"{headline.name} {mean:.4f}" if mean is not None else "no forecasts"
         # Three columns leaves little width, so the count and the score share
         # a line and the clipped-zero count gets its own.
         lines = [model_id.split("/")[-1], f"{len(mine)} forecasts, {note}"]
@@ -1154,7 +1241,7 @@ def plot_calibration(
     scale = "log-log; zeros drawn at half a continuation" if log else "linear"
     fig.suptitle(
         f"Calibration: ground truth vs. forecast — {section} ({scale})\n"
-        "dashed diagonal is perfect calibration; panels sorted best-first",
+        f"dashed diagonal is perfect calibration; panels sorted best-first by {headline.name}",
         y=0.995,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.98))
@@ -1233,9 +1320,12 @@ def main() -> None:
 
     report = MdReport()
     report.text(
-        "Scores per forecast f, both lower-is-better:\n"
-        + "\n".join(f"- {s.name}: {s.definition}" for s in SCORES)
-        + f"\n\n{SCORES_CSV_NAME} carries their means per model, question type"
+        "Scores per forecast f, all lower-is-better:\n"
+        + "\n".join(f"- {s.name}: {s.definition}" for s in SCORES + [EXCESS_BITS])
+        + f"\n\nThe {EXCESS_BITS.name} are reported on the tail section only, where"
+        " the ratio f/p is what separates forecasts; each section's figures order"
+        " the models by its last score."
+        f"\n\n{SCORES_CSV_NAME} carries their means per model, question type"
         " and horizon, plus the expected Brier score (f - p)^2 + p(1 - p):"
         " the excess Brier plus the event's own variance."
     )
@@ -1248,6 +1338,7 @@ def main() -> None:
         # The prefix of every per-score call below, spelled once.
         common = (report, section_corpus, rows, models, outdir, section, prefix)
         log = prefix == TAIL
+        scores = scores_for(prefix)
 
         report.heading(f"{section} — {description}", level=1)
         if args.plot:
@@ -1257,22 +1348,18 @@ def main() -> None:
                 )
             )
 
-        # The two scores are shown side by side per view rather than in two
-        # separate runs of every view: the pair invites comparison — where a
-        # model's Brier and its excess Brier disagree is the interesting
-        # cell — and that reads far better adjacent than a page apart.
+        # The scores are shown side by side per view rather than in separate
+        # runs of every view: the pair invites comparison — where a model's
+        # Brier and its excess Brier disagree is the interesting cell — and
+        # that reads far better adjacent than a page apart.
         if args.plot:
-            written.append(
-                plot_score_bars(
-                    report, section_corpus, rows, models, outdir, section, prefix
-                )
-            )
-            written.append(plot_scores_by_horizon(*common))
+            written.append(plot_score_bars(*common, scores))
+            written.append(plot_scores_by_horizon(*common, scores))
         # The table stands whether or not the figures are drawn: it is the
         # report's statement of the correlations, the figures illustrate it.
-        report_correlations(report, rows, models, section)
+        report_correlations(report, rows, models, section, scores)
         if args.plot:
-            for score in SCORES:
+            for score in scores:
                 written += [
                     p
                     for p in [
@@ -1293,6 +1380,7 @@ def main() -> None:
                     section,
                     prefix,
                     log,
+                    scores[-1],
                 )
             )
 

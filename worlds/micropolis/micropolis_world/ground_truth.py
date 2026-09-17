@@ -441,6 +441,19 @@ def load_averages(corpus: list[dict]) -> dict[str, float | None]:
     }
 
 
+def load_outcomes(corpus: list[dict]) -> dict[str, list[float] | None]:
+    """Every continuation's outcome per question_id: the "values" entry, by metric.
+
+    The replay distribution excess CRPS is scored against. None where the file
+    has no values for that metric.
+    """
+    lines = lines_for(corpus)
+    return {
+        c["question_id"]: lines[c["question_id"]]["values"].get(c["metric"]) or None
+        for c in corpus
+    }
+
+
 def load_expected_persistence(
     corpus: list[dict], snapshots: dict[tuple[str, int], dict | None]
 ) -> dict[str, float | None]:

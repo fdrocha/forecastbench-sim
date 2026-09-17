@@ -149,11 +149,32 @@ def test_write_scores_csv_columns_and_nan(tmp_path):
         reader = csv.DictReader(f)
         assert reader.fieldnames == [
             "model", "question_type", "horizon", "nforecasts", "nvalid",
-            "brier", "expected_brier", "excess_brier",
+            "brier", "expected_brier", "excess_brier", "excess_bits",
         ]  # fmt: skip
         back = {(r["question_type"], r["horizon"]): r for r in reader}
     assert back["mid-range", "10y"]["brier"] == "nan"
     assert float(back["tail", "5y"]["excess_brier"]) == pytest.approx(0.19**2)
+    # KL(0.01 || 0.2) in bits, for the tail forecast of 0.2 at p = 0.01.
+    assert float(back["tail", "5y"]["excess_bits"]) == pytest.approx(
+        0.01 * math.log2(0.01 / 0.2) + 0.99 * math.log2(0.99 / 0.8)
+    )
+
+
+def test_excess_bits_is_kl_with_a_clipped_forecast():
+    module = load_module()
+    # 0 only at f = p, and symmetric in neither argument.
+    assert module.excess_bits(0.3, 0.3) == pytest.approx(0.0)
+    assert module.excess_bits(0.5, 0.0) == pytest.approx(1.0)
+    # A forecast of 0 is clipped to BITS_CLIP, not scored at -inf.
+    assert module.excess_bits(0.0, 0.01) == pytest.approx(
+        0.01 * math.log2(0.01 / 0.001) + 0.99 * math.log2(0.99 / 0.999)
+    )
+    assert module.excess_bits(1.0, 0.0) == pytest.approx(-math.log2(0.001))
+    # KL(p || f) = log loss under p minus the entropy of p.
+    p, f = 0.02, 0.05
+    logloss = -(p * math.log2(f) + (1 - p) * math.log2(1 - f))
+    entropy = -(p * math.log2(p) + (1 - p) * math.log2(1 - p))
+    assert module.excess_bits(f, p) == pytest.approx(logloss - entropy)
 
 
 def test_results_csv_one_row_per_model_and_question(tmp_path):

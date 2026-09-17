@@ -174,8 +174,12 @@ def test_write_scores_csv_columns_and_nan(tmp_path):
         assert reader.fieldnames == [
             "model", "metric", "horizon", "nforecasts", "nvalid", "CRPS",
             "nCRPS_global", "nCRPS_local", "nCRPS_baseline",
+            "excess_CRPS", "excess_nCRPS_global", "excess_nCRPS_local", "excess_nCRPS_baseline",
         ]  # fmt: skip
         back = {(r["metric"], r["horizon"]): r for r in reader}
     assert back["all", "all"]["CRPS"] == "nan"
+    # No continuation outcomes on this corpus, so no excess anywhere.
+    assert back["population", "1y"]["excess_CRPS"] == "nan"
+    assert back["population", "1y"]["excess_nCRPS_global"] == "nan"
     assert back["population", "1y"]["model"] == MODEL
     assert float(back["population", "1y"]["nCRPS_local"]) == pytest.approx(0.2)

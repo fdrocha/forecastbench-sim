@@ -185,12 +185,22 @@ its configs and `plot_forecasts.py` has its own:
   `--norm-global-frac` (config `norm_global_frac`, default 1%) of the metric's global
   scale, since a metric that provably cannot move gives a denominator of 0; stdout and
   each report say how many questions that floor bound. The modes are not comparable
-  with each other, so every table and figure states the one it used. Beside the reports
+  with each other, so every table and figure states the one it used. Every normalized
+  view comes once per `Measure`: `NCRPS` scores the percentiles against the one realized
+  continuation; `EXCESS` (FreeCiv's excess CRPS) scores them against every ground-truth
+  continuation (`continuous_eval.crps_distribution`, the mean five-quantile pinball loss)
+  minus the floor the continuations' own quantiles score (`crps_floor`, `np.quantile`
+  `inverted_cdf`), divided by the same scale. `attach_outcomes` puts the continuation
+  values and floor on each corpus dict (`"outcomes"`, `"crps_floor"`) before scoring;
+  `score_forecasts` rows then carry `crps_dist`, `excess_crps`, `excess_normalized` (None
+  without them). Bar figures carry 95% bootstrap intervals over questions
+  (`bootstrap_mean_ci`). Beside the reports
   it writes `continuous_scores.csv` (one file, unsuffixed): one row per model × metric ×
   horizon-in-years plus `all` pooled rows, with `nforecasts` (prompted), `nvalid`
-  (parsed), raw `CRPS` (nan on the pooled-metric rows) and
-  `nCRPS_{global,local,baseline}` side by side. Pooled rows and the tables' `mean`
-  column both average datapoints, not per-metric means.
+  (parsed), raw `CRPS` (nan on the pooled-metric rows),
+  `nCRPS_{global,local,baseline}`, then `excess_CRPS` and `excess_nCRPS_{mode}` side by
+  side. Pooled rows and the tables' `mean` column both average datapoints, not
+  per-metric means.
 - `analyze_baseline_skill.py` — same forecasts scored against a naive (`plain`/`sigma`)
   no-change baseline, so 1.0 is the meaningful zero point.
 - `analyze_skill_by_config.py` — that skill compared across several configs (many-config
@@ -219,7 +229,11 @@ Binary forecasting eval (P(Yes), `data/micropolis/binary/`, spec in `binary_fore
   row per model × question type (`mid-range`/`tail`, the same rule) × horizon in years and
   an `all` horizon row, with `nforecasts` (prompted),
   `nvalid` (parsed) and the mean `brier`, `expected_brier`
-  ((f - p)^2 + p(1 - p) over the continuations' p) and `excess_brier` ((f - p)^2). The two
+  ((f - p)^2 + p(1 - p) over the continuations' p), `excess_brier` ((f - p)^2) and
+  `excess_bits` (KL(p ‖ f) in bits, f clipped to [0.001, 0.999] — FreeCiv's tail score).
+  The tail section reports the excess bits as a third score (`scores_for`; a section's
+  last score is its headline and orders its figures), the mid-range one does not, though
+  the CSV carries the column for both. The two
   question types are never pooled. Pooled rows average datapoints, not per-horizon means.
   Also `results.csv`: one row per model × question with `seed`, `city`, `disasters` (1/0),
   `snapshot_turn`, `horizon` (turns), the short `question_id` (A1, B3, …), the model's

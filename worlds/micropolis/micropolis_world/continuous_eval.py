@@ -83,6 +83,74 @@ GLOBAL_SCALES: dict[str, float] = {
 # figures and CSV columns come out.
 NORM_MODES = ("global", "local", "baseline")
 
+# The five quantile levels a forecast carries, in compute_crps's order.
+PERCENTILE_LEVELS: dict[str, float] = {
+    "p10": 0.10,
+    "p25": 0.25,
+    "p50": 0.50,
+    "p75": 0.75,
+    "p90": 0.90,
+}
+
+
+def quantile_array(percentiles: dict[str, float]):
+    """A forecast's five quantiles as an array, in PERCENTILE_LEVELS order."""
+    import numpy as np
+
+    return np.array([percentiles[k] for k in PERCENTILE_LEVELS], dtype=float)
+
+
+def crps_distribution(quantiles, outcomes) -> float:
+    """compute_crps of `quantiles` averaged over every value in `outcomes`.
+
+    The five-quantile pinball approximation of CRPS, (2/5) sum_tau rho_tau,
+    scored against the whole replay distribution rather than one draw from
+    it; with a single outcome it equals compute_crps exactly.
+    """
+    import numpy as np
+
+    taus = np.fromiter(PERCENTILE_LEVELS.values(), dtype=float)
+    d = np.asarray(outcomes, dtype=float)[:, None] - np.asarray(quantiles)[None, :]
+    loss = np.where(d >= 0, taus * d, (taus - 1) * d)
+    return float(2 * loss.sum(axis=1).mean() / len(taus))
+
+
+def crps_floor(outcomes) -> float:
+    """The best crps_distribution five quantiles can reach on `outcomes`.
+
+    Scores the outcomes' own quantiles at the five levels (np.quantile,
+    "inverted_cdf") against the outcomes, so it is what a forecast equal to
+    the replay distribution would get; the excess CRPS subtracts it.
+    """
+    import numpy as np
+
+    values = np.asarray(outcomes, dtype=float)
+    levels = list(PERCENTILE_LEVELS.values())
+    return crps_distribution(np.quantile(values, levels, method="inverted_cdf"), values)
+
+
+def attach_outcomes(corpus: list[dict]) -> int:
+    """Put each question's continuation outcomes and CRPS floor on its dict.
+
+    Sets "outcomes" (an array) and "crps_floor" on every corpus question the
+    ground truth covers, which is what score_forecasts reads to compute the
+    excess CRPS; a question without them gets no excess score. Returns how
+    many questions were left without. Errors, like every ground-truth loader,
+    when a file the corpus needs is missing.
+    """
+    import numpy as np
+
+    from .ground_truth import load_outcomes
+
+    missing = 0
+    for c, values in zip(corpus, load_outcomes(corpus).values(), strict=True):
+        if values is None:
+            missing += 1
+            continue
+        c["outcomes"] = np.asarray(values, dtype=float)
+        c["crps_floor"] = crps_floor(c["outcomes"])
+    return missing
+
 
 @dataclass(frozen=True)
 class Floored:
@@ -688,9 +756,17 @@ def score_forecasts(
     is the same under every mode. "normalized" is CRPS over `norm`'s scale for
     that question, and is None where the question has no scale, so a caller
     averaging it must skip the Nones.
+
+    Where the question carries its continuation outcomes (attach_outcomes),
+    the row also has "crps_dist", the forecast's CRPS against the whole replay
+    distribution; "excess_crps", that minus the question's floor — 0 only for
+    a forecast equal to the replay distribution — and "excess_normalized",
+    the excess over the same scale as "normalized". All three are None
+    otherwise.
     """
     rows = []
     for c in corpus:
+        outcomes = c.get("outcomes")
         for model_id in model_names:
             r = responses.get(ResponseId(model_id, c["question_id"]))
             if r is None or r.percentiles is None:
@@ -701,6 +777,10 @@ def score_forecasts(
             # happens to sit there, and dividing by it would raise several
             # frames from the cause.
             scale = norm.scale(c)
+            dist = excess = None
+            if outcomes is not None:
+                dist = crps_distribution(quantile_array(r.percentiles), outcomes)
+                excess = dist - c["crps_floor"]
             rows.append(
                 {
                     "model_id": model_id,
@@ -709,6 +789,11 @@ def score_forecasts(
                     "horizon": c["horizon"],
                     "crps": crps,
                     "normalized": crps / scale if scale else None,
+                    "crps_dist": dist,
+                    "excess_crps": excess,
+                    "excess_normalized": (
+                        excess / scale if scale and excess is not None else None
+                    ),
                 }
             )
     return rows
