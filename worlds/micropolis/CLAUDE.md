@@ -73,6 +73,24 @@ and the structural constraints (§5). Read it before touching resolution.
 
 ## Conventions
 
+- **Ask before building, do not guess.** On any task with a choice this file does not
+  settle — a figure's style, which slice a number comes from, what a script's flag means —
+  ask until the answer is certain rather than picking a plausible default. Fabio says this
+  explicitly on most paper-pipeline requests; it holds whether or not he repeats it. A
+  wrong guess here is expensive: these outputs are cited in a paper, and a figure that
+  looks right with the wrong slice behind it is worse than no figure.
+- **The paper's names for the two binary sections are "Binary" and "Tail".** "Binary" is
+  the mid-range questions (p >= 5%, code key `mid-range`), "Tail" the tail-probability
+  ones (p < 5%, key `tail`) — so the pair reads unambiguously, since "binary" covers both
+  literally. Use these in captions, panel labels, macro names and prose; keep the code's
+  `mid-range`/`tail` keys as the data's own.
+- **Correlations in the paper are sign-adjusted; in the reports they are not.** The
+  article's convention is ECI against *minus* the score, so a positive rho means more
+  capable models forecast better. `analyze_paper.py` flips the sign for its stdout,
+  its macros and `fig_micropolis_capability.pdf`; `analyze_binary.py`/
+  `analyze_continuous.py` and everything under `figures/extra/` keep the raw negative
+  rho, which is what `analysis-brier.md` and the eval reports show. State the convention
+  wherever a number appears.
 - **Configs, not flags.** Every script takes a JSON5 config as its first positional arg
   (`config.add_config_args` / `load_config(s)`; wrap `main` in `@main_with_config`).
   Behavior toggles (`--dry-run`, `--no-plot`, …) stay on the CLI; only

@@ -26,14 +26,34 @@ Writes to data/micropolis/paper/figures/extra/:
 only the rest, which today is none of them, so the flag is a way to refresh the
 numbers without spending the drawing time. The numbers are written either way.
 
+And to data/micropolis/paper/figures/:
+
+- fig_micropolis_capability.pdf      the article's own capability figure
+
 And to data/micropolis/paper/:
 
 - micropolis-macros.tex              \\MPD* macros for the article's prose
 
+fig_micropolis_capability.pdf is the one figure here the article places, so
+--no-extra keeps drawing it. Three ECI scatters side by side — continuous,
+tail, binary, in the order fbs-paper's fig_freeciv_capability.pdf lays its
+four out — styled on that figure so the two worlds' capability figures read as
+a pair: 5.5 x 2.04in at the paper's own \\textwidth, text set by LaTeX in
+Computer Modern, dark-green points with the best and worst model named in
+orange, and no legend, which at 26 models would be wider than the panel it
+explains.
+
+Correlations here are **sign-adjusted** — ECI against minus the score, so a
+positive rho means more capable models forecast better, which is the article's
+convention and FreeCiv's. The reports' own figures under figures/extra/ keep
+the raw negative rho that analysis-brier.md shows. Every number this script
+prints, defines as a macro or draws is adjusted; nothing under extra/ is.
+
 The three headline correlations — ECI against the mid-range excess Brier, the
 tail excess bits and the continuous excess nCRPS — are printed to stdout and
 defined as LaTeX macros, each with its p-value, its model count, its question
-count and both bootstrap intervals. They are not recomputed here: the figures'
+count and both bootstrap intervals, plus \\MPDCapCapability, the capability
+figure's caption written in terms of those macros. They are not recomputed here: the figures'
 own correlate() call is intercepted, so a macro and its figure cannot disagree.
 Under --no-extra no figure is drawn, and the same correlations are computed
 directly instead.
@@ -66,6 +86,7 @@ from pathlib import Path
 
 from micropolis_world import model_scores
 from micropolis_world.continuous_eval import MdReport
+from micropolis_world.model_scores import eci_of
 
 sys.path.insert(0, str(Path(__file__).parent))
 import analyze_binary
@@ -93,6 +114,19 @@ FIGURES_DIR = OUT_DIR / "figures"
 # own figures, drawn from the paper's own data — kept apart only so --no-extra
 # can skip them while the numbers below are refreshed.
 EXTRA_SUBDIR = "extra"
+
+CAPABILITY_FIG_NAME = "fig_micropolis_capability.pdf"
+
+# fbs-paper's \textwidth is 5.5in exactly (iclr2027_conference.sty), and
+# figures/fig_freeciv_capability.pdf is 5.5 x 2.04in. Matching it means the two
+# worlds' capability figures set at the same size with no \includegraphics
+# scaling, so their fonts come out the same size on the page.
+CAPABILITY_SIZE = (5.5, 2.04)
+
+# The FreeCiv figure's own palette, read off its PDF: a near-black green for
+# the models and an orange for the best and worst.
+POINT_COLOR = "#102b23"
+EXTREME_COLOR = "#e8632c"
 
 MACROS_NAME = "micropolis-macros.tex"
 
@@ -156,6 +190,17 @@ class Headline:
     what: str
     figure: str  # the figure whose correlate() call produces it
 
+
+# The capability figure's three panels, in the order FreeCiv's four are laid
+# out (continuous, tails, binary) so the two figures' panels line up when the
+# article places them near each other. `label` is the paper's word for the
+# slice — "Binary" is the mid-range questions and "Tail" the tail ones, since
+# "binary" covers both literally and only the pair reads unambiguously.
+PANELS = [
+    ("Continuous", "eci_vs_excess_ncrps-city", "Excess nCRPS"),
+    ("Tail", "eci_vs_excess_bits-tail", "Excess bits"),
+    ("Binary", "eci_vs_excess_brier-mid-range", "Excess Brier"),
+]
 
 # The three the article quotes. The mid-range slice is named "Binary" and the
 # tail one "Tail" because that is how the article's prose refers to them; the
@@ -345,17 +390,224 @@ def relegend(fig) -> None:
         )
 
 
+def display_names(path: Path) -> dict[str, str]:
+    """Model id -> the leaderboard's display name, from the paper's own copy.
+
+    model_scores.csv carries a "Name" column ("OpenAI: GPT 4.1 Nano") that the
+    package's parser drops, and it is what the article's figures label points
+    with — "GPT-5 Nano" reads where "gpt-5-nano-2025-08-07" does not. Read
+    here rather than added to ModelScores so the shared package keeps its
+    shape; the provider prefix is dropped since the panel has no room for it.
+    """
+    out = {}
+    with path.open(newline="") as f:
+        for row in csv.DictReader(f):
+            slug = (row.get("slug") or "").strip()
+            name = (row.get("Name") or "").strip()
+            if slug and name:
+                out[slug] = name.split(":", 1)[-1].strip()
+    return out
+
+
+def adjusted(value: float | None) -> float | None:
+    """Flip a coefficient's sign, to the article's convention.
+
+    Every score in this world is lower-is-better, so ECI correlates negatively
+    with skill and the reports print a negative rho. The article states its
+    correlations against *minus* the score, so that a positive rho reads as
+    "more capable models forecast better" — the same convention FreeCiv's
+    figures and the paper's own prose use. Only the sign changes: Spearman on
+    a negated variable is the same coefficient reflected, and its p-value and
+    the width of its intervals are untouched.
+    """
+    return None if value is None else -value
+
+
+def adjusted_band(ci: tuple[float, float] | None) -> tuple[float, float] | None:
+    """Sign-adjust an interval, which also reverses its ends.
+
+    Negating [-0.87, -0.45] gives [0.45, 0.87], not [0.87, 0.45]: the lower
+    bound of the negated coefficient is minus the upper bound of the original.
+    """
+    return None if ci is None else (-ci[1], -ci[0])
+
+
+def draw_capability_figure(
+    path: Path, found: dict[str, object], names: dict[str, str]
+) -> Path | None:
+    """The article's capability figure: three ECI scatters side by side.
+
+    Styled on fbs-paper's figures/fig_freeciv_capability.pdf, so the two
+    worlds' capability figures can sit near each other and read as one pair:
+    the same 5.5 x 2.04in at the paper's \textwidth, the same Computer Modern
+    through LaTeX, the same dark-green points with the best and worst model in
+    orange, the same "(a) ..." panel captions under the axes, and rho sign-
+    adjusted so positive means more capable models forecast better.
+
+    Unlike the figures/extra/ scatters this does not go through the reports'
+    plot functions: those draw one panel with a per-model legend, which is the
+    right figure for a report and the wrong one for a 2in-tall panel. The
+    numbers are still the reports' own — the rho annotated on each panel is
+    the Correlation the matching extra/ figure computed, only sign-adjusted.
+    """
+    import matplotlib
+
+    # pgf rather than Agg: the text is set by LaTeX itself, which is what puts
+    # the figure in the paper's own Computer Modern instead of a sans-serif
+    # approximation of it.
+    matplotlib.use("pgf")
+    import matplotlib.pyplot as plt
+
+    missing = [name for name, fig, _ in PANELS if found.get(fig) is None]
+    if missing:
+        print(
+            f"[skipped] {CAPABILITY_FIG_NAME}: no correlation for {', '.join(missing)}"
+        )
+        return None
+
+    with plt.rc_context(
+        {
+            "pgf.texsystem": "pdflatex",
+            "text.usetex": True,
+            "font.family": "serif",
+            # Let LaTeX pick the fonts rather than matplotlib naming them, so
+            # the result is the document's Computer Modern.
+            "pgf.rcfonts": False,
+            "font.size": 7,
+            "axes.labelsize": 7,
+            "xtick.labelsize": 6.5,
+            "ytick.labelsize": 6.5,
+            "axes.linewidth": 0.6,
+            "xtick.major.width": 0.6,
+            "ytick.major.width": 0.6,
+            "xtick.major.size": 2.0,
+            "ytick.major.size": 2.0,
+        }
+    ):
+        fig, axes = plt.subplots(1, 3, figsize=CAPABILITY_SIZE, layout="constrained")
+        fig.get_layout_engine().set(w_pad=0.04, h_pad=0.02, wspace=0.02)
+        for i, (ax, (name, figname, ylabel)) in enumerate(zip(axes, PANELS)):
+            letter = chr(ord("a") + i)
+            _draw_panel(ax, found[figname], name, ylabel, letter, names)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # No bbox_inches="tight": the figure is sized to the paper's
+        # \textwidth exactly, and a tight box would grow it past that, so
+        # \includegraphics[width=\linewidth] would scale it back down and take
+        # the fonts with it. constrained layout fits the labels inside instead.
+        fig.savefig(path)
+        plt.close(fig)
+    return path
+
+
+def _draw_panel(
+    ax, c, name: str, ylabel: str, letter: str, names: dict[str, str]
+) -> None:
+    """One panel: the models' (ECI, mean score), a fit line and the rho note.
+
+    The per-model means come from `c.scores`, the ones the correlation itself
+    used, so a point cannot sit somewhere the coefficient does not describe.
+    """
+    import numpy as np
+
+    points = sorted(
+        (eci_of(m), v, names.get(m, m.split("/")[-1]))
+        for m, v in c.scores.items()
+        if eci_of(m) is not None
+    )
+    x = np.array([e for e, _, _ in points])
+    y = np.array([v for _, v, _ in points])
+
+    # Best and worst by score, in the reference's orange. Lower is better in
+    # every panel, so best is the minimum.
+    best = int(np.argmin(y))
+    worst = int(np.argmax(y))
+    colors = [POINT_COLOR] * len(points)
+    colors[best] = colors[worst] = EXTREME_COLOR
+    ax.scatter(x, y, s=7, c=colors, linewidths=0, zorder=3, clip_on=False)
+
+    # A least-squares line, as the reference draws: it shows the direction the
+    # rank correlation reports without claiming the fit is the estimate.
+    if len(points) > 1:
+        slope, intercept = np.polyfit(x, y, 1)
+        xs = np.array([x.min(), x.max()])
+        ax.plot(xs, slope * xs + intercept, color="0.72", lw=0.6, zorder=1)
+
+    # Headroom for the rho note, which sits top-left: without it the note
+    # lands on whichever model is worst at the low-ECI end.
+    lo, hi = min(y), max(y)
+    ax.set_ylim(lo - 0.13 * (hi - lo), hi + 0.26 * (hi - lo))
+    label_models(ax, points, best, worst)
+
+    rho, band = adjusted(c.rho), adjusted_band(c.rho_models)
+    note = f"$\\rho = {rho:.2f}$"
+    if band:
+        note += f" $[{band[0]:.2f}, {band[1]:.2f}]$"
+    ax.text(
+        0.03,
+        0.955,
+        note,
+        transform=ax.transAxes,
+        fontsize=6,
+        color=POINT_COLOR,
+        va="top",
+        ha="left",
+    )
+
+    ax.set_ylabel(ylabel)
+    ax.spines[["top", "right"]].set_visible(False)
+    # "ECI" then the panel caption under it, as the reference sets them: two
+    # lines of one xlabel rather than an xlabel plus a title, so tight_layout
+    # reserves room for both and the caption cannot land on the panel below.
+    ax.set_xlabel(f"ECI\n\\textrm{{({letter}) {name}}}")
+
+
+def label_models(ax, points: list[tuple], best: int, worst: int) -> None:
+    """Name the best and worst model beside their points.
+
+    A 26-entry legend is wider than a 1.8in panel, so the figure names only
+    the two models a reader looks for, the way the reference figure's orange
+    pair does. Labeling the middle of the ranking was tried and dropped: at
+    5pt the names of models whose scores differ by a percent land on each
+    other and on the tick labels, and the figure's claim is the trend, not the
+    identity of every point.
+
+    Each label is placed on the side away from the data, and vertically away
+    from the fit line, so it cannot sit on the line or the axis.
+    """
+    xs = [p[0] for p in points]
+    xlo, xhi = min(xs), max(xs)
+    xr = (xhi - xlo) or 1.0
+    for i, below in ((best, True), (worst, False)):
+        eci, value, label = points[i]
+        right = (eci - xlo) / xr > 0.5
+        ax.annotate(
+            label,
+            (eci, value),
+            textcoords="offset points",
+            # The best model is at the bottom of the panel and the worst at
+            # the top, so pushing each further that way clears the cloud.
+            xytext=(-4.5 if right else 4.5, -5.0 if below else 3.0),
+            ha="right" if right else "left",
+            va="top" if below else "bottom",
+            fontsize=5.4,
+            color=EXTREME_COLOR,
+            annotation_clip=False,
+        )
+
+
 def macro_band(ci: tuple[float, float] | None) -> str:
-    r"""A bootstrap interval as self-contained math: $[-0.88,\,-0.49]$.
+    r"""A bootstrap interval as self-contained math: $[0.45,\,0.87]$.
 
     Math-mode so the article can drop the macro into prose without wrapping
     it, and a thin space after the comma because a bare one sets too tight
     beside a minus sign. Two decimals, as the reports' own bands use; an
     absent interval becomes a dash rather than a number that is not there.
+    The interval is expected sign-adjusted already — see adjusted_band, which
+    reverses its ends as well as its signs.
     """
     if ci is None:
         return "---"
-    return f"$[{ci[0]:+.2f},\\,{ci[1]:+.2f}]$"
+    return f"$[{ci[0]:.2f},\\,{ci[1]:.2f}]$"
 
 
 def macro_p(p: float) -> str:
@@ -381,17 +633,56 @@ def macro_lines(h: Headline, c) -> list[str]:
     behind in the article.
     """
     pre = MACRO_PREFIX
+    rho = adjusted(c.rho)
     return [
         f"% {h.what}",
-        f"\\newcommand{{\\{pre}Rho{h.macro}}}{{{c.rho:+.3f}}}",
-        f"\\newcommand{{\\{pre}Rho{h.macro}CIModels}}{{{macro_band(c.rho_models)}}}",
+        f"\\newcommand{{\\{pre}Rho{h.macro}}}{{{rho:.3f}}}",
+        (
+            f"\\newcommand{{\\{pre}Rho{h.macro}CIModels}}"
+            f"{{{macro_band(adjusted_band(c.rho_models))}}}"
+        ),
         (
             f"\\newcommand{{\\{pre}Rho{h.macro}CIQuestions}}"
-            f"{{{macro_band(c.rho_questions)}}}"
+            f"{{{macro_band(adjusted_band(c.rho_questions))}}}"
         ),
         f"\\newcommand{{\\{pre}P{h.macro}}}{{{macro_p(c.rho_p)}}}",
         f"\\newcommand{{\\{pre}NModels{h.macro}}}{{{c.n_models}}}",
         f"\\newcommand{{\\{pre}NQuestions{h.macro}}}{{{c.n_questions:,}}}",
+        "",
+    ]
+
+
+def caption_lines(found: dict[str, object]) -> list[str]:
+    r"""\MPDCapCapability: the capability figure's caption.
+
+    Written in terms of the other macros rather than with the numbers
+    substituted, so the .tex shows what the caption depends on and a rerun
+    that moves a coefficient moves the caption with it. Only the question
+    counts vary per panel, and those are macros too.
+    """
+    pre = MACRO_PREFIX
+    if any(found.get(f) is None for _, f, _ in PANELS):
+        return []
+    body = (
+        "Micropolis forecasting scores against the Epoch Capabilities Index"
+        f" for \\{pre}NModelsContinuous\\ models; lower is better in every"
+        " panel."
+        f" (a) Continuous: excess nCRPS, \\{pre}NQuestionsContinuous\\"
+        " questions."
+        f" (b) Tail questions ($p<5\\%$): excess bits,"
+        f" \\{pre}NQuestionsTail\\ questions."
+        f" (c) Binary questions ($p\\geq5\\%$): excess Brier,"
+        f" \\{pre}NQuestionsBinary\\ questions."
+        " $\\rho$ is Spearman rank correlation of ECI with $-$score,"
+        " sign-adjusted so that positive means more capable models forecast"
+        " better; brackets are 95\\% percentile intervals from a bootstrap"
+        " over models."
+        " Orange marks the best and worst model."
+    )
+    return [
+        "% The capability figure's caption. Depends on the macros above, so a",
+        "% rerun that moves a coefficient moves the caption with it.",
+        f"\\newcommand{{\\{pre}CapCapability}}{{{body}}}",
         "",
     ]
 
@@ -408,9 +699,11 @@ def write_macros(path: Path, found: dict[str, object]) -> Path:
         "% Generated by worlds/micropolis/scripts/analyze_paper.py -- do not edit.",
         "% Every macro is a number from the Micropolis world's two forecasting",
         "% evals. Each Rho is a Spearman correlation between a model's ECI and",
-        "% its mean score, so a negative value is the pro-g direction. The two",
-        "% CIs are 95% percentile-bootstrap intervals: CIModels resamples the",
-        "% models, CIQuestions resamples the questions with the models fixed.",
+        "% its mean score, SIGN-ADJUSTED: the correlation is against -score,",
+        "% so a positive value means more capable models forecast better. The",
+        "% reports and figures/extra/ show the raw negative rho instead.",
+        "% The two CIs are 95% percentile-bootstrap intervals: CIModels",
+        "% resamples the models, CIQuestions the questions with models fixed.",
         "",
     ]
     missing = []
@@ -420,6 +713,7 @@ def write_macros(path: Path, found: dict[str, object]) -> Path:
             missing.append(h.macro)
             continue
         lines += macro_lines(h, c)
+    lines += caption_lines(found)
     if missing:
         print(f"[warn] no correlation for {', '.join(missing)}; macros not defined")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -428,8 +722,9 @@ def write_macros(path: Path, found: dict[str, object]) -> Path:
 
 
 def print_headlines(found: dict[str, object]) -> None:
-    """The quoted correlations, as the reports print them."""
+    """The quoted correlations, sign-adjusted as the article states them."""
     print("Spearman ECI vs mean score, all horizons pooled")
+    print("(sign-adjusted: positive means more capable models forecast better)")
     print("-" * 70)
     for h in HEADLINES:
         c = found.get(h.figure)
@@ -439,12 +734,12 @@ def print_headlines(found: dict[str, object]) -> None:
             continue
         direction = "pro-g" if c.rho < 0 else "anti-g"
         print(
-            f"  ρ={c.rho:+.3f}  p={c.rho_p:.4f}  ({direction},"
+            f"  ρ={adjusted(c.rho):+.3f}  p={c.rho_p:.4f}  ({direction},"
             f" n={c.n_models} models, {c.n_questions:,} questions)"
         )
         print(
-            f"  95% CI  models    {format_band(c.rho_models, 0)}\n"
-            f"          questions {format_band(c.rho_questions, 0)}\n"
+            f"  95% CI  models    {format_band(adjusted_band(c.rho_models), 0)}\n"
+            f"          questions {format_band(adjusted_band(c.rho_questions), 0)}\n"
         )
 
 
@@ -652,8 +947,8 @@ def main() -> None:
         "--no-extra",
         action="store_true",
         help=(
-            f"Skip the figures under {EXTRA_SUBDIR}/ (today, all of them), and"
-            f" write only the correlations and {MACROS_NAME}"
+            f"Skip the figures under {EXTRA_SUBDIR}/, keeping the article's own"
+            f" {CAPABILITY_FIG_NAME}, the correlations and {MACROS_NAME}"
         ),
     )
     args = ap.parse_args()
@@ -681,7 +976,7 @@ def main() -> None:
     specs = figure_specs(binary, continuous)
     figures = PaperFigures(extra_dir)
     if args.no_extra:
-        print(f"[--no-extra] drawing no figures; {EXTRA_SUBDIR}/ left as it is\n")
+        print(f"[--no-extra] {EXTRA_SUBDIR}/ left as it is\n")
         found = correlations_without_drawing(specs)
     else:
         for spec in specs:
@@ -691,9 +986,18 @@ def main() -> None:
 
     print_headlines(found)
     macros = write_macros(args.datadir / MACROS_NAME, found)
+    # The article's own figure, which is not one of the extra ones: --no-extra
+    # skips the figures the paper does not place, and this is the one it does.
+    capability = draw_capability_figure(
+        args.outdir / CAPABILITY_FIG_NAME,
+        found,
+        display_names(args.datadir / MODEL_SCORES_CSV_NAME),
+    )
 
     for out in figures.written:
         print(f"Wrote {out}")
+    if capability:
+        print(f"Wrote {capability}")
     print(f"Wrote {macros}")
 
 
