@@ -110,7 +110,13 @@ from analyze_binary import (
     capability_predictors,
     plot_eci_vs_score,
 )
-from analyze_continuous import ALL, EXCESS, correlate, format_band
+from analyze_continuous import (
+    ALL,
+    BOOTSTRAP_RESAMPLES,
+    EXCESS,
+    correlate,
+    format_band,
+)
 from gather_paper_data import (
     BINARY_CSV_NAME,
     CONTINUOUS_CSV_NAME,
@@ -812,8 +818,8 @@ def caption_lines(found: dict[str, object]) -> list[str]:
         f" \\{pre}NQuestionsBinary\\ questions."
         " $\\rho$ is Spearman rank correlation of ECI with $-$score,"
         " sign-adjusted so that positive means more capable models forecast"
-        " better; brackets are 95\\% percentile intervals from a bootstrap"
-        " over models."
+        " better; brackets are 95\\% percentile intervals from"
+        f" {BOOTSTRAP_RESAMPLES:,} bootstrap resamples over models."
         " Orange marks the best and worst model."
     )
     return [
