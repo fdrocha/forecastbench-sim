@@ -190,6 +190,19 @@ TABLE_NAMES = {
 # Where the tables land in the article: it \inputs them from data/appendix_tables/.
 PAPER_REPO_TABLES = "data/appendix_tables"
 
+# The three per-model cell scores the cross-world combined score of the
+# article's validation section fits on, as a CSV rather than a table. Its
+# generator used to scrape micropolis_models.tex by column position, which
+# breaks whenever that table's layout changes; a file with named columns
+# cannot break that way.
+CELLS_CSV_NAME = "micropolis_cells.csv"
+CELLS_COLUMNS = [
+    "model",
+    "mid_range_excess_brier",
+    "tail_excess_bits",
+    "excess_ncrps",
+]
+
 # The horizons every binary figure and table slices on, in the order the
 # article reads them.
 HORIZONS = ["3y", "5y", "7y", "10y"]
@@ -1393,6 +1406,42 @@ def continuous_table(continuous: list[dict], names: dict[str, str]) -> str:
     )
 
 
+def write_cells(
+    datadir: Path,
+    binary: list[dict],
+    continuous: list[dict],
+    names: dict[str, str],
+) -> Path:
+    """One row per model with the three scores the combined score fits on.
+
+    The article's cross-world latent-skill fit needs Micropolis as three cells
+    beside StarSim's and FreeCiv's. Its generator read them out of
+    micropolis_models.tex by column number, so changing that table's columns
+    or its model names silently redefined a cell or stopped the parse. Named
+    columns and the roster's own display names instead, so the dependency is
+    explicit and survives the table being re-laid-out.
+    """
+    mid = [r for r in binary if r["section"] == MID_RANGE]
+    tail = [r for r in binary if r["section"] == TAIL]
+    rows = []
+    for m in sorted(models_in_order(binary), key=lambda m: -(eci_of(m) or 0)):
+        rows.append(
+            {
+                "model": names.get(m, m),
+                "mid_range_excess_brier": _mean_of(mid, m, None, "excess_brier"),
+                "tail_excess_bits": _mean_of(tail, m, None, "excess_bits"),
+                "excess_ncrps": _mean_of(continuous, m, None, "excess_ncrps"),
+            }
+        )
+    path = datadir / CELLS_CSV_NAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=CELLS_COLUMNS)
+        w.writeheader()
+        w.writerows(rows)
+    return path
+
+
 def write_tables(
     datadir: Path,
     binary: list[dict],
@@ -1741,6 +1790,7 @@ def main() -> None:
         args.datadir / MACROS_NAME, found, names, by_horizon, fb, rates
     )
     tables = write_tables(args.datadir, binary, continuous, coverage, names)
+    cells = write_cells(args.datadir, binary, continuous, names)
     # The article's own figure, which is not one of the extra ones: --no-extra
     # skips the figures the paper does not place, and this is the one it does.
     capability = draw_capability_figure(
@@ -1757,7 +1807,7 @@ def main() -> None:
         if out:
             print(f"Wrote {out}")
     print(f"Wrote {macros}")
-    for out in tables:
+    for out in [*tables, cells]:
         print(f"Wrote {out}")
 
     # Deliver into the article, when there is one checked out here: the macros
@@ -1770,7 +1820,7 @@ def main() -> None:
     print()
     deliver([macros], repo)
     deliver(paper_figures(args.outdir), repo / PAPER_REPO_FIGURES)
-    deliver(tables, repo / PAPER_REPO_TABLES)
+    deliver([*tables, cells], repo / PAPER_REPO_TABLES)
 
 
 if __name__ == "__main__":
