@@ -30,9 +30,16 @@ And to data/micropolis/paper/figures/:
 
 - fig_micropolis_capability.pdf      the article's own capability figure
 
+And to data/micropolis/paper/figures/:
+
+- fig_micropolis_horizon.pdf         each binary score by horizon
+
 And to data/micropolis/paper/:
 
 - micropolis-macros.tex              \\MPD* macros for the article's prose
+- micropolis_models.tex              the appendix's per-model table
+- micropolis_horizon.tex             the same by horizon
+- micropolis_continuous.tex          excess nCRPS by horizon and metric
 
 fig_micropolis_capability.pdf is the one figure here the article places, so
 --no-extra keeps drawing it. Three ECI scatters side by side — continuous,
@@ -75,8 +82,9 @@ carries a ":loeff".
 When PAPER_REPO_PATH is set — it is, in worlds/micropolis/.env, which
 module_globals loads — the run ends by delivering into that checkout of the
 article: micropolis-macros.tex to its root, beside math_commands.tex, and
-every figure the article places to its figures/. Nothing from extra/ is
-copied, that being what extra/ means. An unset variable is a note, since a
+every figure the article places to its figures/, and the three appendix
+tables to its data/appendix_tables/. Nothing from extra/ is copied, that
+being what extra/ means. An unset variable is a note, since a
 machine that only gathers data has no article to deliver to; a variable
 pointing at a directory that does not exist is an error, since the alternative
 is rebuilding the paper from stale figures and not being told.
@@ -97,7 +105,7 @@ from pathlib import Path
 
 from micropolis_world import model_scores
 from micropolis_world.continuous_eval import MdReport
-from micropolis_world.model_scores import eci_of
+from micropolis_world.model_scores import eci_of, fb_by_name
 
 sys.path.insert(0, str(Path(__file__).parent))
 import analyze_binary
@@ -113,13 +121,16 @@ from analyze_binary import (
 from analyze_continuous import (
     ALL,
     BOOTSTRAP_RESAMPLES,
+    BOOTSTRAP_SEED,
     EXCESS,
+    by_model_id,
     correlate,
     format_band,
 )
 from gather_paper_data import (
     BINARY_CSV_NAME,
     CONTINUOUS_CSV_NAME,
+    COVERAGE_CSV_NAME,
     MODEL_SCORES_CSV_NAME,
     OUT_DIR,
     SCALES_CSV_NAME,
@@ -146,6 +157,46 @@ POINT_COLOR = "#102b23"
 EXTREME_COLOR = "#e8632c"
 
 MACROS_NAME = "micropolis-macros.tex"
+
+# The by-horizon figure the appendix places, and the three per-model tables it
+# \input. Generated here so a rerun moves them with the rest of the paper's
+# numbers; the hand-maintained versions they replace came from a generator that
+# is not in either repository.
+HORIZON_FIG_NAME = "fig_micropolis_horizon.pdf"
+
+# The by-horizon figure's size, matching the one it replaces so the article's
+# layout does not move. Taller than the capability figure because its panels
+# carry a legend each.
+HORIZON_SIZE = (5.5, 2.6)
+
+# Its two panels, as (section, Score, axis label, panel title). The tail is
+# scored in excess bits here, as everywhere else in the paper now: the figure
+# it replaces used excess Brier, which at q below 5% separates nothing.
+HORIZON_PANELS = [
+    (
+        MID_RANGE,
+        "excess_brier",
+        "Excess Brier score",
+        r"Mid-range questions ($p \geq 5\%$)",
+    ),
+    (TAIL, "excess_bits", "Excess bits", r"Tail questions ($p < 5\%$)"),
+]
+TABLE_NAMES = {
+    "models": "micropolis_models.tex",
+    "horizon": "micropolis_horizon.tex",
+    "continuous": "micropolis_continuous.tex",
+}
+
+# Where the tables land in the article: it \inputs them from data/appendix_tables/.
+PAPER_REPO_TABLES = "data/appendix_tables"
+
+# The horizons every binary figure and table slices on, in the order the
+# article reads them.
+HORIZONS = ["3y", "5y", "7y", "10y"]
+
+# A control sequence cannot contain a digit — \MPDRhoBinaryH3 parses as
+# \MPDRhoBinaryH followed by a "3" — so a horizon's macro is named in words.
+HORIZON_WORDS = {"3y": "Hthree", "5y": "Hfive", "7y": "Hseven", "10y": "Hten"}
 
 # Where the article lives, from worlds/micropolis/.env (loaded by
 # module_globals, which this script reaches through gather_paper_data). Unset
@@ -252,6 +303,70 @@ HEADLINES = [
         "eci_vs_excess_ncrps-city",
     ),
 ]
+
+
+# The two capability scales the article correlates against. ECI covers every
+# model in the panel; ForecastBench covers the 17 with a published overall, so
+# its n differs and its macros carry their own count. Both come from the
+# paper's own copy of model_scores.csv.
+PREDICTORS = [
+    ("", "ECI", lambda models: by_model_id(eci_by_name_of(models), models)),
+    (
+        "FB",
+        "ForecastBench overall",
+        lambda models: by_model_id(fb_by_name(models), models),
+    ),
+]
+
+
+def eci_by_name_of(models: list[str]) -> dict[str, float]:
+    """ECI keyed on the bare name, as capability_predictors builds it.
+
+    Wrapped so PREDICTORS can name it beside fb_by_name with one signature;
+    both go through by_model_id to be rekeyed onto the ids the rows carry.
+    """
+    return {m.split("/", 1)[-1]: eci_of(m) for m in models if eci_of(m) is not None}
+
+
+def read_coverage(path: Path) -> list[dict]:
+    """model_coverage.csv as rows with integer counts.
+
+    Prompted against parsed, per model and eval — the one thing the forecast
+    CSVs cannot carry, since an unparsed forecast leaves no scored row.
+    """
+    if not path.exists():
+        sys.exit(
+            f"[error] {path} not found\n"
+            "  rerun scripts/gather_paper_data.py; it writes the per-model"
+            " coverage this script reports parse rates from"
+        )
+    with path.open(newline="") as f:
+        rows = [
+            {**r, "nforecasts": int(r["nforecasts"]), "nvalid": int(r["nvalid"])}
+            for r in csv.DictReader(f)
+        ]
+    if not rows:
+        sys.exit(f"[error] {path} holds no rows")
+    return rows
+
+
+def parse_rates(coverage: list[dict]) -> dict[str, float]:
+    """The worst model's parse rate per eval, as a percentage.
+
+    The article quotes "every model parsed on at least X% of its questions",
+    so the number it needs is the minimum over the panel — which is exactly
+    the number that moves when the panel changes, and the one it had wrong.
+    """
+    out = {}
+    for name in sorted({r["eval"] for r in coverage}):
+        rates = [
+            100.0 * r["nvalid"] / r["nforecasts"]
+            for r in coverage
+            if r["eval"] == name and r["nforecasts"]
+        ]
+        if rates:
+            out[name] = min(rates)
+    return out
 
 
 def paper_repo_dir() -> Path | None:
@@ -590,6 +705,143 @@ def draw_capability_figure(
     return path
 
 
+def draw_horizon_figure(
+    path: Path, binary: list[dict], names: dict[str, str]
+) -> Path | None:
+    """Each binary score by forecast horizon, mid-range and tail.
+
+    Replaces the figure the appendix carried, which came from the aggregated
+    per-model file and disagreed with the per-question scores in direction:
+    it had the mean mid-range excess Brier rising with horizon where these
+    rows have it falling. Drawn from the same CSV as everything else here, so
+    the two cannot part company again.
+
+    Mean, median and interquartile range across models, plus the model with
+    the best pooled score — the shape of the figure it replaces, on the
+    paper's own scale and panel.
+    """
+    import matplotlib
+
+    matplotlib.use("pgf")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    with plt.rc_context(
+        {
+            "pgf.texsystem": "pdflatex",
+            "text.usetex": True,
+            "font.family": "serif",
+            "pgf.rcfonts": False,
+            "font.size": 7,
+            "axes.labelsize": 7,
+            "xtick.labelsize": 6.5,
+            "ytick.labelsize": 6.5,
+            "axes.linewidth": 0.6,
+            "xtick.major.width": 0.6,
+            "ytick.major.width": 0.6,
+            "xtick.major.size": 2.0,
+            "ytick.major.size": 2.0,
+        }
+    ):
+        fig, axes = plt.subplots(1, 2, figsize=HORIZON_SIZE, layout="constrained")
+        fig.get_layout_engine().set(w_pad=0.04, h_pad=0.02, wspace=0.03)
+        drawn = False
+        for ax, (section, key, ylabel, title) in zip(axes, HORIZON_PANELS):
+            rows = [r for r in binary if r["section"] == section]
+            if not rows:
+                continue
+            drawn = True
+            models = models_in_order(rows)
+            # (model, horizon) -> mean score, so every series below reads off
+            # one table rather than re-filtering the rows per line.
+            per = {m: [_mean_of(rows, m, h, key) for h in HORIZONS] for m in models}
+            xs = np.arange(len(HORIZONS))
+            stack = np.array(
+                [v for v in per.values() if all(x is not None for x in v)], dtype=float
+            )
+            ax.fill_between(
+                xs,
+                np.percentile(stack, 25, axis=0),
+                np.percentile(stack, 75, axis=0),
+                color="0.85",
+                lw=0,
+                label=f"Interquartile range across {len(stack)} models",
+            )
+            ax.plot(
+                xs,
+                stack.mean(axis=0),
+                color=POINT_COLOR,
+                lw=1.0,
+                marker="o",
+                ms=2.5,
+                label=f"Mean of {len(stack)} models",
+            )
+            ax.plot(
+                xs,
+                np.median(stack, axis=0),
+                color="0.45",
+                lw=0.8,
+                ls="--",
+                label=f"Median of {len(stack)} models",
+            )
+            # The best model pooled over horizons, named as the old figure
+            # named it, so a reader comparing drafts sees the same series.
+            pooled = {m: _mean_of(rows, m, None, key) for m in models}
+            best = min(
+                (m for m in pooled if pooled[m] is not None), key=lambda m: pooled[m]
+            )
+            ax.plot(
+                xs,
+                per[best],
+                color=EXTREME_COLOR,
+                lw=1.0,
+                marker="s",
+                ms=2.5,
+                label=f"{tex_escape(names.get(best, best))} (best overall)",
+            )
+            ax.set_xticks(xs)
+            ax.set_xticklabels([h.rstrip("y") for h in HORIZONS])
+            ax.set_xlabel("Forecast horizon (game years)")
+            ax.set_ylabel(ylabel)
+            ax.set_title(title, fontsize=7)
+            # Headroom for the legend, which sits top-left over the band.
+            ax.set_ylim(
+                0,
+                max(np.percentile(stack, 75, axis=0).max(), stack.mean(axis=0).max())
+                * 1.38,
+            )
+            ax.spines[["top", "right"]].set_visible(False)
+            ax.legend(
+                fontsize=5,
+                frameon=False,
+                loc="upper left",
+                borderaxespad=0.2,
+                handlelength=1.4,
+                handletextpad=0.5,
+                labelspacing=0.25,
+            )
+        if not drawn:
+            plt.close(fig)
+            print(f"[skipped] {HORIZON_FIG_NAME}: no binary rows")
+            return None
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(path)
+        plt.close(fig)
+    return path
+
+
+def _mean_of(rows: list[dict], model: str, horizon: str | None, key: str):
+    """Mean `key` for one model, at one horizon or pooled over all of them."""
+    vals = [
+        r[key]
+        for r in rows
+        if r["model_id"] == model
+        and (horizon is None or r["horizon"] == horizon)
+        and r[key] != ""
+    ]
+    return sum(vals) / len(vals) if vals else None
+
+
 def _draw_panel(
     ax, c, name: str, ylabel: str, letter: str, names: dict[str, str]
 ) -> None:
@@ -795,6 +1047,92 @@ def tex_escape(text: str) -> str:
     return text
 
 
+def horizon_lines(h: Headline, by_horizon: dict[str, object]) -> list[str]:
+    r"""\MPDRho{stem}H{years} per horizon.
+
+    The article says the correlation "holds at every horizon" and quotes the
+    two ends, which were the last bare numbers in the results paragraph. One
+    macro per horizon rather than just the ends, so the sentence can be
+    rewritten without another trip to the data.
+    """
+    pre = MACRO_PREFIX
+    out = []
+    for horizon in HORIZONS:
+        c = by_horizon.get(horizon)
+        if c is None:
+            continue
+        out.append(
+            f"\\newcommand{{\\{pre}Rho{h.macro}{HORIZON_WORDS[horizon]}}}"
+            f"{{{adjusted(c.rho):.2f}}}"
+        )
+    return out
+
+
+def predictor_lines(
+    prefix: str, what: str, per_headline: dict[str, object]
+) -> list[str]:
+    r"""One predictor's \MPD{prefix}* macros for every headline slice.
+
+    ECI carries no prefix, since it is the article's main predictor and its
+    macros are the ones already in use; ForecastBench is "FB". Its n differs —
+    only 17 models have a published overall — so the count is a macro per
+    slice rather than assumed shared.
+    """
+    pre = MACRO_PREFIX
+    lines = [f"% {what}"]
+    for h in HEADLINES:
+        c = per_headline.get(h.figure)
+        if c is None:
+            continue
+        stem = f"{pre}{prefix}"
+        lines += [
+            f"\\newcommand{{\\{stem}Rho{h.macro}}}{{{adjusted(c.rho):.3f}}}",
+            (
+                f"\\newcommand{{\\{stem}Rho{h.macro}CIModels}}"
+                f"{{{macro_band(adjusted_band(c.rho_models))}}}"
+            ),
+            f"\\newcommand{{\\{stem}P{h.macro}}}{{{macro_p(c.rho_p)}}}",
+            f"\\newcommand{{\\{stem}NModels{h.macro}}}{{{c.n_models}}}",
+        ]
+    return lines + [""]
+
+
+def bootstrap_lines() -> list[str]:
+    r"""\MPDResamples and \MPDSeed: how the intervals were drawn.
+
+    The article's table captions state both, and stated them wrong — 10,000
+    resamples at seed 2026, where this world draws BOOTSTRAP_RESAMPLES at
+    BOOTSTRAP_SEED. Macros so a caption cannot describe a bootstrap that did
+    not happen.
+    """
+    pre = MACRO_PREFIX
+    return [
+        "% How every interval above was drawn.",
+        f"\\newcommand{{\\{pre}Resamples}}{{{BOOTSTRAP_RESAMPLES:,}}}",
+        f"\\newcommand{{\\{pre}Seed}}{{{BOOTSTRAP_SEED}}}",
+        "",
+    ]
+
+
+def parse_lines(rates: dict[str, float]) -> list[str]:
+    r"""\MPDMinParse* : the worst model's parse rate per eval.
+
+    Floored to one decimal the way the article quotes it. "At least" is the
+    claim, so rounding down keeps the sentence true: 98.44 becomes 98.4, never
+    98.5.
+    """
+    import math
+
+    pre = MACRO_PREFIX
+    lines = ["% Lowest parse rate over the panel, per eval (percent)."]
+    for name, rate in sorted(rates.items()):
+        stem = name.capitalize()
+        lines.append(
+            f"\\newcommand{{\\{pre}MinParse{stem}}}{{{math.floor(rate * 10) / 10:.1f}}}"
+        )
+    return lines + [""]
+
+
 def caption_lines(found: dict[str, object]) -> list[str]:
     r"""\MPDCapCapability: the capability figure's caption.
 
@@ -822,15 +1160,269 @@ def caption_lines(found: dict[str, object]) -> list[str]:
         f" {BOOTSTRAP_RESAMPLES:,} bootstrap resamples over models."
         " Orange marks the best and worst model."
     )
+    horizon = (
+        "Micropolis forecasting scores by forecast horizon (3, 5, 7 and 10 game"
+        " years); lower is better in both panels. Left: mid-range questions"
+        " ($p \\geq 5\\%$), excess Brier score. Right: tail questions ($p<5\\%$),"
+        " excess bits. Solid line: mean over the"
+        f" \\{pre}NModelsBinary\\ models; dashed: median; band: interquartile"
+        " range across models; orange: the best model pooled over horizons"
+        f" (\\{pre}BestBinaryModel\\ for mid-range, \\{pre}BestTailModel\\ for"
+        " the tail)."
+    )
     return [
         "% The capability figure's caption. Depends on the macros above, so a",
         "% rerun that moves a coefficient moves the caption with it.",
         f"\\newcommand{{\\{pre}CapCapability}}{{{body}}}",
         "",
+        "% The by-horizon figure's caption.",
+        f"\\newcommand{{\\{pre}CapHorizon}}{{{horizon}}}",
+        "",
     ]
 
 
-def write_macros(path: Path, found: dict[str, object], names: dict[str, str]) -> Path:
+def correlations_by_horizon(specs: list[dict]) -> dict[str, dict[str, object]]:
+    """Each quoted slice correlated within each horizon.
+
+    The pooled figures answer "does skill track capability"; these answer
+    "at which horizons", which is the claim the article makes in one sentence.
+    Only the quoted slices are computed — a bootstrap per horizon is not free.
+    """
+    wanted = {h.figure for h in HEADLINES}
+    out: dict[str, dict[str, object]] = {}
+    for spec in specs:
+        if spec["name"] not in wanted:
+            continue
+        per = {}
+        for horizon in HORIZONS:
+            rows = [r for r in spec["rows"] if r["horizon"] == horizon]
+            if not rows:
+                continue
+            c = correlate(
+                "ECI",
+                by_model_id(eci_by_name_of(spec["models"]), spec["models"]),
+                rows,
+                spec["score"].key,
+                spec["models"],
+                horizon,
+            )
+            if c is not None:
+                per[horizon] = c
+        out[spec["name"]] = per
+    return out
+
+
+def correlations_for(specs: list[dict], predictor) -> dict[str, object]:
+    """Each quoted slice against one predictor, pooled over horizons.
+
+    Used for ForecastBench: the ECI numbers come from the figures' own
+    correlate() call, but a second predictive scale has no figure to intercept,
+    so it is computed here on the same rows.
+    """
+    wanted = {h.figure for h in HEADLINES}
+    out = {}
+    for spec in specs:
+        if spec["name"] not in wanted:
+            continue
+        c = correlate(
+            "predictor",
+            predictor(spec["models"]),
+            spec["rows"],
+            spec["score"].key,
+            spec["models"],
+            ALL,
+        )
+        if c is not None:
+            out[spec["name"]] = c
+    return out
+
+
+# The metric columns of the continuous table, in the order the article reads
+# them, with the abbreviation each column head uses.
+METRIC_COLUMNS = [
+    ("cityPop", "Popul."),
+    ("trafficAverage", "Traffic"),
+    ("pollutionAverage", "Pollut."),
+    ("crimeAverage", "Crime"),
+    ("landValueAverage", "Land"),
+]
+
+
+def table_file(lines: list[str], source: str) -> str:
+    """A generated table as its file's text, header comment included."""
+    return "\n".join(
+        [
+            (
+                "% Generated by worlds/micropolis/scripts/analyze_paper.py"
+                " -- do not edit by hand."
+            ),
+            f"% {source}",
+            *lines,
+        ]
+    )
+
+
+def cell(value, fmt: str = "{:.4f}") -> str:
+    """One table cell: the number, or a dash where a model has no score."""
+    return "--" if value is None else fmt.format(value)
+
+
+def models_table(
+    binary: list[dict],
+    continuous: list[dict],
+    coverage: list[dict],
+    names: dict[str, str],
+) -> str:
+    """Per-model scores pooled over horizons, with parse rates.
+
+    One row per model of the panel, ordered by ECI as the article's tables
+    are: the two binary scores, the continuous one, and the share of each
+    eval's questions the model returned a readable forecast for.
+    """
+    mid = [r for r in binary if r["section"] == MID_RANGE]
+    tail = [r for r in binary if r["section"] == TAIL]
+    parsed = {
+        (r["model"], r["eval"]): (
+            100.0 * r["nvalid"] / r["nforecasts"] if r["nforecasts"] else None
+        )
+        for r in coverage
+    }
+    rows = []
+    for m in sorted(models_in_order(binary), key=lambda m: -(eci_of(m) or 0)):
+        rows.append(
+            " & ".join(
+                [
+                    tex_escape(names.get(m, m)),
+                    cell(eci_of(m), "{:.1f}"),
+                    cell(_mean_of(mid, m, None, "excess_brier")),
+                    cell(_mean_of(tail, m, None, "excess_bits")),
+                    cell(_mean_of(continuous, m, None, "excess_ncrps")),
+                    cell(parsed.get((m, "binary")), "{:.1f}"),
+                    cell(parsed.get((m, "continuous")), "{:.1f}"),
+                ]
+            )
+            + r" \\"
+        )
+    return table_file(
+        [
+            r"\setlength{\tabcolsep}{3pt}",
+            r"\begin{tabular}{lrrrrrr}",
+            r"\toprule",
+            (
+                r"Model & ECI & Excess Brier & Excess bits & Excess nCRPS"
+                r" & \multicolumn{2}{c}{Parsed (\%)} \\"
+            ),
+            r"\cmidrule(lr){6-7}",
+            r" & & Mid-range & Tail & & Binary & Continuous \\",
+            r"\midrule",
+            *rows,
+            r"\bottomrule",
+            r"\end{tabular}",
+        ],
+        "Per model, horizons pooled. Sources: binary_forecasts.csv,"
+        " continuous_forecasts.csv, model_coverage.csv.",
+    )
+
+
+def horizon_table(binary: list[dict], names: dict[str, str]) -> str:
+    """Each binary score by horizon, mid-range then tail."""
+    mid = [r for r in binary if r["section"] == MID_RANGE]
+    tail = [r for r in binary if r["section"] == TAIL]
+    rows = []
+    for m in sorted(models_in_order(binary), key=lambda m: -(eci_of(m) or 0)):
+        cells = [tex_escape(names.get(m, m)), cell(eci_of(m), "{:.1f}")]
+        for src, key in ((mid, "excess_brier"), (tail, "excess_bits")):
+            cells += [cell(_mean_of(src, m, h, key)) for h in HORIZONS]
+        rows.append(" & ".join(cells) + r" \\")
+    return table_file(
+        [
+            r"\setlength{\tabcolsep}{3pt}",
+            r"\begin{tabular}{lrrrrrrrrr}",
+            r"\toprule",
+            (
+                r"Model & ECI & \multicolumn{4}{c}{Mid-range excess Brier, by"
+                r" horizon (years)} & \multicolumn{4}{c}{Tail excess bits, by"
+                r" horizon (years)} \\"
+            ),
+            r"\cmidrule(lr){3-6}\cmidrule(lr){7-10}",
+            r" & & 3 & 5 & 7 & 10 & 3 & 5 & 7 & 10 \\",
+            r"\midrule",
+            *rows,
+            r"\bottomrule",
+            r"\end{tabular}",
+        ],
+        "Per model and horizon. Source: binary_forecasts.csv.",
+    )
+
+
+def continuous_table(continuous: list[dict], names: dict[str, str]) -> str:
+    """Excess nCRPS by horizon and by metric."""
+    rows = []
+    for m in sorted(models_in_order(continuous), key=lambda m: -(eci_of(m) or 0)):
+        cells = [tex_escape(names.get(m, m)), cell(eci_of(m), "{:.1f}")]
+        cells += [
+            cell(_mean_of(continuous, m, h, "excess_ncrps"), "{:.3f}") for h in HORIZONS
+        ]
+        for metric, _ in METRIC_COLUMNS:
+            vals = [
+                r["excess_ncrps"]
+                for r in continuous
+                if r["model_id"] == m and r["metric"] == metric
+            ]
+            cells.append(cell(sum(vals) / len(vals) if vals else None, "{:.3f}"))
+        rows.append(" & ".join(cells) + r" \\")
+    heads = " & ".join(h for _, h in METRIC_COLUMNS)
+    return table_file(
+        [
+            r"\setlength{\tabcolsep}{3pt}",
+            r"\begin{tabular}{lrrrrrrrrrr}",
+            r"\toprule",
+            (
+                r"Model & ECI & \multicolumn{4}{c}{By horizon (years)}"
+                r" & \multicolumn{5}{c}{By metric} \\"
+            ),
+            r"\cmidrule(lr){3-6}\cmidrule(lr){7-11}",
+            rf" & & 3 & 5 & 7 & 10 & {heads} \\",
+            r"\midrule",
+            *rows,
+            r"\bottomrule",
+            r"\end{tabular}",
+        ],
+        "Per model, excess nCRPS by horizon and metric."
+        " Source: continuous_forecasts.csv.",
+    )
+
+
+def write_tables(
+    datadir: Path,
+    binary: list[dict],
+    continuous: list[dict],
+    coverage: list[dict],
+    names: dict[str, str],
+) -> list[Path]:
+    """The three appendix tables, as files the article \\inputs."""
+    built = {
+        "models": models_table(binary, continuous, coverage, names),
+        "horizon": horizon_table(binary, names),
+        "continuous": continuous_table(continuous, names),
+    }
+    out = []
+    for key, text in built.items():
+        path = datadir / TABLE_NAMES[key]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text + "\n")
+        out.append(path)
+    return out
+
+
+def write_macros(
+    path: Path,
+    found: dict[str, object],
+    names: dict[str, str],
+    by_horizon: dict[str, dict[str, object]],
+    fb: dict[str, object],
+    rates: dict[str, float],
+) -> Path:
     r"""Write micropolis-macros.tex: every quoted number as a \newcommand.
 
     A headline whose correlation was not computed is skipped rather than
@@ -855,7 +1447,16 @@ def write_macros(path: Path, found: dict[str, object], names: dict[str, str]) ->
         if c is None:
             missing.append(h.macro)
             continue
-        lines += macro_lines(h, c)[:-1] + extremes_lines(h, c, names) + [""]
+        lines += (
+            macro_lines(h, c)[:-1]
+            + extremes_lines(h, c, names)
+            + horizon_lines(h, by_horizon.get(h.figure, {}))
+            + [""]
+        )
+    lines += parse_lines(rates)
+    lines += bootstrap_lines()
+    if fb:
+        lines += predictor_lines("FB", "ForecastBench overall", fb)
     lines += caption_lines(found)
     if missing:
         print(f"[warn] no correlation for {', '.join(missing)}; macros not defined")
@@ -1101,6 +1702,7 @@ def main() -> None:
     continuous = read_rows(args.datadir / CONTINUOUS_CSV_NAME)
     scales = read_scales(args.datadir / SCALES_CSV_NAME)
     continuous = normalize(continuous, scales)
+    coverage = read_coverage(args.datadir / COVERAGE_CSV_NAME)
 
     extra_dir = args.outdir / EXTRA_SUBDIR
     print("=" * 70)
@@ -1129,7 +1731,16 @@ def main() -> None:
 
     print_headlines(found)
     names = display_names(args.datadir / MODEL_SCORES_CSV_NAME)
-    macros = write_macros(args.datadir / MACROS_NAME, found, names)
+    by_horizon = correlations_by_horizon(specs)
+    fb = correlations_for(specs, PREDICTORS[1][2])
+    rates = parse_rates(coverage)
+    for name, rate in sorted(rates.items()):
+        print(f"lowest parse rate, {name}: {rate:.1f}%")
+    print()
+    macros = write_macros(
+        args.datadir / MACROS_NAME, found, names, by_horizon, fb, rates
+    )
+    tables = write_tables(args.datadir, binary, continuous, coverage, names)
     # The article's own figure, which is not one of the extra ones: --no-extra
     # skips the figures the paper does not place, and this is the one it does.
     capability = draw_capability_figure(
@@ -1138,11 +1749,16 @@ def main() -> None:
         names,
     )
 
+    horizon_fig = draw_horizon_figure(args.outdir / HORIZON_FIG_NAME, binary, names)
+
     for out in figures.written:
         print(f"Wrote {out}")
-    if capability:
-        print(f"Wrote {capability}")
+    for out in (capability, horizon_fig):
+        if out:
+            print(f"Wrote {out}")
     print(f"Wrote {macros}")
+    for out in tables:
+        print(f"Wrote {out}")
 
     # Deliver into the article, when there is one checked out here: the macros
     # to its root, where its other \\input of definitions lives, and the
@@ -1154,6 +1770,7 @@ def main() -> None:
     print()
     deliver([macros], repo)
     deliver(paper_figures(args.outdir), repo / PAPER_REPO_FIGURES)
+    deliver(tables, repo / PAPER_REPO_TABLES)
 
 
 if __name__ == "__main__":

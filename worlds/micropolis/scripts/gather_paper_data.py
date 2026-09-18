@@ -63,6 +63,7 @@ from micropolis_world.config import CONFIG_DIR, Config, ConfigError, main_with_c
 from micropolis_world.continuous_eval import (
     DatasetError,
     Normalizer,
+    ResponseId,
     attach_outcomes,
     data_path,
     load_dataset,
@@ -143,6 +144,13 @@ SCALE_FLOORS = {
     "landValueAverage": 40,
 }
 
+# Prompted against parsed, per model and eval. The forecast CSVs hold only
+# scored rows, so a parse rate is not recoverable from them: a model that
+# returned nothing for a question leaves no row at all. The paper quotes the
+# worst model's parse rate, which is exactly the number that vanishes.
+COVERAGE_CSV_NAME = "model_coverage.csv"
+COVERAGE_COLUMNS = ["model", "eval", "nforecasts", "nvalid"]
+
 CONTINUOUS_CSV_NAME = "continuous_forecasts.csv"
 CONTINUOUS_COLUMNS = [
     "model",
@@ -202,8 +210,8 @@ def city_of(scenario_id: str) -> str:
     return head.removesuffix("_disasters").removesuffix("_nodisasters")
 
 
-def binary_rows(cfg: Config) -> list[dict]:
-    """One row per scored binary forecast.
+def binary_rows(cfg: Config) -> tuple[list[dict], list[dict]]:
+    """One row per scored binary forecast, plus the per-model coverage rows.
 
     The section is decided per question *instance* by its ground-truth P(Yes),
     the reports' rule, so a qid can be mid-range in one city and tail in
@@ -254,11 +262,18 @@ def binary_rows(cfg: Config) -> list[dict]:
         f"            {len(rows)} scored forecasts: "
         + ", ".join(f"{n} {s}" for s, n in sorted(counts.items()))
     )
-    return rows
+    coverage = coverage_rows(
+        "binary",
+        corpus,
+        responses,
+        models,
+        {(r["model_id"], r["question_id"]) for r in scored},
+    )
+    return rows, coverage
 
 
-def continuous_rows(cfg: Config) -> list[dict]:
-    """One row per scored continuous forecast, unnormalized.
+def continuous_rows(cfg: Config) -> tuple[list[dict], list[dict]]:
+    """One row per scored continuous forecast, plus per-model coverage rows.
 
     The read-off horizon is excluded, as in every pooled figure the reports
     draw: it asks for a number the snapshot report already prints, so averaging
@@ -312,6 +327,7 @@ def continuous_rows(cfg: Config) -> list[dict]:
         )
 
     cities = {c["question_id"]: city_of(c["scenario_id"]) for c in scorable}
+    scored = score_forecasts(scorable, responses, models, RAW)
     rows = [
         {
             "model": to_model_id(r["model_id"]),
@@ -322,11 +338,53 @@ def continuous_rows(cfg: Config) -> list[dict]:
             "crps": r["crps"],
             "excess_crps": r["excess_crps"],
         }
-        for r in score_forecasts(scorable, responses, models, RAW)
+        for r in scored
         # Belt and braces: forecast_questions already removed the read-off.
         if is_forecast(r["horizon"])
     ]
     print(f"            {len(rows)} scored forecasts, unnormalized")
+    # Coverage is counted over the same questions the rows cover, so a parse
+    # rate here is the share of the paper's own question set a model answered.
+    forecasts = [c for c in scorable if is_forecast(c["horizon"])]
+    coverage = coverage_rows(
+        "continuous",
+        forecasts,
+        responses,
+        models,
+        {
+            (r["model_id"], r["question_id"])
+            for r in scored
+            if is_forecast(r["horizon"])
+        },
+    )
+    return rows, coverage
+
+
+def coverage_rows(
+    eval_name: str, corpus: list[dict], responses: dict, models: list[str], scored: set
+) -> list[dict]:
+    """Prompted against parsed, one row per model.
+
+    nforecasts counts the questions a model has a response on record for,
+    parsed or not, and nvalid those whose answer could be read — the reports'
+    own two counts, from the same `responses` mapping they use. Kept apart from
+    the forecast rows because those hold scores, and an unparsed forecast has
+    none; without this the paper could not state a parse rate at all.
+    """
+    rows = []
+    for slug in models:
+        asked = sum(
+            1 for c in corpus if ResponseId(slug, c["question_id"]) in responses
+        )
+        valid = sum(1 for c in corpus if (slug, c["question_id"]) in scored)
+        rows.append(
+            {
+                "model": to_model_id(slug),
+                "eval": eval_name,
+                "nforecasts": asked,
+                "nvalid": valid,
+            }
+        )
     return rows
 
 
@@ -342,8 +400,10 @@ def scale_rows(cfg: Config) -> list[dict]:
             + ", ".join(c for c in cfg.get_cities(None) if c not in means)
             + "\n  run scripts/run_sim.py for this config"
         )
-    print(f"scales:     {len(means)} cities, mean over turns "
-          f"{SCALES_START_TURN}-{snapshot}, floored")
+    print(
+        f"scales:     {len(means)} cities, mean over turns "
+        f"{SCALES_START_TURN}-{snapshot}, floored"
+    )
     return [
         {"city": city, **{m: max(values[m], SCALE_FLOORS[m]) for m in SCALE_METRICS}}
         for city, values in means.items()
@@ -378,8 +438,8 @@ def main() -> None:
     print(f"out:        {OUT_DIR}")
     print()
 
-    binary = binary_rows(binary_cfg)
-    continuous = continuous_rows(continuous_cfg)
+    binary, binary_coverage = binary_rows(binary_cfg)
+    continuous, continuous_coverage = continuous_rows(continuous_cfg)
     scales = scale_rows(continuous_cfg)
 
     print()
@@ -387,6 +447,11 @@ def main() -> None:
         (BINARY_CSV_NAME, BINARY_COLUMNS, binary),
         (CONTINUOUS_CSV_NAME, CONTINUOUS_COLUMNS, continuous),
         (SCALES_CSV_NAME, SCALES_COLUMNS, scales),
+        (
+            COVERAGE_CSV_NAME,
+            COVERAGE_COLUMNS,
+            binary_coverage + continuous_coverage,
+        ),
     ]:
         print(f"Wrote {write_csv(OUT_DIR / name, columns, rows)}")
 
