@@ -534,16 +534,22 @@ def paper_figures(outdir: Path) -> list[Path]:
 
 
 def paper_csvs(datadir: Path) -> list[Path]:
-    """Every CSV in the paper's directory, for delivery into the article.
+    """The paper's data files, for delivery into the article.
 
-    Taken from the directory rather than a list of names, so a file added to
-    the gathered data reaches the article without this being kept in step.
-    These are what every number in the paper was computed from: the two
-    forecast files, the per-city scales, the per-model coverage, the
-    leaderboard copy the ECI came from, and the three cells the cross-world
-    combined score fits on.
+    Taken from the directory by extension rather than from a list of names, so
+    a file added to the gathered data reaches the article without this being
+    kept in step. These are what every number in the paper was computed from:
+    the two forecast files, the per-city scales, the per-model coverage and
+    usage, the leaderboard copy the ECI came from, and the cells the
+    cross-world combined score fits on.
+
+    versions.txt goes with them: the article names this world's question-set
+    version and cites that file for the commit behind it, so the two have to
+    travel together.
     """
-    return sorted(p for p in datadir.glob("*.csv") if p.is_file())
+    return sorted(
+        p for p in datadir.iterdir() if p.is_file() and p.suffix in (".csv", ".txt")
+    )
 
 
 def deliver(paths: list[Path], dest: Path) -> list[Path]:

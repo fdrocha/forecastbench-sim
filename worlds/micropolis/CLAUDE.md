@@ -91,6 +91,13 @@ and the structural constraints (§5). Read it before touching resolution.
   `analyze_continuous.py` and everything under `figures/extra/` keep the raw negative
   rho, which is what `analysis-brier.md` and the eval reports show. State the convention
   wherever a number appears.
+- **Bump `data/micropolis/paper/versions.txt` when the forecast rows change.** The
+  article names this world's question-set draw (currently v3) and cites that file for the
+  commit that produced it, the way FreeCiv cites draw v1.8. Add a line whenever a change
+  would alter the contents of `binary_forecasts.csv` or `continuous_forecasts.csv` —
+  the question set, the ground truth, the model panel, the prompts or the scoring. A
+  change that only adds a file beside them (coverage, usage, figures, macros) does not
+  need a new version.
 - **Configs, not flags.** Every script takes a JSON5 config as its first positional arg
   (`config.add_config_args` / `load_config(s)`; wrap `main` in `@main_with_config`).
   Behavior toggles (`--dry-run`, `--no-plot`, …) stay on the CLI; only

@@ -1,0 +1,17 @@
+Question-set versions of the Micropolis world.
+
+The article cites a version name for each world's question set (FreeCiv draw
+v1.8, StarSim draw v4), so that a score always names the draw it was computed
+on. This file is that name for Micropolis, with the commit whose state
+produced the current data.
+
+One line per version: the name, then the hash of the last commit that changed
+what goes into binary_forecasts.csv or continuous_forecasts.csv. That covers
+the question set, the ground truth, the model panel, the prompts and the
+scoring — anything a reader would need to reproduce these rows.
+
+MAINTENANCE: add a line here whenever a change would alter the contents of
+those two files. Files written beside them that they do not feed (the cost and
+coverage tables, the figures, the macros) do not need a new version.
+
+v3 5302d75687d218e40e1ba5ce7553806ccff11ea8
