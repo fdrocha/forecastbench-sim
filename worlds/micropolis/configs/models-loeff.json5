@@ -22,7 +22,10 @@
   "google/gemini-3.7-flash:loeff",
   "openai/gpt-5.6-sol:loeff",
   "anthropic/claude-opus-5:loeff",
-  "anthropic/claude-fable-5:loeff",
-  "openai/gpt-4.1-nano",
-  "openai/gpt-4.1-mini"
+  "anthropic/claude-fable-5:loeff"
+  // gpt-4.1-nano and gpt-4.1-mini were dropped on 2026-09-18: the paper
+  // compares this world's correlations against FreeCiv's and StarSim's, and
+  // those two worlds scored a shared panel of 24 models that excludes them.
+  // Their responses stay in the cache, so restoring the two lines costs no
+  // API calls.
 ]
