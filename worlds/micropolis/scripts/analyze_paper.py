@@ -72,6 +72,15 @@ figures without a config being read. Models are named by model id, the gather
 step having dropped this world's ":suffix", so nothing here or in the figures
 carries a ":loeff".
 
+When PAPER_REPO_PATH is set — it is, in worlds/micropolis/.env, which
+module_globals loads — the run ends by delivering into that checkout of the
+article: micropolis-macros.tex to its root, beside math_commands.tex, and
+every figure the article places to its figures/. Nothing from extra/ is
+copied, that being what extra/ means. An unset variable is a note, since a
+machine that only gathers data has no article to deliver to; a variable
+pointing at a directory that does not exist is an error, since the alternative
+is rebuilding the paper from stale figures and not being told.
+
 Usage:
     scripts/analyze_paper.py
     scripts/analyze_paper.py --no-extra
@@ -80,6 +89,8 @@ Usage:
 
 import argparse
 import csv
+import os
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -129,6 +140,17 @@ POINT_COLOR = "#102b23"
 EXTREME_COLOR = "#e8632c"
 
 MACROS_NAME = "micropolis-macros.tex"
+
+# Where the article lives, from worlds/micropolis/.env (loaded by
+# module_globals, which this script reaches through gather_paper_data). Unset
+# means "nobody has the paper checked out here", which is the normal state on
+# a machine that only gathers data, so its absence is a note and not an error.
+PAPER_REPO_ENV = "PAPER_REPO_PATH"
+
+# Inside the paper repo: the figures go where \includegraphics resolves them,
+# and the macros to the root, beside math_commands.tex, which is where the
+# article's other \input of definitions sits — \input{micropolis-macros.tex}.
+PAPER_REPO_FIGURES = "figures"
 
 # The prefix every macro carries, so a \\MPD in the article's source is
 # unambiguously a number this script wrote and not one typed by hand.
@@ -224,6 +246,69 @@ HEADLINES = [
         "eci_vs_excess_ncrps-city",
     ),
 ]
+
+
+def paper_repo_dir() -> Path | None:
+    """The article's checkout from $PAPER_REPO_PATH, or None when unset.
+
+    The variable comes from worlds/micropolis/.env, which module_globals loads
+    at import time — this script reaches that through gather_paper_data, so the
+    value is in the environment before main() runs and nothing here has to
+    load it again.
+
+    Unset is the normal state on a machine with no checkout of the article, so
+    it is reported and skipped rather than treated as a failure. A value that
+    does not exist, though, is a typo worth stopping for: silently not
+    delivering the figures is how a paper ends up rebuilt from stale ones.
+    """
+    raw = os.environ.get(PAPER_REPO_ENV, "").strip()
+    if not raw:
+        return None
+    repo = Path(raw).expanduser()
+    if not repo.is_dir():
+        sys.exit(
+            f"[error] {PAPER_REPO_ENV}={raw} is not a directory\n"
+            f"  fix it in {Path(__file__).resolve().parents[1] / '.env'},"
+            " or unset it to skip copying into the article"
+        )
+    return repo
+
+
+def paper_figures(outdir: Path) -> list[Path]:
+    """The PDFs the article places: outdir's own, never extra/'s.
+
+    Taken from the directory rather than from a list of names, so a figure
+    added to the paper later is delivered without this having to be kept in
+    step. The split is exactly the one EXTRA_SUBDIR already draws: a figure
+    sits beside extra/ when the article places it, and inside extra/ when it
+    does not, and nothing recurses into it.
+    """
+    return sorted(p for p in outdir.glob("*.pdf") if p.is_file())
+
+
+def deliver(paths: list[Path], dest: Path) -> list[Path]:
+    """Copy each path into `dest`, saying which ones replaced something.
+
+    The article's own figures and macros, so the paper builds from this run
+    without a manual copy. Only the files the paper places are passed in —
+    nothing from figures/extra/, which exists precisely because the article
+    does not use it.
+
+    An overwrite is called out per file: these land in a git repo, and knowing
+    that a figure was replaced rather than added is what tells the difference
+    between "new figure" and "the numbers moved" when the diff is a binary
+    PDF. shutil.copyfile, not cp, since cp is aliased interactively on this
+    machine and copies nothing over an existing file.
+    """
+    dest.mkdir(parents=True, exist_ok=True)
+    written = []
+    for src in paths:
+        target = dest / src.name
+        existed = target.exists()
+        shutil.copyfile(src, target)
+        print(f"{'Replaced' if existed else 'Copied  '} {target}")
+        written.append(target)
+    return written
 
 
 def use_copied_model_scores(datadir: Path) -> Path:
@@ -999,6 +1084,17 @@ def main() -> None:
     if capability:
         print(f"Wrote {capability}")
     print(f"Wrote {macros}")
+
+    # Deliver into the article, when there is one checked out here: the macros
+    # to its root, where its other \\input of definitions lives, and the
+    # figures it places to figures/.
+    repo = paper_repo_dir()
+    if repo is None:
+        print(f"\n[note] {PAPER_REPO_ENV} unset; not copying into the article")
+        return
+    print()
+    deliver([macros], repo)
+    deliver(paper_figures(args.outdir), repo / PAPER_REPO_FIGURES)
 
 
 if __name__ == "__main__":
