@@ -136,6 +136,7 @@ from gather_paper_data import (
     MODEL_SCORES_CSV_NAME,
     OUT_DIR,
     SCALES_CSV_NAME,
+    USAGE_CSV_NAME,
 )
 
 FIGURES_DIR = OUT_DIR / "figures"
@@ -191,6 +192,28 @@ TABLE_NAMES = {
 
 # Where the tables land in the article: it \inputs them from data/appendix_tables/.
 PAPER_REPO_TABLES = "data/appendix_tables"
+
+# The two cost tables the article shares between worlds. Neither is ours to
+# write: StarSim's data/starsim/scripts/build_metadata.py generates them too,
+# by reading the file and rewriting only the cells it owns. So this script
+# edits them the same way — in place, Micropolis cells only — and the two
+# generators compose in either order.
+#
+# hosting_cost_table.tex gets two new columns. They go BEFORE StarSim's pair,
+# because build_metadata.py addresses its own cells as cells[-2:]; appended at
+# the end, ours would be the ones it overwrote.
+SHARED_TABLES = {
+    "hosting": "data/hosting_cost_table.tex",
+    "cost_per_item": "data/appendix_tables/cost_per_item.tex",
+}
+
+# What the article's cost_per_item rows say Micropolis asked, per eval. The
+# item counts are checked against the gathered rows rather than written from
+# here, so a config change shows up as an error instead of a stale table.
+COST_ROWS = [
+    ("binary", "Binary"),
+    ("continuous", "Continuous"),
+]
 
 # Where this world's CSVs land in the article: everything the paper's own
 # numbers were computed from, beside the other worlds' data directories, so a
@@ -369,6 +392,88 @@ def read_coverage(path: Path) -> list[dict]:
     if not rows:
         sys.exit(f"[error] {path} holds no rows")
     return rows
+
+
+def read_usage(path: Path) -> list[dict]:
+    """model_usage.csv as rows with numbers parsed.
+
+    What the run cost, per model and eval. Like the coverage file this cannot
+    be recovered from the forecast rows: a row there is a score, and the call
+    that produced it left its cost in a sidecar beside the cached response.
+    """
+    if not path.exists():
+        sys.exit(
+            f"[error] {path} not found\n"
+            "  rerun scripts/gather_paper_data.py; it writes the per-model"
+            " usage the article's cost tables report"
+        )
+    with path.open(newline="") as f:
+        rows = [
+            {
+                **r,
+                "ncalls": int(r["ncalls"]),
+                "nprompts": int(r["nprompts"]),
+                "questions_per_prompt": int(r["questions_per_prompt"]),
+                "cost_usd": float(r["cost_usd"]),
+            }
+            for r in csv.DictReader(f)
+        ]
+    if not rows:
+        sys.exit(f"[error] {path} holds no rows")
+    return rows
+
+
+def usage_by_eval(usage: list[dict]) -> dict[str, dict[str, float]]:
+    """Per-eval totals: calls, cost, and the prompts each model was sent.
+
+    nprompts is the same for every model of an eval — it is a property of the
+    corpus and the batch size, not of the model — so it is asserted rather
+    than averaged: a spread there would mean the rows came from two different
+    runs, and the cost table's "calls per model" column would be a fiction.
+    """
+    out = {}
+    for name in sorted({r["eval"] for r in usage}):
+        rows = [r for r in usage if r["eval"] == name]
+        prompts = {r["nprompts"] for r in rows}
+        if len(prompts) != 1:
+            sys.exit(
+                f"[error] {USAGE_CSV_NAME}: models of the {name} eval were sent"
+                f" different numbers of prompts ({sorted(prompts)})\n"
+                "  the rows are from more than one run; rerun"
+                " scripts/gather_paper_data.py"
+            )
+        out[name] = {
+            "calls": sum(r["ncalls"] for r in rows),
+            "cost": sum(r["cost_usd"] for r in rows),
+            "nprompts": prompts.pop(),
+            "per_prompt": max(r["questions_per_prompt"] for r in rows),
+            "nmodels": len(rows),
+        }
+    return out
+
+
+def items_per_model(coverage: list[dict]) -> dict[str, int]:
+    """How many questions one model was asked, per eval.
+
+    The denominator of the per-item cost. Taken from what was prompted, not
+    from what parsed: a model that returned nothing for a question was still
+    charged for it.
+
+    Every model of an eval is asked the same corpus, so a spread here means
+    the rows came from more than one run and no single item count describes
+    the table's row.
+    """
+    out = {}
+    for name in sorted({r["eval"] for r in coverage}):
+        counts = {r["nforecasts"] for r in coverage if r["eval"] == name}
+        if len(counts) != 1:
+            sys.exit(
+                f"[error] {COVERAGE_CSV_NAME}: models of the {name} eval were"
+                f" asked different numbers of questions ({sorted(counts)})\n"
+                "  rerun scripts/gather_paper_data.py"
+            )
+        out[name] = counts.pop()
+    return out
 
 
 def parse_rates(coverage: list[dict]) -> dict[str, float]:
@@ -1167,6 +1272,43 @@ def parse_lines(rates: dict[str, float]) -> list[str]:
     return lines + [""]
 
 
+def cost_lines(totals: dict[str, dict[str, float]], items: dict[str, int]) -> list[str]:
+    r"""\MPDCost* : what the run cost, per eval and in total.
+
+    Dollars to the cent and the grand total too, because the article quotes
+    all three in prose. The per-item figure is in cents, as the shared cost
+    table reports it, and is computed from the same totals so the prose and
+    the table cannot disagree.
+    """
+    pre = MACRO_PREFIX
+    lines = [
+        "% What the run cost, from the usage sidecars beside the cached",
+        "% responses (model_usage.csv). Dollars per model summed over the",
+        "% panel; CentsPerItem divides by the items one model was asked.",
+    ]
+    for name, t in sorted(totals.items()):
+        stem = name.capitalize()
+        n = items[name]
+        cents = 100.0 * t["cost"] / (t["nmodels"] * n) if t["nmodels"] and n else 0.0
+        per_prompt = n // t["nprompts"] if t["nprompts"] else 0
+        lines += [
+            f"\\newcommand{{\\{pre}Cost{stem}}}{{{t['cost']:.2f}}}",
+            f"\\newcommand{{\\{pre}Calls{stem}}}{{{t['calls']:,}}}",
+            f"\\newcommand{{\\{pre}Prompts{stem}}}{{{t['nprompts']:,}}}",
+            f"\\newcommand{{\\{pre}Items{stem}}}{{{n:,}}}",
+            f"\\newcommand{{\\{pre}Cents{stem}}}{{{cents:.2f}}}",
+            f"\\newcommand{{\\{pre}PerPrompt{stem}}}{{{per_prompt}}}",
+        ]
+    total = sum(t["cost"] for t in totals.values())
+    calls = sum(t["calls"] for t in totals.values())
+    lines += [
+        f"\\newcommand{{\\{pre}CostTotal}}{{{total:.2f}}}",
+        f"\\newcommand{{\\{pre}CallsTotal}}{{{calls:,}}}",
+        "",
+    ]
+    return lines
+
+
 def caption_lines(found: dict[str, object]) -> list[str]:
     r"""\MPDCapCapability: the capability figure's caption.
 
@@ -1466,6 +1608,36 @@ def write_cells(
     return path
 
 
+def write_shared_tables(
+    repo: Path, usage: list[dict], totals: dict, items: dict, names: dict[str, str]
+) -> list[Path]:
+    """Refill this world's cells of the article's two shared cost tables.
+
+    Read-modify-write, in the article's own checkout: these files are shared
+    with StarSim's generator, so each side edits only its own cells and leaves
+    the rest of the bytes alone. Nothing is written when a table's cells are
+    already right, so a rerun that changes no number leaves no diff.
+    """
+    written = []
+    for key, edit in [
+        ("hosting", lambda t: edit_hosting(t, usage, names)),
+        ("cost_per_item", lambda t: edit_cost_per_item(t, totals, items)),
+    ]:
+        path = repo / SHARED_TABLES[key]
+        if not path.exists():
+            print(f"[warn] {path} not in the article; its cells not filled")
+            continue
+        before = path.read_text()
+        after = edit(before)
+        if after == before:
+            print(f"Unchanged {path}")
+            continue
+        path.write_text(after)
+        print(f"Filled   {path}")
+        written.append(path)
+    return written
+
+
 def write_tables(
     datadir: Path,
     binary: list[dict],
@@ -1488,6 +1660,163 @@ def write_tables(
     return out
 
 
+def cells_of(line: str) -> list[str]:
+    r"""A table row's cells. The same split build_metadata.py uses."""
+    return [c.strip() for c in line.removesuffix(r"\\").split("&")]
+
+
+def table_row(cells: list[str]) -> str:
+    """Cells back into a row, as build_metadata.py writes them."""
+    return " & ".join(cells) + r" \\"
+
+
+def is_row(line: str) -> bool:
+    """Whether a line of a generated table is a data row."""
+    return "&" in line and line.rstrip().endswith(r"\\")
+
+
+def edit_hosting(text: str, usage: list[dict], names: dict[str, str]) -> str:
+    """Fill this world's two columns of the shared hosting table.
+
+    Adds "Micropolis calls" and "Cost" before StarSim's pair, or refills them
+    when a previous run put them there. Before, not after, because StarSim's
+    generator addresses its own cells from the right-hand end.
+
+    The join is on the article's display name, which is the table's first
+    column: every other key the two sides share (the ECI, the OpenRouter id)
+    is absent from this table. A name the panel has no row for is left alone
+    rather than guessed at — the other worlds ran models this one did not.
+    """
+    per_model: dict[str, dict[str, float]] = {}
+    for r in usage:
+        acc = per_model.setdefault(r["model"], {"calls": 0, "cost": 0.0})
+        acc["calls"] += r["ncalls"]
+        acc["cost"] += r["cost_usd"]
+    by_name = {tex_escape(names.get(m, m)): v for m, v in per_model.items()}
+
+    lines = text.splitlines()
+    header = next(i for i, ln in enumerate(lines) if ln.startswith("Model &"))
+    ncols = len(cells_of(lines[header]))
+    # Where our pair sits. A rerun finds them already present; a first run
+    # inserts them, which is the only time the column count changes.
+    fresh = "Micropolis calls" not in lines[header]
+    at = ncols - 2 if fresh else cells_of(lines[header]).index("Micropolis calls")
+
+    def put(cells: list[str], pair: list[str]) -> list[str]:
+        out = list(cells)
+        if fresh:
+            out[at:at] = pair
+        else:
+            out[at : at + 2] = pair
+        return out
+
+    seen = set()
+    for i, line in enumerate(lines):
+        if not is_row(line):
+            continue
+        cells = cells_of(line)
+        if i == header:
+            lines[i] = table_row(put(cells, ["Micropolis calls", r"Cost (\$)"]))
+            continue
+        name = cells[0]
+        if name in by_name:
+            v = by_name[name]
+            seen.add(name)
+            lines[i] = table_row(
+                put(cells, [f"{int(v['calls']):,}", f"{v['cost']:.2f}"])
+            )
+        elif name == "Total":
+            calls = sum(v["calls"] for v in per_model.values())
+            cost = sum(v["cost"] for v in per_model.values())
+            lines[i] = table_row(put(cells, [f"{int(calls):,}", f"{cost:.2f}"]))
+        else:
+            # A model this world did not run: an empty pair, not a zero, which
+            # would claim the calls were made and cost nothing.
+            lines[i] = table_row(put(cells, ["--", "--"]))
+    missing = sorted(set(by_name) - seen)
+    if missing:
+        sys.exit(
+            "[error] these models have Micropolis usage but no row in"
+            f" {SHARED_TABLES['hosting']}: {', '.join(missing)}\n"
+            "  the join is on the display name of model_scores.csv; the"
+            " article's table must name them the same way"
+        )
+    if fresh:
+        lines = widen_tabular(lines, at)
+    return "\n".join(lines) + "\n"
+
+
+def widen_tabular(lines: list[str], at: int) -> list[str]:
+    r"""Add two right-aligned columns to the \begin{tabular} preamble.
+
+    Only on the run that first inserts them. The column spec is read and
+    rewritten rather than replaced wholesale, so whatever alignment and
+    @{}-padding the article chose survives.
+    """
+    for i, line in enumerate(lines):
+        if not line.startswith(r"\begin{tabular}"):
+            continue
+        spec = line[line.index("{", len(r"\begin{tabular}") - 1) :]
+        inner = spec.strip()[1:-1]
+        # Column letters only; @{} and >{} groups are positional padding that
+        # must not be counted as columns.
+        out, seen, done = [], 0, False
+        for ch in inner:
+            if not done and ch in "lcr" and seen == at:
+                out.append("r r ")
+                done = True
+            out.append(ch)
+            if ch in "lcr":
+                seen += 1
+        if not done:
+            out.append(" r r")
+        lines[i] = r"\begin{tabular}{" + "".join(out) + "}"
+        return lines
+    sys.exit(f"[error] no \\begin{{tabular}} in {SHARED_TABLES['hosting']}")
+
+
+def edit_cost_per_item(
+    text: str, totals: dict[str, dict[str, float]], items: dict[str, int]
+) -> str:
+    """Fill this world's rows of the shared per-item cost table.
+
+    Rewrites the Micropolis rows' label, calls, cost and cents per item from
+    the run, leaving the other worlds' rows and the whole StarSim block
+    untouched. The row's label carries the batch size, which is a property of
+    the run and was stale in the committed file, so it is written here too.
+    """
+    lines = text.splitlines()
+    start = next(
+        (i for i, ln in enumerate(lines) if ln.startswith("Micropolis &")), None
+    )
+    if start is None:
+        sys.exit(
+            f"[error] no Micropolis block in {SHARED_TABLES['cost_per_item']}\n"
+            '  the row must begin "Micropolis &" for this script to find it'
+        )
+    for j, (name, label) in enumerate(COST_ROWS):
+        i = start + j
+        if i >= len(lines) or not is_row(lines[i]):
+            sys.exit(
+                f"[error] {SHARED_TABLES['cost_per_item']}: expected"
+                f" {len(COST_ROWS)} Micropolis rows, found {j}"
+            )
+        cells = cells_of(lines[i])
+        t = totals[name]
+        n = items[name]
+        cost = t["cost"] / t["nmodels"] if t["nmodels"] else 0.0
+        # The items a prompt actually carried, not the config's cap: a
+        # continuous snapshot has fewer scored lines than the cap allows, so
+        # the cap would misdescribe the prompt the model saw.
+        cells[1] = f"{label} ({n // t['nprompts']} questions per prompt)"
+        cells[2] = f"{n:,}"
+        cells[3] = f"{t['nprompts']:,}"
+        cells[4] = f"{cost:.2f}"
+        cells[5] = f"{100.0 * cost / n:.2f}" if n else "--"
+        lines[i] = table_row(cells)
+    return "\n".join(lines) + "\n"
+
+
 def write_macros(
     path: Path,
     found: dict[str, object],
@@ -1495,6 +1824,8 @@ def write_macros(
     by_horizon: dict[str, dict[str, object]],
     fb: dict[str, object],
     rates: dict[str, float],
+    totals: dict[str, dict[str, float]],
+    items: dict[str, int],
 ) -> Path:
     r"""Write micropolis-macros.tex: every quoted number as a \newcommand.
 
@@ -1527,6 +1858,7 @@ def write_macros(
             + [""]
         )
     lines += parse_lines(rates)
+    lines += cost_lines(totals, items)
     lines += bootstrap_lines()
     if fb:
         lines += predictor_lines("FB", "ForecastBench overall", fb)
@@ -1776,6 +2108,7 @@ def main() -> None:
     scales = read_scales(args.datadir / SCALES_CSV_NAME)
     continuous = normalize(continuous, scales)
     coverage = read_coverage(args.datadir / COVERAGE_CSV_NAME)
+    usage = read_usage(args.datadir / USAGE_CSV_NAME)
 
     extra_dir = args.outdir / EXTRA_SUBDIR
     print("=" * 70)
@@ -1809,9 +2142,27 @@ def main() -> None:
     rates = parse_rates(coverage)
     for name, rate in sorted(rates.items()):
         print(f"lowest parse rate, {name}: {rate:.1f}%")
+    totals = usage_by_eval(usage)
+    # The items one model was asked, from the coverage rows rather than from
+    # the config: it is the denominator of the per-item cost, so it has to be
+    # the count the scores were actually computed over.
+    items = items_per_model(coverage)
+    for name, t in sorted(totals.items()):
+        print(
+            f"cost, {name}: ${t['cost']:.2f} over {t['calls']:,} calls"
+            f" ({items[name]:,} items per model)"
+        )
+    print(f"cost, total: ${sum(t['cost'] for t in totals.values()):.2f}")
     print()
     macros = write_macros(
-        args.datadir / MACROS_NAME, found, names, by_horizon, fb, rates
+        args.datadir / MACROS_NAME,
+        found,
+        names,
+        by_horizon,
+        fb,
+        rates,
+        totals,
+        items,
     )
     tables = write_tables(args.datadir, binary, continuous, coverage, names)
     cells = write_cells(args.datadir, binary, continuous)
@@ -1846,6 +2197,9 @@ def main() -> None:
     deliver(paper_figures(args.outdir), repo / PAPER_REPO_FIGURES)
     deliver(tables, repo / PAPER_REPO_TABLES)
     deliver(paper_csvs(args.datadir), repo / PAPER_REPO_DATA)
+    # Edited in place rather than delivered: the article and StarSim's
+    # generator own the rest of these two files.
+    write_shared_tables(repo, usage, totals, items, names)
 
 
 if __name__ == "__main__":

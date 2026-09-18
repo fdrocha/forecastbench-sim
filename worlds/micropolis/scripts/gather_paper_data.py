@@ -19,6 +19,10 @@ actually computed at, not a per-model mean:
 - model_scores.csv, copied verbatim from the package's datafiles/, so the
   paper's directory carries the ECI and ForecastBench numbers its figures plot
   against rather than depending on the repo's copy at drawing time.
+- model_usage.csv: what each model's calls cost, per eval, from the usage
+  sidecars beside the cached responses. The paper reports the run's cost per
+  model and per question kind, and neither is recoverable from the forecast
+  rows.
 
 Model names are written as model *ids*: this world's ":suffix" (":loeff", the
 reasoning effort a run was gathered under) is dropped, since the paper reports
@@ -53,20 +57,28 @@ import sys
 from pathlib import Path
 
 import micropolis_world.module_globals as g
+from micropolis_world import usage_report as ur
+from micropolis_world.binary_eval import PATHS as BINARY_PATHS
 from micropolis_world.binary_eval import (
     data_path as binary_data_path,
 )
 from micropolis_world.binary_eval import (
     load_dataset_binary,
 )
+from micropolis_world.binary_questions import build_corpus_binary
 from micropolis_world.config import CONFIG_DIR, Config, ConfigError, main_with_config
+from micropolis_world.continuous_eval import (
+    PATHS as CONTINUOUS_PATHS,
+)
 from micropolis_world.continuous_eval import (
     DatasetError,
     Normalizer,
     ResponseId,
     attach_outcomes,
     data_path,
+    group_into_batches,
     load_dataset,
+    prompt_hash,
     score_forecasts,
     select_for_config,
 )
@@ -74,6 +86,12 @@ from micropolis_world.ground_truth import load_truths
 from micropolis_world.messages import error, warn
 from micropolis_world.model_ids import to_model_id
 from micropolis_world.model_scores import SCORES_PATH
+from micropolis_world.scenarios import (
+    build_batch_prompt_binary,
+    build_batch_prompt_continuous,
+    build_corpus,
+    get_base_scenarios,
+)
 
 # Imported rather than reimplemented so the paper's scores are the reports'
 # scores: the same section rule, the same Brier/excess/bits, the same CRPS.
@@ -150,6 +168,26 @@ SCALE_FLOORS = {
 # worst model's parse rate, which is exactly the number that vanishes.
 COVERAGE_CSV_NAME = "model_coverage.csv"
 COVERAGE_COLUMNS = ["model", "eval", "nforecasts", "nvalid"]
+
+# What the run cost, per model and eval, from the usage sidecar beside each
+# cached response. The paper's cost tables report this and nothing else can:
+# a forecast row records a score, not the call that produced it. Collected the
+# way analyze_usage.py collects it — by rebuilding each config's batch prompts,
+# since a sidecar is named by its prompt's hash — so the two agree by
+# construction.
+USAGE_CSV_NAME = "model_usage.csv"
+USAGE_COLUMNS = [
+    "model",
+    "eval",
+    "provider",
+    "ncalls",
+    "nprompts",
+    "questions_per_prompt",
+    "input_tokens",
+    "output_tokens",
+    "reasoning_tokens",
+    "cost_usd",
+]
 
 CONTINUOUS_CSV_NAME = "continuous_forecasts.csv"
 CONTINUOUS_COLUMNS = [
@@ -388,6 +426,92 @@ def coverage_rows(
     return rows
 
 
+def usage_rows(eval_name: str, cfg: Config) -> list[dict]:
+    """What each model's calls cost in this eval, one row per model.
+
+    A sidecar's filename carries the hash of the prompt that produced the call,
+    so the prompts have to be rebuilt to know which stored calls belong to this
+    config rather than to an ablation cached beside them. That is the same
+    derivation analyze_usage.py does, through the same builders the run scripts
+    use, so both read the same set of calls.
+
+    Models with no recorded call are still given a row, at zero: the paper's
+    per-model cost column needs an entry for every model in the panel, and a
+    gap there would read as a missing model rather than a missing sidecar.
+    """
+    seed = cfg.get_seed(None)
+    label = cfg.get_label(None)
+    scenarios = get_base_scenarios(
+        seed=seed, cities=cfg.get_cities(None), disasters=cfg.get_disasters(None)
+    )
+    shape = (
+        scenarios,
+        cfg.get_int_list("snapshot_turns"),
+        cfg.get_int_list("horizons"),
+        cfg.get_int("history_freq"),
+        label,
+        cfg.get_bool_or("snapshot_only_report", False),
+        cfg.get_int_or("history_length", -1),
+        cfg.get_bool_or("report_effectiveness", False),
+        cfg.get_bool_or("censorCityFunds", True),
+    )
+    preamble, epilogue = cfg.get_preamble_path(), cfg.get_epilogue_path()
+    if eval_name == "binary":
+        corpus = build_corpus_binary(*shape, cfg.get_bool_or("report_census", True))
+        paths = BINARY_PATHS
+
+        def build(context, questions):
+            return build_batch_prompt_binary(context, questions, preamble, epilogue)
+    else:
+        corpus = build_corpus(*shape, cfg.get_questions_sort())
+        paths = CONTINUOUS_PATHS
+        tagging = cfg.get_question_tagging()
+
+        def build(context, questions):
+            return build_batch_prompt_continuous(
+                context, questions, preamble, epilogue, tagging
+            )
+
+    per_prompt = cfg.get_questions_per_prompt()
+    batches = group_into_batches(corpus, per_prompt)
+    hashes = {
+        bid: prompt_hash(build(qs[0]["context"], qs)) for bid, qs in batches.items()
+    }
+    models = cfg.get_models(None)
+    check_no_suffix_collisions(models)
+
+    rows = []
+    for slug in models:
+        one = ur.collect_for_batches(
+            hashes, [slug], paths.response_path, paths.usage_path
+        )
+        totals = ur.grand_total(ur.by_provider(one.usages))
+        # The host is per model, not per call, so the one provider that served
+        # it names the column the paper prints; a model somehow split across
+        # providers is reported as such rather than silently taking the first.
+        served = sorted({ur.provider_of(u.model_id) for u in one.usages})
+        rows.append(
+            {
+                "model": to_model_id(slug),
+                "eval": eval_name,
+                "provider": "+".join(served),
+                "ncalls": totals.calls,
+                "nprompts": len(hashes),
+                "questions_per_prompt": per_prompt,
+                "input_tokens": totals.input_tokens,
+                "output_tokens": totals.output_tokens,
+                "reasoning_tokens": totals.reasoning_tokens,
+                "cost_usd": f"{totals.cost_usd:.4f}",
+            }
+        )
+    total = sum(float(r["cost_usd"]) for r in rows)
+    print(
+        f"usage:      {eval_name}: {sum(r['ncalls'] for r in rows)} calls over "
+        f"{len(rows)} models, ${total:.2f}, {len(hashes)} prompts per model"
+    )
+    return rows
+
+
 def scale_rows(cfg: Config) -> list[dict]:
     """One row per city: its metric means up to the first snapshot, floored."""
     seed = cfg.get_seed(None)
@@ -441,6 +565,7 @@ def main() -> None:
     binary, binary_coverage = binary_rows(binary_cfg)
     continuous, continuous_coverage = continuous_rows(continuous_cfg)
     scales = scale_rows(continuous_cfg)
+    usage = usage_rows("binary", binary_cfg) + usage_rows("continuous", continuous_cfg)
 
     print()
     for name, columns, rows in [
@@ -452,6 +577,7 @@ def main() -> None:
             COVERAGE_COLUMNS,
             binary_coverage + continuous_coverage,
         ),
+        (USAGE_CSV_NAME, USAGE_COLUMNS, usage),
     ]:
         print(f"Wrote {write_csv(OUT_DIR / name, columns, rows)}")
 
