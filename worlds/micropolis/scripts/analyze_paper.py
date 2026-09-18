@@ -116,6 +116,7 @@ from analyze_binary import (
     MID_RANGE,
     SCORES,
     TAIL,
+    TAIL_THRESHOLD,
     Score,
     capability_predictors,
     plot_eci_vs_score,
@@ -125,6 +126,9 @@ from analyze_continuous import (
     BOOTSTRAP_RESAMPLES,
     BOOTSTRAP_SEED,
     EXCESS,
+    MIN_MODELS,
+    _correlations_by_row,
+    _percentile_interval,
     by_model_id,
     correlate,
     format_band,
@@ -171,6 +175,22 @@ HORIZON_FIG_NAME = "fig_micropolis_horizon.pdf"
 # layout does not move. Taller than the capability figure because its panels
 # carry a legend each.
 HORIZON_SIZE = (5.5, 2.6)
+
+# The question set's own composition: what ground-truth probabilities the
+# 3,000 binary questions actually take, which is the base rate every score
+# here is measured against. The article asked for this as "the project plan's
+# Figure 1" and the box for it asked for the per-question ground-truth files;
+# binary_forecasts.csv already carries q per question as `real_prob`, so it
+# needs nothing that is not already gathered.
+BANDS_FIG_NAME = "fig_micropolis_bands.pdf"
+BANDS_SIZE = (5.5, 2.15)
+
+# The bands q is counted in. Deliberately not ten equal deciles: the set is
+# built to put most of its mass below 5% (that is what makes the tail section
+# a tail), so equal deciles would show one bar and nine slivers. The edges
+# below split that first decile and keep TAIL_THRESHOLD as a boundary, so the
+# figure's leftmost bars are exactly the tail section.
+BAND_EDGES = [0.0, 0.005, 0.02, TAIL_THRESHOLD, 0.1, 0.25, 0.5, 0.75, 0.95, 1.0]
 
 # Its two panels, as (section, Score, axis label, panel title). The tail is
 # scored in excess bits here, as everywhere else in the paper now: the figure
@@ -850,6 +870,246 @@ def draw_capability_figure(
     return path
 
 
+def city_of_row(row: dict) -> str | None:
+    """The city a scored row belongs to.
+
+    The continuous rows carry it as a column; the binary ones encode it in the
+    question id, as "{city}_{disasters}_seed{n}_T{turn}_H{horizon}_{qid}", and
+    a city name can itself hold an underscore ("med_isle"), so the suffixes
+    are stripped rather than the first segment taken — the same rule
+    gather_paper_data.city_of applies to scenario ids.
+    """
+    if row.get("city"):
+        return row["city"]
+    qid = row.get("question_id")
+    if not qid:
+        return None
+    head = qid.split("_seed", 1)[0]
+    return head.removesuffix("_disasters").removesuffix("_nodisasters") or None
+
+
+def cluster_ci(
+    predictor: dict[str, float],
+    rows: list[dict],
+    score_key: str,
+    resamples: int = BOOTSTRAP_RESAMPLES,
+    seed: int = BOOTSTRAP_SEED,
+) -> tuple[tuple[float, float] | None, int]:
+    """A 95% interval for the correlation, resampling cities rather than questions.
+
+    The article's validation table has a "CI (worlds)" column: for FreeCiv a
+    cluster bootstrap over its eight anchor games, since questions drawn from
+    one world are not independent of each other. This world's analogue is its
+    cities — 15 of them, each replayed 1,000 times — so a city is resampled
+    with all of its questions at once.
+
+    Wider than the question bootstrap, since 15 clusters carry less
+    information than 3,000 independent draws, and narrower than the model
+    bootstrap, which resamples the 24 points the correlation is computed over.
+    It is the one to quote for "would this hold on other cities".
+
+    Built on the same (question x model) matrix and the same weight-matrix
+    trick as analyze_continuous.correlate, so the only difference from its
+    question interval is what gets resampled. Returns (interval, n_cities).
+    """
+    import numpy as np
+
+    rows = [r for r in rows if r[score_key] is not None]
+    questions = sorted({r["question_id"] for r in rows})
+    models = sorted({r["model_id"] for r in rows} & set(predictor))
+    if len(questions) < 2 or len(models) < MIN_MODELS:
+        return None, 0
+    qpos = {q: i for i, q in enumerate(questions)}
+    mpos = {m: j for j, m in enumerate(models)}
+    scores = np.full((len(questions), len(models)), np.nan)
+    city_of_q: dict[str, str] = {}
+    for r in rows:
+        if r["model_id"] in mpos:
+            scores[qpos[r["question_id"]], mpos[r["model_id"]]] = r[score_key]
+        city = city_of_row(r)
+        if city:
+            city_of_q[r["question_id"]] = city
+    if len(city_of_q) != len(questions):
+        return None, 0
+    cities = sorted(set(city_of_q.values()))
+    if len(cities) < 2:
+        return None, len(cities)
+    present = ~np.isnan(scores)
+    x = np.array([predictor[m] for m in models])
+
+    # Which questions belong to each city, as a (cities x questions) indicator,
+    # so a resample of cities becomes a weight per question in one product.
+    cpos = {c: i for i, c in enumerate(cities)}
+    member = np.zeros((len(cities), len(questions)))
+    for q, city in city_of_q.items():
+        member[cpos[city], qpos[q]] = 1.0
+
+    nc = len(cities)
+    draws = np.random.default_rng(seed).integers(0, nc, (resamples, nc))
+    city_w = np.stack([np.bincount(d, minlength=nc) for d in draws]).astype(float)
+    weights = city_w @ member
+    with np.errstate(invalid="ignore", divide="ignore"):
+        means = (weights @ np.where(present, scores, 0.0)) / (weights @ present)
+    rho_c, _ = _correlations_by_row(np.broadcast_to(x, means.shape), means)
+    return _percentile_interval(rho_c, resamples), nc
+
+
+def band_of(q: float) -> int:
+    """Which BAND_EDGES bucket a ground-truth probability falls in."""
+    for i in range(len(BAND_EDGES) - 1):
+        if q < BAND_EDGES[i + 1]:
+            return i
+    return len(BAND_EDGES) - 2
+
+
+def band_label(i: int) -> str:
+    """A band's axis label, as a percentage range."""
+
+    def pct(x: float) -> str:
+        return f"{x * 100:g}"
+
+    return f"{pct(BAND_EDGES[i])}--{pct(BAND_EDGES[i + 1])}"
+
+
+def band_counts(binary: list[dict]) -> tuple[list[list[int]], int]:
+    """Questions per (band, horizon), and the questions per model.
+
+    Counted over one model's rows, not all of them: every model is asked the
+    same 3,000 questions, so counting all 24 would report the same set 24
+    times. The model is the one with a complete set of rows, since a model
+    that failed to parse an answer has no row for that question and would
+    undercount the set it was nonetheless asked.
+    """
+    per_model: dict[str, list[dict]] = {}
+    for r in binary:
+        per_model.setdefault(r["model_id"], []).append(r)
+    if not per_model:
+        return [], 0
+    rows = max(per_model.values(), key=len)
+    counts = [[0] * len(HORIZONS) for _ in range(len(BAND_EDGES) - 1)]
+    for r in rows:
+        if r["horizon"] in HORIZONS:
+            counts[band_of(r["real_prob"])][HORIZONS.index(r["horizon"])] += 1
+    return counts, len(rows)
+
+
+def draw_bands_figure(path: Path, binary: list[dict]) -> Path | None:
+    """The question set's composition by ground-truth probability.
+
+    Left: how many of the questions fall in each probability band, stacked by
+    horizon. Right: the same counts as each horizon's share of its own
+    questions, which is what shows whether the composition shifts as the
+    horizon lengthens — a longer window makes rare events less rare, so the
+    tail share should fall.
+
+    The tail/mid-range boundary is drawn on both panels, because the section
+    split every other figure here conditions on is exactly that line.
+    """
+    import matplotlib
+
+    matplotlib.use("pgf")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    counts, n_questions = band_counts(binary)
+    if not n_questions:
+        print(f"[skipped] {BANDS_FIG_NAME}: no binary rows")
+        return None
+    grid = np.array(counts, dtype=float)
+    nbands = grid.shape[0]
+    # Where the tail ends: the first edge at or past the threshold.
+    split = BAND_EDGES.index(TAIL_THRESHOLD)
+
+    with plt.rc_context(
+        {
+            "pgf.texsystem": "pdflatex",
+            "text.usetex": True,
+            "font.family": "serif",
+            "pgf.rcfonts": False,
+            "font.size": 7,
+            "axes.labelsize": 7,
+            "xtick.labelsize": 6.5,
+            "ytick.labelsize": 6.5,
+            "axes.linewidth": 0.6,
+            "xtick.major.width": 0.6,
+            "ytick.major.width": 0.6,
+            "xtick.major.size": 2.0,
+            "ytick.major.size": 2.0,
+        }
+    ):
+        fig, axes = plt.subplots(1, 2, figsize=BANDS_SIZE, layout="constrained")
+        fig.get_layout_engine().set(w_pad=0.04, h_pad=0.02, wspace=0.03)
+        xs = np.arange(nbands)
+        # One grey per horizon, light to dark, so the stack reads as an
+        # ordered variable rather than as four unrelated categories.
+        shades = [str(v) for v in np.linspace(0.78, 0.30, len(HORIZONS))]
+
+        ax = axes[0]
+        bottom = np.zeros(nbands)
+        for j, h in enumerate(HORIZONS):
+            ax.bar(
+                xs,
+                grid[:, j],
+                bottom=bottom,
+                color=shades[j],
+                edgecolor="white",
+                lw=0.3,
+                width=0.82,
+                label=f"{h.rstrip('y')} years",
+            )
+            bottom += grid[:, j]
+        ax.set_ylabel("Questions")
+        ax.set_title(
+            rf"Composition of the {n_questions:,} binary questions", fontsize=7
+        )
+        ax.legend(fontsize=5, frameon=False, loc="upper center", ncols=2)
+        ax.set_ylim(0, bottom.max() * 1.30)
+
+        ax = axes[1]
+        # Column-normalized: each horizon's bars sum to 100%, so the panel
+        # compares composition rather than counts.
+        share = 100.0 * grid / grid.sum(axis=0, keepdims=True)
+        width = 0.82 / len(HORIZONS)
+        for j, h in enumerate(HORIZONS):
+            ax.bar(
+                xs + (j - (len(HORIZONS) - 1) / 2) * width,
+                share[:, j],
+                color=shades[j],
+                edgecolor="white",
+                lw=0.2,
+                width=width,
+                label=f"{h.rstrip('y')} years",
+            )
+        ax.set_ylabel(r"Share of the horizon's questions (\%)")
+        ax.set_title("Composition by forecast horizon", fontsize=7)
+        ax.set_ylim(0, share.max() * 1.30)
+
+        for ax in axes:
+            # Between the last tail band and the first mid-range one.
+            ax.axvline(split - 0.5, color=EXTREME_COLOR, lw=0.7, ls=":")
+            ax.set_xticks(xs)
+            ax.set_xticklabels([band_label(i) for i in range(nbands)], rotation=90)
+            ax.set_xlabel(r"Ground-truth probability $p$ (\%)")
+            ax.spines[["top", "right"]].set_visible(False)
+            ax.margins(x=0.02)
+
+        # Named once, on the right panel: the left one's legend already
+        # occupies the space above the split.
+        axes[1].text(
+            split - 0.62,
+            share.max() * 1.22,
+            r"tail $\mid$ mid-range",
+            fontsize=5,
+            color=EXTREME_COLOR,
+            ha="right",
+            va="top",
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(path)
+        plt.close(fig)
+    return path
+
+
 def draw_horizon_figure(
     path: Path, binary: list[dict], names: dict[str, str]
 ) -> Path | None:
@@ -1315,6 +1575,83 @@ def cost_lines(totals: dict[str, dict[str, float]], items: dict[str, int]) -> li
     return lines
 
 
+def city_ci_lines(
+    binary: list[dict], continuous: list[dict], models: list[str]
+) -> list[str]:
+    r"""\MPDRho*CICities : each headline correlation's city cluster interval.
+
+    The article's validation table carries a "CI (worlds)" column, which for
+    FreeCiv is a cluster bootstrap over its eight anchor games. This world's
+    rows had the question interval repeated there, which is not the same
+    claim: it asks how much the correlation depends on which questions were
+    drawn, where the column asks how much it depends on which worlds were.
+    These are that column, resampling the 15 cities.
+    """
+    pre = MACRO_PREFIX
+    predictor = by_model_id(eci_by_name_of(models), models)
+    mid = [r for r in binary if r["section"] == MID_RANGE]
+    tail = [r for r in binary if r["section"] == TAIL]
+    lines = [
+        "% Each headline correlation's 95% interval from a cluster bootstrap",
+        "% over this world's cities, resampling a city with all its questions:",
+        "% the article's 'CI (worlds)' column, FreeCiv's anchor-game bootstrap",
+        "% applied to the Micropolis cities. Wider than the question",
+        "% interval and narrower than the model one; it is the interval to",
+        "% quote for whether a correlation would hold on other cities.",
+    ]
+    ncities = 0
+    for macro, rows, key in [
+        ("Binary", mid, "excess_brier"),
+        ("Tail", tail, "excess_bits"),
+        ("Continuous", continuous, "excess_ncrps"),
+    ]:
+        ci, n = cluster_ci(predictor, rows, key)
+        ncities = max(ncities, n)
+        if ci is None:
+            print(f"[warn] no city interval for \\{pre}Rho{macro}CICities")
+            continue
+        band = macro_band(adjusted_band(ci))
+        lines.append(f"\\newcommand{{\\{pre}Rho{macro}CICities}}{{{band}}}")
+        print(f"  95% CI cities, {macro:<10} {format_band(adjusted_band(ci), 0)}")
+    if ncities:
+        lines.append(f"\\newcommand{{\\{pre}NCities}}{{{ncities}}}")
+    return lines + [""]
+
+
+def band_lines(binary: list[dict]) -> list[str]:
+    r"""\MPDBand* : how the question set's ground truth is distributed.
+
+    The share below the tail threshold and in the top band are what the
+    composition paragraph quotes; the per-horizon tail shares are what let it
+    state the direction the composition moves in as the window lengthens.
+    """
+    pre = MACRO_PREFIX
+    counts, total = band_counts(binary)
+    if not total:
+        return []
+    import numpy as np
+
+    grid = np.array(counts, dtype=float)
+    split = BAND_EDGES.index(TAIL_THRESHOLD)
+    tail = grid[:split].sum()
+    lines = [
+        "% The binary set's composition by ground-truth probability p, over",
+        "% the questions one model is asked (every model is asked the same).",
+        f"\\newcommand{{\\{pre}BandNQuestions}}{{{int(total):,}}}",
+        f"\\newcommand{{\\{pre}BandTailShare}}{{{100.0 * tail / total:.1f}}}",
+        f"\\newcommand{{\\{pre}BandTopShare}}{{{100.0 * grid[-1].sum() / total:.1f}}}",
+        f"\\newcommand{{\\{pre}BandTailPct}}{{{100 * TAIL_THRESHOLD:g}}}",
+    ]
+    # The tail's share within each horizon, shortest and longest: the two the
+    # article contrasts.
+    per_h = 100.0 * grid[:split].sum(axis=0) / grid.sum(axis=0)
+    for h, share in zip(HORIZONS, per_h):
+        lines.append(
+            f"\\newcommand{{\\{pre}BandTailShare{HORIZON_WORDS[h]}}}{{{share:.1f}}}"
+        )
+    return lines + [""]
+
+
 def caption_lines(found: dict[str, object]) -> list[str]:
     r"""\MPDCapCapability: the capability figure's caption.
 
@@ -1352,6 +1689,18 @@ def caption_lines(found: dict[str, object]) -> list[str]:
         f" (\\{pre}BestBinaryModel\\ for mid-range, \\{pre}BestTailModel\\ for"
         " the tail)."
     )
+    bands = (
+        "Composition of the Micropolis binary question set by ground-truth"
+        f" probability $p$, over the \\{pre}BandNQuestions\\ questions each"
+        " model is asked. Left: questions per probability band, stacked by"
+        " forecast horizon. Right: the same counts as each horizon's share of"
+        " its own questions. Bands are unequal by design: the set is built so"
+        f" that most of its mass lies below $p={{}}\\{pre}BandTailPct\\%$,"
+        " and the dotted line marks that threshold, which is exactly the"
+        " tail/mid-range split every other figure here conditions on."
+        f" \\{pre}BandTailShare\\% of the questions are tail questions and"
+        f" \\{pre}BandTopShare\\% fall in the top band."
+    )
     return [
         "% The capability figure's caption. Depends on the macros above, so a",
         "% rerun that moves a coefficient moves the caption with it.",
@@ -1359,6 +1708,9 @@ def caption_lines(found: dict[str, object]) -> list[str]:
         "",
         "% The by-horizon figure's caption.",
         f"\\newcommand{{\\{pre}CapHorizon}}{{{horizon}}}",
+        "",
+        "% The band-composition figure's caption.",
+        f"\\newcommand{{\\{pre}CapBands}}{{{bands}}}",
         "",
     ]
 
@@ -1832,6 +2184,9 @@ def write_macros(
     rates: dict[str, float],
     totals: dict[str, dict[str, float]],
     items: dict[str, int],
+    binary: list[dict],
+    continuous: list[dict],
+    models_for_ci: list[str],
 ) -> Path:
     r"""Write micropolis-macros.tex: every quoted number as a \newcommand.
 
@@ -1865,6 +2220,8 @@ def write_macros(
         )
     lines += parse_lines(rates)
     lines += cost_lines(totals, items)
+    lines += band_lines(binary)
+    lines += city_ci_lines(binary, continuous, models_for_ci)
     lines += bootstrap_lines()
     if fb:
         lines += predictor_lines("FB", "ForecastBench overall", fb)
@@ -2169,6 +2526,9 @@ def main() -> None:
         rates,
         totals,
         items,
+        binary,
+        continuous,
+        models_in_order(binary),
     )
     tables = write_tables(args.datadir, binary, continuous, coverage, names)
     cells = write_cells(args.datadir, binary, continuous)
@@ -2181,10 +2541,11 @@ def main() -> None:
     )
 
     horizon_fig = draw_horizon_figure(args.outdir / HORIZON_FIG_NAME, binary, names)
+    bands_fig = draw_bands_figure(args.outdir / BANDS_FIG_NAME, binary)
 
     for out in figures.written:
         print(f"Wrote {out}")
-    for out in (capability, horizon_fig):
+    for out in (capability, horizon_fig, bands_fig):
         if out:
             print(f"Wrote {out}")
     print(f"Wrote {macros}")
