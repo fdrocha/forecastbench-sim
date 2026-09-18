@@ -737,6 +737,58 @@ def macro_lines(h: Headline, c) -> list[str]:
     ]
 
 
+def extremes_lines(h: Headline, c, names: dict[str, str]) -> list[str]:
+    r"""\MPDBest/\MPDWorst macros: the range each score runs over.
+
+    The article quotes "runs from X (model) to Y (model)" for every score, and
+    those were the numbers most at risk of going stale — they move whenever a
+    model is added. Four macros per slice: the two values and the two display
+    names. The values come from c.scores, the per-model means the coefficient
+    itself used, so the range and the correlation describe one set of numbers.
+    """
+    pre = MACRO_PREFIX
+    if not c.scores:
+        return []
+    best = min(c.scores, key=c.scores.get)
+    worst = max(c.scores, key=c.scores.get)
+    return [
+        f"\\newcommand{{\\{pre}Best{h.macro}}}{{{c.scores[best]:.3g}}}",
+        (
+            f"\\newcommand{{\\{pre}Best{h.macro}Model}}"
+            f"{{{tex_escape(names.get(best, best))}}}"
+        ),
+        f"\\newcommand{{\\{pre}Worst{h.macro}}}{{{c.scores[worst]:.3g}}}",
+        (
+            f"\\newcommand{{\\{pre}Worst{h.macro}Model}}"
+            f"{{{tex_escape(names.get(worst, worst))}}}"
+        ),
+    ]
+
+
+def tex_escape(text: str) -> str:
+    """Escape what a model's display name can carry into LaTeX.
+
+    These come from a leaderboard's Name column, so they are plain words and
+    digits today; the escape is here because the column is edited by hand and
+    an underscore or ampersand in it would otherwise break the article's build
+    with an error pointing at the macro file rather than at the CSV.
+    """
+    for char, repl in (
+        ("\\", r"\textbackslash{}"),
+        ("&", r"\&"),
+        ("%", r"\%"),
+        ("$", r"\$"),
+        ("#", r"\#"),
+        ("_", r"\_"),
+        ("{", r"\{"),
+        ("}", r"\}"),
+        ("~", r"\textasciitilde{}"),
+        ("^", r"\textasciicircum{}"),
+    ):
+        text = text.replace(char, repl)
+    return text
+
+
 def caption_lines(found: dict[str, object]) -> list[str]:
     r"""\MPDCapCapability: the capability figure's caption.
 
@@ -772,7 +824,7 @@ def caption_lines(found: dict[str, object]) -> list[str]:
     ]
 
 
-def write_macros(path: Path, found: dict[str, object]) -> Path:
+def write_macros(path: Path, found: dict[str, object], names: dict[str, str]) -> Path:
     r"""Write micropolis-macros.tex: every quoted number as a \newcommand.
 
     A headline whose correlation was not computed is skipped rather than
@@ -797,7 +849,7 @@ def write_macros(path: Path, found: dict[str, object]) -> Path:
         if c is None:
             missing.append(h.macro)
             continue
-        lines += macro_lines(h, c)
+        lines += macro_lines(h, c)[:-1] + extremes_lines(h, c, names) + [""]
     lines += caption_lines(found)
     if missing:
         print(f"[warn] no correlation for {', '.join(missing)}; macros not defined")
@@ -1070,13 +1122,14 @@ def main() -> None:
         print()
 
     print_headlines(found)
-    macros = write_macros(args.datadir / MACROS_NAME, found)
+    names = display_names(args.datadir / MODEL_SCORES_CSV_NAME)
+    macros = write_macros(args.datadir / MACROS_NAME, found, names)
     # The article's own figure, which is not one of the extra ones: --no-extra
     # skips the figures the paper does not place, and this is the one it does.
     capability = draw_capability_figure(
         args.outdir / CAPABILITY_FIG_NAME,
         found,
-        display_names(args.datadir / MODEL_SCORES_CSV_NAME),
+        names,
     )
 
     for out in figures.written:
