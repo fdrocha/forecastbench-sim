@@ -40,6 +40,7 @@ And to data/micropolis/paper/:
 - micropolis_models.tex              the appendix's per-model table
 - micropolis_horizon.tex             the same by horizon
 - micropolis_continuous.tex          excess nCRPS by horizon and metric
+- micropolis_model_scores.csv        the three cells the combined score fits
 
 fig_micropolis_capability.pdf is the one figure here the article places, so
 --no-extra keeps drawing it. Three ECI scatters side by side — continuous,
@@ -82,9 +83,10 @@ carries a ":loeff".
 When PAPER_REPO_PATH is set — it is, in worlds/micropolis/.env, which
 module_globals loads — the run ends by delivering into that checkout of the
 article: micropolis-macros.tex to its root, beside math_commands.tex, and
-every figure the article places to its figures/, and the three appendix
-tables to its data/appendix_tables/. Nothing from extra/ is copied, that
-being what extra/ means. An unset variable is a note, since a
+every figure the article places to its figures/, the three appendix tables to
+its data/appendix_tables/, and every CSV in the paper's directory to its
+data/micropolis/ — the rows every number in the article was computed from.
+Nothing from extra/ is copied, that being what extra/ means. An unset variable is a note, since a
 machine that only gathers data has no article to deliver to; a variable
 pointing at a directory that does not exist is an error, since the alternative
 is rebuilding the paper from stale figures and not being told.
@@ -190,12 +192,18 @@ TABLE_NAMES = {
 # Where the tables land in the article: it \inputs them from data/appendix_tables/.
 PAPER_REPO_TABLES = "data/appendix_tables"
 
+# Where this world's CSVs land in the article: everything the paper's own
+# numbers were computed from, beside the other worlds' data directories, so a
+# reader or a coauthor's script can reach the rows behind any figure.
+PAPER_REPO_DATA = "data/micropolis"
+
 # The three per-model cell scores the cross-world combined score of the
 # article's validation section fits on, as a CSV rather than a table. Its
 # generator used to scrape micropolis_models.tex by column position, which
 # breaks whenever that table's layout changes; a file with named columns
-# cannot break that way.
-CELLS_CSV_NAME = "micropolis_cells.csv"
+# cannot break that way. It goes with the other CSVs, not with the tables:
+# it is data the article computes from, not something it typesets.
+CELLS_CSV_NAME = "micropolis_model_scores.csv"
 CELLS_COLUMNS = [
     "model",
     "mid_range_excess_brier",
@@ -418,6 +426,19 @@ def paper_figures(outdir: Path) -> list[Path]:
     does not, and nothing recurses into it.
     """
     return sorted(p for p in outdir.glob("*.pdf") if p.is_file())
+
+
+def paper_csvs(datadir: Path) -> list[Path]:
+    """Every CSV in the paper's directory, for delivery into the article.
+
+    Taken from the directory rather than a list of names, so a file added to
+    the gathered data reaches the article without this being kept in step.
+    These are what every number in the paper was computed from: the two
+    forecast files, the per-city scales, the per-model coverage, the
+    leaderboard copy the ECI came from, and the three cells the cross-world
+    combined score fits on.
+    """
+    return sorted(p for p in datadir.glob("*.csv") if p.is_file())
 
 
 def deliver(paths: list[Path], dest: Path) -> list[Path]:
@@ -1820,7 +1841,8 @@ def main() -> None:
     print()
     deliver([macros], repo)
     deliver(paper_figures(args.outdir), repo / PAPER_REPO_FIGURES)
-    deliver([*tables, cells], repo / PAPER_REPO_TABLES)
+    deliver(tables, repo / PAPER_REPO_TABLES)
+    deliver(paper_csvs(args.datadir), repo / PAPER_REPO_DATA)
 
 
 if __name__ == "__main__":
