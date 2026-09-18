@@ -1431,7 +1431,6 @@ def write_cells(
     datadir: Path,
     binary: list[dict],
     continuous: list[dict],
-    names: dict[str, str],
 ) -> Path:
     """One row per model with the three scores the combined score fits on.
 
@@ -1439,8 +1438,12 @@ def write_cells(
     beside StarSim's and FreeCiv's. Its generator read them out of
     micropolis_models.tex by column number, so changing that table's columns
     or its model names silently redefined a cell or stopped the parse. Named
-    columns and the roster's own display names instead, so the dependency is
-    explicit and survives the table being re-laid-out.
+    columns instead, so the dependency is explicit and survives the table
+    being re-laid-out.
+
+    Models are named by model id, as every other CSV here names them. A
+    consumer wanting the display names joins the `slug` column of
+    model_scores.csv, which sits in the same directory.
     """
     mid = [r for r in binary if r["section"] == MID_RANGE]
     tail = [r for r in binary if r["section"] == TAIL]
@@ -1448,7 +1451,7 @@ def write_cells(
     for m in sorted(models_in_order(binary), key=lambda m: -(eci_of(m) or 0)):
         rows.append(
             {
-                "model": names.get(m, m),
+                "model": m,
                 "mid_range_excess_brier": _mean_of(mid, m, None, "excess_brier"),
                 "tail_excess_bits": _mean_of(tail, m, None, "excess_bits"),
                 "excess_ncrps": _mean_of(continuous, m, None, "excess_ncrps"),
@@ -1811,7 +1814,7 @@ def main() -> None:
         args.datadir / MACROS_NAME, found, names, by_horizon, fb, rates
     )
     tables = write_tables(args.datadir, binary, continuous, coverage, names)
-    cells = write_cells(args.datadir, binary, continuous, names)
+    cells = write_cells(args.datadir, binary, continuous)
     # The article's own figure, which is not one of the extra ones: --no-extra
     # skips the figures the paper does not place, and this is the one it does.
     capability = draw_capability_figure(
