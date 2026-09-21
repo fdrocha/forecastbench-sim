@@ -2577,12 +2577,12 @@ def batching_lines(
             nc(f"Prompts{w}", f"{s['prompts']:,}"),
             nc(f"Mid{w}", f"{boot[MID_RANGE][cap]['point']:.4f}"),
             nc(f"Tail{w}", f"{boot[TAIL][cap]['point']:.3f}"),
-            nc(f"DeltaMid{w}", f"{boot[MID_RANGE][cap]['delta']:+.4f}"),
+            nc(f"DeltaMid{w}", f"${boot[MID_RANGE][cap]['delta']:+.4f}$"),
             nc(
                 f"DeltaMid{w}CI",
                 macro_band((boot[MID_RANGE][cap]["dlo"], boot[MID_RANGE][cap]["dhi"])),
             ),
-            nc(f"DeltaTail{w}", f"{boot[TAIL][cap]['delta']:+.3f}"),
+            nc(f"DeltaTail{w}", f"${boot[TAIL][cap]['delta']:+.3f}$"),
             nc(
                 f"DeltaTail{w}CI",
                 macro_band((boot[TAIL][cap]["dlo"], boot[TAIL][cap]["dhi"])),
@@ -2624,7 +2624,8 @@ def batching_lines(
                     corrs.append(float(np.corrcoef(f, q)[0, 1]))
         lines += [
             nc(
-                f"TailBias{w}", f"{sum(biases) / len(biases):+.3f}" if biases else "---"
+                f"TailBias{w}",
+                f"${sum(biases) / len(biases):+.3f}$" if biases else "---",
             ),
             nc(f"Discrim{w}", f"{sum(corrs) / len(corrs):.2f}" if corrs else "---"),
         ]
@@ -2786,7 +2787,7 @@ def batching_lines(
         nc("TailSmallestNoAnchor", f"{b_rest[first['cap']]['point']:.3f}"),
         nc(
             "DeltaTailFourNoAnchor",
-            f"{b_rest[4]['delta']:+.3f}" if 4 in b_rest else "---",
+            f"${b_rest[4]['delta']:+.3f}$" if 4 in b_rest else "---",
         ),
         nc(
             "DeltaTailFourNoAnchorCI",
