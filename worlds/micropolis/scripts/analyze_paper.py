@@ -60,11 +60,14 @@ prints, defines as a macro or draws is adjusted; nothing under extra/ is.
 The three headline correlations — ECI against the mid-range excess Brier, the
 tail excess bits and the continuous excess nCRPS — are printed to stdout and
 defined as LaTeX macros, each with its p-value, its model count, its question
-count and both bootstrap intervals, plus \\MPDCapCapability, the capability
-figure's caption written in terms of those macros. They are not recomputed here: the figures'
+count and both bootstrap intervals. They are not recomputed here: the figures'
 own correlate() call is intercepted, so a macro and its figure cannot disagree.
 Under --no-extra no figure is drawn, and the same correlations are computed
 directly instead.
+
+Figure captions are not generated. They live in the article's own .tex, where
+they are edited, and quote the macros defined here for every number in them;
+this script defines those numbers and nothing about the prose around them.
 
 Each is the report's own ECI scatter — the same points, fit line, Spearman ρ
 and Pearson r, and 95% bootstrap intervals, from analyze_binary.py's and
@@ -1693,65 +1696,21 @@ def band_lines(binary: list[dict]) -> list[str]:
     return lines + [""]
 
 
-def caption_lines(found: dict[str, object]) -> list[str]:
-    r"""\MPDCapCapability: the capability figure's caption.
+def horizon_years_lines() -> list[str]:
+    r"""\MPDHorizonYears: the forecast horizons in game years, as prose.
 
-    Written in terms of the other macros rather than with the numbers
-    substituted, so the .tex shows what the caption depends on and a rerun
-    that moves a coefficient moves the caption with it. Only the question
-    counts vary per panel, and those are macros too.
+    The by-horizon figure's caption lists them, so the list comes from
+    HORIZONS rather than being retyped in the article.
     """
     pre = MACRO_PREFIX
-    if any(found.get(f) is None for _, f, _ in PANELS):
-        return []
-    body = (
-        "Micropolis forecasting scores against the Epoch Capabilities Index"
-        f" for \\{pre}NModelsContinuous\\ models; lower is better in every"
-        " panel."
-        f" (a) Continuous: excess nCRPS, \\{pre}NQuestionsContinuous\\"
-        " questions."
-        f" (b) Tail questions ($p<5\\%$): excess bits,"
-        f" \\{pre}NQuestionsTail\\ questions."
-        f" (c) Binary questions ($p\\geq5\\%$): excess Brier,"
-        f" \\{pre}NQuestionsBinary\\ questions."
-        " $\\rho$ is Spearman rank correlation of ECI with $-$score,"
-        " sign-adjusted so that positive means more capable models forecast"
-        " better; brackets are 95\\% percentile intervals from"
-        f" {BOOTSTRAP_RESAMPLES:,} bootstrap resamples over models."
-        " Orange marks the best and worst model."
-    )
-    horizon = (
-        "Micropolis forecasting scores by forecast horizon (3, 5, 7 and 10 game"
-        " years); lower is better in both panels. Left: mid-range questions"
-        " ($p \\geq 5\\%$), excess Brier score. Right: tail questions ($p<5\\%$),"
-        " excess bits. Solid line: mean over the"
-        f" \\{pre}NModelsBinary\\ models; dashed: median; band: interquartile"
-        " range across models; orange: the best model pooled over horizons"
-        f" (\\{pre}BestBinaryModel\\ for mid-range, \\{pre}BestTailModel\\ for"
-        " the tail)."
-    )
-    bands = (
-        "Composition of the Micropolis binary question set by ground-truth"
-        f" probability $p$, over the \\{pre}BandNQuestions\\ questions each"
-        " model is asked. Left: questions per probability band, stacked by"
-        " forecast horizon. Right: the same counts as each horizon's share of"
-        " its own questions. Bands are unequal by design: the set is built so"
-        f" that most of its mass lies below $p={{}}\\{pre}BandTailPct\\%$,"
-        " and the dotted line marks that threshold, which is exactly the"
-        " tail/mid-range split every other figure here conditions on."
-        f" \\{pre}BandTailShare\\% of the questions are tail questions and"
-        f" \\{pre}BandTopShare\\% fall in the top band."
-    )
+    years = [h.removesuffix("y") for h in HORIZONS]
+    if len(years) > 1:
+        joined = ", ".join(years[:-1]) + f" and {years[-1]}"
+    else:
+        joined = years[0]
     return [
-        "% The capability figure's caption. Depends on the macros above, so a",
-        "% rerun that moves a coefficient moves the caption with it.",
-        f"\\newcommand{{\\{pre}CapCapability}}{{{body}}}",
-        "",
-        "% The by-horizon figure's caption.",
-        f"\\newcommand{{\\{pre}CapHorizon}}{{{horizon}}}",
-        "",
-        "% The band-composition figure's caption.",
-        f"\\newcommand{{\\{pre}CapBands}}{{{bands}}}",
+        "% The forecast horizons in game years, for the caption that lists them.",
+        f"\\newcommand{{\\{pre}HorizonYears}}{{{joined}}}",
         "",
     ]
 
@@ -2550,6 +2509,16 @@ def batching_lines(
     }
     one = [r for r in rows if r["cap"] == first["cap"]]
     nq = len({r["question_id"] for r in rows})
+    # A snapshot's questions, which is what the batcher splits. The largest
+    # cap holds a whole snapshot in one prompt, so its prompt count is the
+    # number of snapshots asked and nq over that is the group's size.
+    nsnapshots = last["prompts"] if last["cap"] >= last["qpp"] else 0
+    group = nq / nsnapshots if nsnapshots else 0
+    # The first setting whose cap does not divide a snapshot evenly, so the
+    # caption's example of two prompt sizes is always one the run produced.
+    uneven = next(
+        (s_ for s_ in settings if abs(s_["qpp"] - round(s_["qpp"])) > 1e-6), None
+    )
     lines += [
         nc("NModels", len(models)),
         nc("NQuestions", f"{nq:,}"),
@@ -2558,12 +2527,21 @@ def batching_lines(
         nc("NSettings", len(settings)),
         nc("SmallestSize", size_label(first["qpp"], tex=True)),
         nc("LargestSize", size_label(last["qpp"], tex=True)),
+        nc("SnapshotQuestions", f"{group:.0f}" if group else "---"),
+        nc(
+            "UnevenExample",
+            size_label(uneven["qpp"], tex=True) if uneven else "---",
+        ),
         nc("CostTotal", f"{sum(r['cost_usd'] for r in runs):.2f}"),
     ]
     if production is not None:
         lines += [
             nc("ProductionSize", size_label(production["qpp"], tex=True)),
             nc("ProductionCap", production["cap"]),
+            nc(
+                "ProductionPrompts",
+                f"{production['prompts'] / nsnapshots:.0f}" if nsnapshots else "---",
+            ),
         ]
     # Per setting.
     for s in settings:
@@ -2879,33 +2857,6 @@ def batching_lines(
                 else "---",
             ),
         ]
-    # Caption.
-    prod_note = (
-        f" The open square is the paper's own run: a cap of \\{pre}BatchProductionCap\\"
-        " questions splits a snapshot's 100 into two prompts of"
-        f" \\{pre}BatchProductionSize, the very prompts the main run asked."
-        if production is not None
-        else ""
-    )
-    caption = (
-        "The Micropolis binary set under different numbers of questions per prompt:"
-        f" \\{pre}BatchNModels\\ models, \\{pre}BatchNQuestions\\ question instances"
-        f" (\\{pre}BatchNMid\\ mid-range, \\{pre}BatchNTail\\ tail), each setting one"
-        " run. (a) Mid-range questions, excess Brier score; (b) tail questions,"
-        " excess bits; lower is better in both. Grey: one line per model. Dark:"
-        " the mean of the per-model means, with a 95\\% interval from a paired"
-        f" bootstrap over questions ({BOOTSTRAP_RESAMPLES:,} resamples, one shared"
-        " draw across settings). (c) Cost per model per setting, log scale, against"
-        " the $1/n$ line a fixed cost per prompt would give. Prompt sizes are what"
-        " the prompts actually carried: a cap the batcher cannot divide evenly"
-        " gives two sizes (7--8)." + prod_note
-    )
-    lines += [
-        "",
-        "% The batching figure's caption.",
-        f"\\newcommand{{\\{pre}CapBatching}}{{{caption}}}",
-        "",
-    ]
     return lines
 
 
@@ -3144,12 +3095,12 @@ def write_macros(
     lines += parse_lines(rates)
     lines += cost_lines(totals, items)
     lines += band_lines(binary)
+    lines += horizon_years_lines()
     lines += city_ci_lines(binary, continuous, models_for_ci)
     lines += extra or []
     lines += bootstrap_lines()
     if fb:
         lines += predictor_lines("FB", "ForecastBench overall", fb)
-    lines += caption_lines(found)
     if missing:
         print(f"[warn] no correlation for {', '.join(missing)}; macros not defined")
     path.parent.mkdir(parents=True, exist_ok=True)
