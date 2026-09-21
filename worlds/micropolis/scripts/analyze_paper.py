@@ -210,6 +210,10 @@ TABLE_NAMES = {
     "continuous": "micropolis_continuous.tex",
 }
 
+# Where the macros land in the article: it \inputs them from data/, beside
+# the other generated definitions, not from its root.
+PAPER_REPO_MACROS = "data"
+
 # Where the tables land in the article: it \inputs them from data/appendix_tables/.
 PAPER_REPO_TABLES = "data/appendix_tables"
 
@@ -2553,14 +2557,14 @@ def main() -> None:
         print(f"Wrote {out}")
 
     # Deliver into the article, when there is one checked out here: the macros
-    # to its root, where its other \\input of definitions lives, and the
-    # figures it places to figures/.
+    # to data/, where its other \\input of generated definitions lives, and
+    # the figures it places to figures/.
     repo = paper_repo_dir()
     if repo is None:
         print(f"\n[note] {PAPER_REPO_ENV} unset; not copying into the article")
         return
     print()
-    deliver([macros], repo)
+    deliver([macros], repo / PAPER_REPO_MACROS)
     deliver(paper_figures(args.outdir), repo / PAPER_REPO_FIGURES)
     deliver(tables, repo / PAPER_REPO_TABLES)
     deliver(paper_csvs(args.datadir), repo / PAPER_REPO_DATA)
