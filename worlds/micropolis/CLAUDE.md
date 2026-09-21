@@ -251,8 +251,10 @@ its configs and `plot_forecasts.py` has its own:
 - `analyze_prompts.py` — excess nCRPS compared across several configs (many-config arg
   form), typically the prompt variants: one-vote-per-model means with question-bootstrap
   intervals, paired differences between configs that ask the same questions, ρ with ECI per
-  config. Needs the ground truth, like every excess figure. Writes
-  `comparisons/{name}/prompts-{norm}.md`.
+  config. The scale is the article's per-city one (`get_city_scales.paper_scales`, the
+  metric's mean over turns 0 to the main config's first snapshot, floored), not one of
+  `analyze_continuous.py`'s three normalizations. Needs the ground truth, like every excess
+  figure. Writes `comparisons/{name}/prompts.md`.
 - `plot_forecasts.py` — trajectories with forecast quantiles overlaid.
 
 Binary forecasting eval (P(Yes), `data/micropolis/binary/`, spec in `binary_forecasts.md`):

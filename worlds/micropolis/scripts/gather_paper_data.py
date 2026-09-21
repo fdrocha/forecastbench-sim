@@ -117,7 +117,7 @@ from analyze_binary import (
 )
 from analyze_continuous import UNNORMALIZED_METRICS, forecast_questions, is_forecast
 from get_city_scales import METRICS as SCALE_METRICS
-from get_city_scales import collect_views
+from get_city_scales import SCALES_START_TURN, paper_scales
 
 DEFAULT_CONTINUOUS_CONFIG_PATH = CONFIG_DIR / "continuous.json5"
 DEFAULT_BINARY_CONFIG_PATH = CONFIG_DIR / "binary.json5"
@@ -167,21 +167,6 @@ MODEL_SCORES_CSV_NAME = "model_scores.csv"
 
 SCALES_CSV_NAME = "city_metric_scales.csv"
 SCALES_COLUMNS = ["city", *SCALE_METRICS]
-
-# The turn the scale window starts at: the city as shipped, before any of it
-# has run.
-SCALES_START_TURN = 0
-
-# Floors on those means, per metric. A city that never gets going would
-# otherwise contribute a scale near zero, which as a denominator turns its
-# small absolute errors into large relative ones.
-SCALE_FLOORS = {
-    "cityPop": 10_000,
-    "trafficAverage": 10,
-    "pollutionAverage": 40,
-    "crimeAverage": 40,
-    "landValueAverage": 40,
-}
 
 # Prompted against parsed, per model and eval. The forecast CSVs hold only
 # scored rows, so a parse rate is not recoverable from them: a model that
@@ -720,22 +705,18 @@ def scale_rows(cfg: Config) -> list[dict]:
     """One row per city: its metric means up to the first snapshot, floored."""
     seed = cfg.get_seed(None)
     snapshot = cfg.get_int_list("snapshot_turns")[0]
-    views = collect_views(cfg, seed, SCALES_START_TURN, snapshot)
-    means = views["mean"]
-    if len(means) != len(cfg.get_cities(None)):
+    scales = paper_scales(cfg, seed)
+    if len(scales) != len(cfg.get_cities(None)):
         sys.exit(
             "[error] no cached sim log for: "
-            + ", ".join(c for c in cfg.get_cities(None) if c not in means)
+            + ", ".join(c for c in cfg.get_cities(None) if c not in scales)
             + "\n  run scripts/run_sim.py for this config"
         )
     print(
-        f"scales:     {len(means)} cities, mean over turns "
+        f"scales:     {len(scales)} cities, mean over turns "
         f"{SCALES_START_TURN}-{snapshot}, floored"
     )
-    return [
-        {"city": city, **{m: max(values[m], SCALE_FLOORS[m]) for m in SCALE_METRICS}}
-        for city, values in means.items()
-    ]
+    return [{"city": city, **values} for city, values in scales.items()]
 
 
 @main_with_config

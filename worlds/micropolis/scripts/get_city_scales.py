@@ -34,6 +34,34 @@ METRICS = [
     "landValueAverage",
 ]
 
+# The article's per-city scale: each metric's mean over the turns from
+# SCALES_START_TURN to the first snapshot of the main continuous config, floored
+# per metric so a city that never gets going cannot give a near-zero
+# denominator. gather_paper_data.py writes it out and analyze_paper.py and
+# analyze_prompts.py divide excess CRPS by it.
+SCALES_START_TURN = 0
+SCALE_FLOORS = {
+    "cityPop": 10_000,
+    "trafficAverage": 10,
+    "pollutionAverage": 40,
+    "crimeAverage": 40,
+    "landValueAverage": 40,
+}
+
+
+def paper_scales(cfg, seed: int) -> dict[str, dict[str, float]]:
+    """{city: {metric: scale}} for the config's cities, as the article uses.
+
+    Reads the cached sim logs; a city without one is reported and left out.
+    """
+    snapshot = cfg.get_int_list("snapshot_turns")[0]
+    means = collect_views(cfg, seed, SCALES_START_TURN, snapshot)["mean"]
+    return {
+        city: {m: max(values[m], SCALE_FLOORS[m]) for m in METRICS}
+        for city, values in means.items()
+    }
+
+
 # Column headers, the METRIC_LABELS without their "average" qualifier.
 LABELS = {
     "cityPop": "population",

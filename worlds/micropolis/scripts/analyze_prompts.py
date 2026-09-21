@@ -2,13 +2,16 @@
 """Compare configs — typically the prompt variants — on excess normalized CRPS.
 
 Each config names a gathered continuous dataset. Every parsed forecast is
-scored as analyze_continuous.py's EXCESS measure: its mean CRPS over the
+scored by excess nCRPS as the article defines it: its mean CRPS over the
 question's reseeded continuations, minus the floor the continuations' own five
-quantiles score, over the normalization's scale (--norm; global by default,
-one fixed scale per metric, so a cell is comparable across the different
-snapshots the configs take). Zero is a forecast equal to the replay
-distribution and lower is better. extract_ground_truth.py must have covered
-every config; a question without continuation outcomes is not scored.
+quantiles score, divided by the city's scale for the metric — the metric's mean
+over the turns up to the main continuous config's first snapshot, floored, the
+same numbers gather_paper_data.py writes to city_metric_scales.csv and
+analyze_paper.py divides by. The scale is per city, not per snapshot, so a
+cell is comparable across the snapshots the configs take. Zero is a forecast
+equal to the replay distribution and lower is better. extract_ground_truth.py
+must have covered every config; a question without continuation outcomes is
+not scored.
 
 The report, under data/micropolis/continuous/comparisons/{name}/:
   - a summary table, one row per config in command-line order: forecasts
@@ -25,7 +28,7 @@ The report, under data/micropolis/continuous/comparisons/{name}/:
 
 Usage:
     scripts/analyze_prompts.py "configs/prompt variants"/prompt-*.json5 --name variants
-    scripts/analyze_prompts.py cfgA.json5 cfgB.json5 --norm baseline --intersect-models
+    scripts/analyze_prompts.py cfgA.json5 cfgB.json5 --intersect-models
 """
 
 import argparse
@@ -37,7 +40,6 @@ from pathlib import Path
 from micropolis_world import model_scores
 from micropolis_world.config import Config, ConfigError, main_with_config
 from micropolis_world.continuous_eval import (
-    NORM_MODES,
     DatasetError,
     MdReport,
     ResponseId,
@@ -56,6 +58,7 @@ from analyze_continuous import (
     ALL,
     BOOTSTRAP_RESAMPLES,
     BOOTSTRAP_SEED,
+    DEFAULT_CONTINUOUS_CONFIG_PATH,
     EXCESS,
     Correlation,
     _percentile_interval,
@@ -68,8 +71,54 @@ from analyze_continuous import (
     resample_indices,
     stars_for,
 )
+from get_city_scales import SCALES_START_TURN, paper_scales
 
-SCORE_KEY = EXCESS.key
+# The score every table and figure here is built from.
+SCORE_KEY = "excess_ncrps"
+
+# The config whose cities and first snapshot define the scales: the main run's.
+SCALES_CONFIG_PATH = DEFAULT_CONTINUOUS_CONFIG_PATH
+
+
+def load_scales() -> tuple[dict[str, dict[str, float]], str]:
+    """The article's per-city scales and a line describing them."""
+    cfg = Config.load(SCALES_CONFIG_PATH)
+    snapshot = cfg.get_int_list("snapshot_turns")[0]
+    scales = paper_scales(cfg, cfg.get_seed(None))
+    if not scales:
+        sys.exit(
+            f"[error] no cached sim log for any city of {SCALES_CONFIG_PATH}\n"
+            "  run scripts/run_sim.py on it; the scales are read from those logs"
+        )
+    return scales, (
+        f"the metric's mean over turns {SCALES_START_TURN}-{snapshot} of the "
+        f"city, floored ({SCALES_CONFIG_PATH.name}), as in analyze_paper.py"
+    )
+
+
+def normalize_rows(
+    rows: list[dict], cities: dict[str, str], scales: dict[str, dict[str, float]]
+) -> list[dict]:
+    """Add SCORE_KEY = excess CRPS over the city's scale; drop rows without excess.
+
+    `cities` maps a question id to its city. A scored row whose city or
+    metric has no scale is an error: the tables average what is present, so a
+    silent gap would move every number.
+    """
+    kept = []
+    for r in rows:
+        if r["excess_crps"] is None:
+            continue
+        city = cities[r["question_id"]]
+        scale = scales.get(city, {}).get(r["metric"])
+        if not scale:
+            sys.exit(
+                f"[error] no scale for {city}/{r['metric']}: the city is not in "
+                f"{SCALES_CONFIG_PATH.name}, or has no cached sim log"
+            )
+        r[SCORE_KEY] = r["excess_crps"] / scale
+        kept.append(r)
+    return kept
 
 
 @dataclass
@@ -131,8 +180,7 @@ def load_and_score(
     config_path: str,
     seed_override: int | None,
     models: list[str] | None,
-    norm_mode: str,
-    global_frac: float | None,
+    scales: dict[str, dict[str, float]],
     incomplete: bool,
 ) -> Scored:
     """Load the dataset a config names, narrow it to the config, score it."""
@@ -144,10 +192,11 @@ def load_and_score(
         corpus, responses, model_names, cfg, seed, models=models, incomplete=incomplete
     )
     corpus = [c for c in corpus if is_forecast(c["horizon"])]
-    norm = make_normalizer(
-        norm_mode, corpus, global_frac=cfg.get_norm_global_frac(global_frac), seed=seed
-    )
+    # score_forecasts wants a normalizer for its own normalized column, which
+    # is not read here; the score is the raw excess over the article's scale.
+    norm = make_normalizer("global", corpus)
     without_outcomes = attach_outcomes(corpus)
+    cities = {c["question_id"]: c["scenario"]["name"] for c in corpus}
     asked = parsed = 0
     for c in corpus:
         for model_id in model_names:
@@ -156,11 +205,9 @@ def load_and_score(
                 continue
             asked += 1
             parsed += r.percentiles is not None
-    rows = [
-        r
-        for r in score_forecasts(corpus, responses, model_names, norm)
-        if r[SCORE_KEY] is not None
-    ]
+    rows = normalize_rows(
+        score_forecasts(corpus, responses, model_names, norm), cities, scales
+    )
     return Scored(label, rows, model_names, asked, parsed, without_outcomes)
 
 
@@ -330,7 +377,7 @@ def fixed_table(headers: list[str], rows: list[list[str]], left: int = 1) -> str
 
 
 def print_summary_table(
-    report: MdReport, scored: list[Scored], norm_mode: str
+    report: MdReport, scored: list[Scored], scale_note: str
 ) -> dict[str, tuple]:
     """One row per config; returns the mean cells the bar chart draws."""
     means = {s.label: config_mean(s.rows) for s in scored}
@@ -339,9 +386,8 @@ def print_summary_table(
     report.heading("Summary by config", level=1)
     report.text(
         f"One row per config, in the order given on the command line. Excess "
-        f"nCRPS is {EXCESS.definition}; the scale is the {norm_mode} "
-        "normalization's. 0 is a forecast equal to the replay distribution; "
-        "lower is better.\n\n"
+        f"nCRPS is {EXCESS.definition}; the scale is {scale_note}. 0 is a "
+        "forecast equal to the replay distribution; lower is better.\n\n"
         "mean is the mean of the per-model means — one vote per model — with a "
         f"95% percentile-bootstrap interval ({BOOTSTRAP_RESAMPLES:,} draws) over "
         "questions, the models fixed. #forecasts counts (model, question) pairs "
@@ -442,7 +488,7 @@ def print_models_table(report: MdReport, scored: list[Scored]) -> None:
 
 
 def plot_mean_bars(
-    report: MdReport, means: dict[str, tuple], norm_mode: str, outdir: Path
+    report: MdReport, means: dict[str, tuple], outdir: Path
 ) -> Path | None:
     """Bar chart of each config's mean excess nCRPS with its interval."""
     if not means:
@@ -474,27 +520,22 @@ def plot_mean_bars(
     ax.axhline(0, color="black", lw=0.8, zorder=2)
     ax.set_xticks(list(xs))
     ax.set_xticklabels([short(l) for l in labels], rotation=20, ha="right")
-    ax.set_ylabel(f"Mean excess nCRPS ({norm_mode} scale)")
+    ax.set_ylabel("Mean excess nCRPS")
     ax.set_title(
         "Mean excess nCRPS by config — one vote per model\n"
         "95% bootstrap intervals over questions; 0 is the replay distribution"
     )
     ax.grid(alpha=0.3, axis="y", zorder=0)
     fig.tight_layout()
-    out = outdir / f"excess_by_config{norm_suffix_of(norm_mode)}.png"
+    out = outdir / "excess_by_config.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     report.image(out)
     return out
 
 
-def norm_suffix_of(norm_mode: str) -> str:
-    """The filename suffix analyze_continuous.py gives a normalization."""
-    return f"-{norm_mode}"
-
-
 def plot_eci_scatter(
-    report: MdReport, scored: list[Scored], norm_mode: str, outdir: Path
+    report: MdReport, scored: list[Scored], outdir: Path
 ) -> Path | None:
     """ECI against per-model mean excess nCRPS, one series and fit per config."""
     import matplotlib
@@ -562,7 +603,7 @@ def plot_eci_scatter(
 
     ax.axhline(0, color="black", lw=0.8, zorder=1)
     ax.set_xlabel("ECI (Epoch capability index)")
-    ax.set_ylabel(f"Mean excess nCRPS ({norm_mode} scale, lower is better)")
+    ax.set_ylabel("Mean excess nCRPS (lower is better)")
     ax.set_title(
         f"Excess nCRPS against ECI, by config — {len(series)} configs\n"
         "bars are 95% bootstrap intervals over questions"
@@ -583,7 +624,7 @@ def plot_eci_scatter(
     fig.canvas.draw()
     place_labels(fig, ax, names, xs, ys)
 
-    out = outdir / f"eci_vs_excess_by_config{norm_suffix_of(norm_mode)}.png"
+    out = outdir / "eci_vs_excess_by_config.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     report.image(out)
@@ -597,20 +638,6 @@ def main() -> None:
     )
     ap.add_argument(
         "configs", nargs="+", help="JSON5 config files, each naming a gathered dataset"
-    )
-    ap.add_argument(
-        "--norm",
-        choices=NORM_MODES,
-        default="global",
-        help="Which normalization's scale divides the excess CRPS (default: global, "
-        "one fixed scale per metric, comparable across snapshots)",
-    )
-    ap.add_argument(
-        "--norm-global-frac",
-        type=float,
-        default=None,
-        help="Floor of the local and baseline denominators, as a share of the "
-        "metric's global scale (config 'norm_global_frac')",
     )
     ap.add_argument(
         "--seed",
@@ -647,17 +674,11 @@ def main() -> None:
     )
     args = ap.parse_args()
 
+    scales, scale_note = load_scales()
     scored: list[Scored] = []
     for path in args.configs:
         try:
-            s = load_and_score(
-                path,
-                args.seed,
-                args.models,
-                args.norm,
-                args.norm_global_frac,
-                args.incomplete,
-            )
+            s = load_and_score(path, args.seed, args.models, scales, args.incomplete)
         except (FileNotFoundError, DatasetError, ConfigError, NotImplementedError) as e:
             sys.exit(
                 f"[error] {path}: {e}\n  the excess measure needs the ground truth; "
@@ -679,7 +700,7 @@ def main() -> None:
     print("MICROPOLIS WORLD — excess nCRPS across configs")
     print("=" * 70)
     print(f"configs: {', '.join(s.label for s in scored)}")
-    print(f"norm:    {args.norm}")
+    print(f"scale:   {scale_note}")
     print(f"output:  {outdir}")
     if dropped_models:
         print(
@@ -688,9 +709,10 @@ def main() -> None:
 
     report = MdReport()
     report.text(
-        f"score = excess nCRPS per forecast: {EXCESS.definition}. Scoring is "
-        "analyze_continuous.py's, so a cell here matches that script's pooled "
-        f"row for the same config under the {args.norm} normalization.\n\n"
+        f"score = excess nCRPS per forecast: {EXCESS.definition}, where the "
+        f"scale is {scale_note}. The excess CRPS is analyze_continuous.py's; the "
+        "scale is the article's, so a cell here matches analyze_paper.py rather "
+        "than that script's normalized columns.\n\n"
         f"configs compared: {', '.join(s.label for s in scored)}"
     )
     trimmed = [s.label for s in scored if SHORT[s.label] != s.label]
@@ -721,17 +743,17 @@ def main() -> None:
     empty = [s.label for s in scored if not s.rows]
     written = []
     if with_rows:
-        means = print_summary_table(report, with_rows, args.norm)
+        means = print_summary_table(report, with_rows, scale_note)
         if empty:
             report.text("omitted, no scored rows: " + ", ".join(empty))
         if args.plot:
-            fig = plot_mean_bars(report, means, args.norm, outdir)
+            fig = plot_mean_bars(report, means, outdir)
             if fig is not None:
                 written.append(fig)
         print_paired_table(report, with_rows)
         print_models_table(report, with_rows)
         if args.plot:
-            fig = plot_eci_scatter(report, with_rows, args.norm, outdir)
+            fig = plot_eci_scatter(report, with_rows, outdir)
             if fig is not None:
                 written.append(fig)
 
@@ -747,7 +769,7 @@ def main() -> None:
                 mean, ci, _, _ = cell
                 stats_by_model[m] = (mean, ci[0] if ci else None, ci[1] if ci else None)
         outdir.mkdir(parents=True, exist_ok=True)
-        csv_path = outdir / f"scores{norm_suffix_of(args.norm)}.csv"
+        csv_path = outdir / "scores.csv"
         model_scores.write_scores_csv(csv_path, stats_by_model)
         written.append(csv_path)
 
@@ -756,8 +778,7 @@ def main() -> None:
         for out in written:
             print(f"Wrote {out}")
     out_path = report.write(
-        outdir / f"prompts{norm_suffix_of(args.norm)}.md",
-        f"Continuous eval — excess nCRPS across configs ({args.norm})",
+        outdir / "prompts.md", "Continuous eval — excess nCRPS across configs"
     )
     print(out_path)
 

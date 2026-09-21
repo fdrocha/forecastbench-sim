@@ -34,6 +34,25 @@ def rows(scores: dict[str, dict[str, float]]) -> list[dict]:
     ]
 
 
+def test_normalize_rows_divides_the_excess_by_the_city_scale():
+    module = load_module()
+    rows = [
+        {"question_id": "q1", "metric": "cityPop", "excess_crps": 500.0},
+        {"question_id": "q2", "metric": "cityPop", "excess_crps": None},
+    ]
+    kept = module.normalize_rows(
+        rows, {"q1": "bruce", "q2": "bruce"}, {"bruce": {"cityPop": 10_000.0}}
+    )
+    assert [r[module.SCORE_KEY] for r in kept] == [pytest.approx(0.05)]
+
+
+def test_normalize_rows_refuses_a_city_without_a_scale():
+    module = load_module()
+    rows = [{"question_id": "q1", "metric": "cityPop", "excess_crps": 1.0}]
+    with pytest.raises(SystemExit):
+        module.normalize_rows(rows, {"q1": "kyoto"}, {"bruce": {"cityPop": 1.0}})
+
+
 def test_short_labels_drop_the_shared_prefix_at_a_separator():
     short_labels = load_module().short_labels
     assert short_labels(["prompt-semantic", "prompt-smallbatch"]) == {
