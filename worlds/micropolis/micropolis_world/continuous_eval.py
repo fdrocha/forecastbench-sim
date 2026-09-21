@@ -105,6 +105,37 @@ PERCENTILE_LEVELS: dict[str, float] = {
     "p90": 0.90,
 }
 
+# What each metric can be, from the engine. The four averages are means over
+# byte-valued map cells (0-255; scan.cpp), traffic then scaled by 2.4
+# (evaluate.cpp); population cannot be negative. A forecast whose median lies
+# outside is not a forecast of the metric at all — a decimal written as
+# thousands, a population copied onto every answer line — and out_of_range
+# lets the dataset builder treat it as unparseable. None is no upper bound.
+METRIC_RANGES: dict[str, tuple[float, float | None]] = {
+    "cityPop": (0.0, None),
+    "trafficAverage": (0.0, 255 * 2.4),
+    "pollutionAverage": (0.0, 255.0),
+    "crimeAverage": (0.0, 255.0),
+    "landValueAverage": (0.0, 255.0),
+}
+
+
+def out_of_range(metric: str, percentiles: dict[str, float]) -> str | None:
+    """Why the forecast's median cannot be a value of `metric`; None if it can.
+
+    Only the median is checked: a tail percentile a little past a bound is a
+    wide interval, not a wrong quantity, and CRPS already charges for it.
+    """
+    bounds = METRIC_RANGES.get(metric)
+    if bounds is None:
+        return None
+    lo, hi = bounds
+    p50 = percentiles["p50"]
+    if p50 < lo or (hi is not None and p50 > hi):
+        top = f"{hi:g}" if hi is not None else "inf"
+        return f"median {p50:g} outside the metric's range [{lo:g}, {top}]"
+    return None
+
 
 def quantile_array(percentiles: dict[str, float]):
     """A forecast's five quantiles as an array, in PERCENTILE_LEVELS order."""

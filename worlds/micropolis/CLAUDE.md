@@ -187,7 +187,10 @@ and the structural constraints (§5). Read it before touching resolution.
   never be guessed at. The dormant litellm block would have to map back on its own side
   (strip the suffix, passthrough prefix, dated aliases, `gemini/` for `google/`).
 - Scoring choices that must not be reinvented per script: horizon 0 is a read-off, not a
-  forecast, and is excluded from aggregates; `totalFunds` has no scale and so is excluded
+  forecast, and is excluded from aggregates; a percentile set whose median lies outside the
+  metric's range (`continuous_eval.METRIC_RANGES`, from the engine's byte-valued maps) is
+  discarded at dataset-build time like an unparseable one, since excess CRPS is unbounded
+  and one answer a wrong order of magnitude off outweighs thousands of good ones; `totalFunds` has no scale and so is excluded
   from normalized CRPS under every normalization mode, floor included; a per-question
   denominator is floored, never dropped, so every mode covers the same question set; skill (`CRPS_model / CRPS_baseline`) is aggregated as a geometric mean with t-based
   CIs clustered on (scenario, snapshot turn). `analyze_baseline_skill.py` and

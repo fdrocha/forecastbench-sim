@@ -58,6 +58,7 @@ from micropolis_world.continuous_eval import (
     ResponseId,
     Responses,
     data_path,
+    out_of_range,
     save_dataset,
 )
 from micropolis_world.gather import gather_raw_responses
@@ -87,7 +88,9 @@ def gather_responses(
     The gathering itself — batching, the prompt hash cache, the concurrent
     calls, the cost accounting — is gather.gather_raw_responses, shared with
     the binary eval. What is continuous-specific is the prompt this asks for
-    and the percentile sets read back out of it.
+    and the percentile sets read back out of it. A set whose median lies
+    outside the metric's range (continuous_eval.METRIC_RANGES) is discarded
+    like an unparseable one: it is not a forecast of the metric.
     """
     batches, raws, rpaths = gather_raw_responses(
         corpus,
@@ -127,6 +130,14 @@ def gather_responses(
             else:
                 percentile_sets = parse_batch_percentiles(raw, labels, source=source)
             for q, percentiles in zip(questions, percentile_sets):
+                if percentiles is not None:
+                    reason = out_of_range(q["metric"], percentiles)
+                    if reason is not None:
+                        print(
+                            f"  {model_name} {q['question_id']}: {reason}, "
+                            f"discarding <- {source}"
+                        )
+                        percentiles = None
                 responses[ResponseId(model_name, q["question_id"])] = Response(
                     actual=q["value"],
                     percentiles=percentiles,
