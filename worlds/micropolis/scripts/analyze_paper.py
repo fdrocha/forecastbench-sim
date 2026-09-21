@@ -51,6 +51,13 @@ Computer Modern, dark-green points with the best and worst model named in
 orange, and no legend, which at 26 models would be wider than the panel it
 explains.
 
+Every interval the article quotes for this world is a cluster bootstrap over
+its cities — "over worlds", the same unit FreeCiv's anchor-game bootstrap
+resamples. The intervals over models and over questions are still computed
+and still have macros (\\MPDRho*CIModels, \\MPDRho*CIQuestions, the ablation's
+\\MPDBatch*CI and \\MPDBatch*CIModels), but nothing in the paper reads them, and
+the capability and batching figures draw the city interval too.
+
 Correlations here are **sign-adjusted** — ECI against minus the score, so a
 positive rho means more capable models forecast better, which is the article's
 convention and FreeCiv's. The reports' own figures under figures/extra/ keep
@@ -848,7 +855,10 @@ def adjusted_band(ci: tuple[float, float] | None) -> tuple[float, float] | None:
 
 
 def draw_capability_figure(
-    path: Path, found: dict[str, object], names: dict[str, str]
+    path: Path,
+    found: dict[str, object],
+    names: dict[str, str],
+    world_bands: dict[str, tuple],
 ) -> Path | None:
     """The article's capability figure: three ECI scatters side by side.
 
@@ -864,6 +874,12 @@ def draw_capability_figure(
     right figure for a report and the wrong one for a 2in-tall panel. The
     numbers are still the reports' own — the rho annotated on each panel is
     the Correlation the matching extra/ figure computed, only sign-adjusted.
+
+    The bracket beside each rho is the cluster bootstrap over cities, the one
+    interval the article reports for this world. It is passed in rather than
+    read off the Correlation, whose own intervals are over models and over
+    questions; those are still computed and still have macros, but the
+    article does not quote them.
     """
     import matplotlib
 
@@ -903,7 +919,15 @@ def draw_capability_figure(
         fig.get_layout_engine().set(w_pad=0.04, h_pad=0.02, wspace=0.02)
         for i, (ax, (name, figname, ylabel)) in enumerate(zip(axes, PANELS)):
             letter = chr(ord("a") + i)
-            _draw_panel(ax, found[figname], name, ylabel, letter, names)
+            _draw_panel(
+                ax,
+                found[figname],
+                name,
+                ylabel,
+                letter,
+                names,
+                world_bands.get(figname),
+            )
         path.parent.mkdir(parents=True, exist_ok=True)
         # No bbox_inches="tight": the figure is sized to the paper's
         # \textwidth exactly, and a tight box would grow it past that, so
@@ -1292,12 +1316,23 @@ def _mean_of(rows: list[dict], model: str, horizon: str | None, key: str):
 
 
 def _draw_panel(
-    ax, c, name: str, ylabel: str, letter: str, names: dict[str, str]
+    ax,
+    c,
+    name: str,
+    ylabel: str,
+    letter: str,
+    names: dict[str, str],
+    band: tuple[float, float] | None,
 ) -> None:
     """One panel: the models' (ECI, mean score), a fit line and the rho note.
 
     The per-model means come from `c.scores`, the ones the correlation itself
     used, so a point cannot sit somewhere the coefficient does not describe.
+
+    `band` is the sign-adjusted interval to print beside rho — the cluster
+    bootstrap over cities. There is no fallback to the Correlation's own
+    interval over models: a panel that quietly showed one would contradict
+    the caption, so a missing band prints rho alone.
     """
     import numpy as np
 
@@ -1330,10 +1365,11 @@ def _draw_panel(
     ax.set_ylim(lo - 0.13 * (hi - lo), hi + 0.26 * (hi - lo))
     label_models(ax, points, best, worst)
 
-    rho, band = adjusted(c.rho), adjusted_band(c.rho_models)
-    note = f"$\\rho = {rho:.2f}$"
+    note = f"$\\rho = {adjusted(c.rho):.2f}$"
     if band:
         note += f" $[{band[0]:.2f}, {band[1]:.2f}]$"
+    else:
+        print(f"[warn] {name} panel: no city interval, drawing rho alone")
     ax.text(
         0.03,
         0.955,
@@ -1518,7 +1554,10 @@ def horizon_lines(h: Headline, by_horizon: dict[str, object]) -> list[str]:
 
 
 def predictor_lines(
-    prefix: str, what: str, per_headline: dict[str, object]
+    prefix: str,
+    what: str,
+    per_headline: dict[str, object],
+    cities: dict[str, tuple] | None = None,
 ) -> list[str]:
     r"""One predictor's \MPD{prefix}* macros for every headline slice.
 
@@ -1526,6 +1565,9 @@ def predictor_lines(
     macros are the ones already in use; ForecastBench is "FB". Its n differs —
     only 17 models have a published overall — so the count is a macro per
     slice rather than assumed shared.
+
+    `cities` gives each slice's cluster interval over cities, the one the
+    article quotes; the interval over models is still defined beside it.
     """
     pre = MACRO_PREFIX
     lines = [f"% {what}"]
@@ -1543,6 +1585,12 @@ def predictor_lines(
             f"\\newcommand{{\\{stem}P{h.macro}}}{{{macro_p(c.rho_p)}}}",
             f"\\newcommand{{\\{stem}NModels{h.macro}}}{{{c.n_models}}}",
         ]
+        ci = (cities or {}).get(h.figure)
+        if ci is not None:
+            lines.append(
+                f"\\newcommand{{\\{stem}Rho{h.macro}CICities}}"
+                f"{{{macro_band(adjusted_band(ci))}}}"
+            )
     return lines + [""]
 
 
@@ -1619,8 +1667,42 @@ def cost_lines(totals: dict[str, dict[str, float]], items: dict[str, int]) -> li
     return lines
 
 
-def city_ci_lines(
+def city_cis(
     binary: list[dict], continuous: list[dict], models: list[str]
+) -> tuple[dict[str, tuple[float, float]], int]:
+    r"""Each headline slice's city cluster interval, by macro stem.
+
+    Raw sign, as cluster_ci returns it; every caller adjusts. One
+    computation, because the article quotes these intervals and the
+    capability figure draws them, and the two must not drift.
+    """
+    predictor = by_model_id(eci_by_name_of(models), models)
+    slices = [
+        ("Binary", [r for r in binary if r["section"] == MID_RANGE], "excess_brier"),
+        ("Tail", [r for r in binary if r["section"] == TAIL], "excess_bits"),
+        ("Continuous", continuous, "excess_ncrps"),
+    ]
+    out: dict[str, tuple[float, float]] = {}
+    ncities = 0
+    for macro, rows, key in slices:
+        ci, n = cluster_ci(predictor, rows, key)
+        ncities = max(ncities, n)
+        if ci is None:
+            print(f"[warn] no city interval for the {macro} slice")
+            continue
+        out[macro] = ci
+    return out, ncities
+
+
+def world_bands_by_figure(cis: dict[str, tuple[float, float]]) -> dict[str, tuple]:
+    """city_cis keyed by figure name and sign-adjusted, as the figure wants."""
+    return {
+        h.figure: adjusted_band(cis[h.macro]) for h in HEADLINES if h.macro in cis
+    }
+
+
+def city_ci_lines(
+    cis: dict[str, tuple[float, float]], ncities: int
 ) -> list[str]:
     r"""\MPDRho*CICities : each headline correlation's city cluster interval.
 
@@ -1632,28 +1714,15 @@ def city_ci_lines(
     These are that column, resampling the 15 cities.
     """
     pre = MACRO_PREFIX
-    predictor = by_model_id(eci_by_name_of(models), models)
-    mid = [r for r in binary if r["section"] == MID_RANGE]
-    tail = [r for r in binary if r["section"] == TAIL]
     lines = [
         "% Each headline correlation's 95% interval from a cluster bootstrap",
         "% over this world's cities, resampling a city with all its questions:",
         "% the article's 'CI (worlds)' column, FreeCiv's anchor-game bootstrap",
         "% applied to the Micropolis cities. Wider than the question",
-        "% interval and narrower than the model one; it is the interval to",
-        "% quote for whether a correlation would hold on other cities.",
+        "% interval and narrower than the model one, and the only interval the",
+        "% article quotes for this world.",
     ]
-    ncities = 0
-    for macro, rows, key in [
-        ("Binary", mid, "excess_brier"),
-        ("Tail", tail, "excess_bits"),
-        ("Continuous", continuous, "excess_ncrps"),
-    ]:
-        ci, n = cluster_ci(predictor, rows, key)
-        ncities = max(ncities, n)
-        if ci is None:
-            print(f"[warn] no city interval for \\{pre}Rho{macro}CICities")
-            continue
+    for macro, ci in cis.items():
         band = macro_band(adjusted_band(ci))
         lines.append(f"\\newcommand{{\\{pre}Rho{macro}CICities}}{{{band}}}")
         print(f"  95% CI cities, {macro:<10} {format_band(adjusted_band(ci), 0)}")
@@ -1743,6 +1812,24 @@ def correlations_by_horizon(specs: list[dict]) -> dict[str, dict[str, object]]:
             if c is not None:
                 per[horizon] = c
         out[spec["name"]] = per
+    return out
+
+
+def predictor_city_cis(specs: list[dict], predictor) -> dict[str, tuple]:
+    """Each quoted slice's city cluster interval against one predictor.
+
+    ECI's come from city_cis, which reads the same rows off the same slices;
+    this is that computation for a scale with no figure, so the
+    ForecastBench table can carry a "CI (worlds)" cell of its own.
+    """
+    wanted = {h.figure for h in HEADLINES}
+    out: dict[str, tuple] = {}
+    for spec in specs:
+        if spec["name"] not in wanted:
+            continue
+        ci, _ = cluster_ci(predictor(spec["models"]), spec["rows"], spec["score"].key)
+        if ci is not None:
+            out[spec["name"]] = ci
     return out
 
 
@@ -2128,13 +2215,20 @@ def batching_bootstrap(
     models: list[str],
     resamples: int = BOOTSTRAP_RESAMPLES,
     seed: int = BOOTSTRAP_SEED,
+    unit: str = "questions",
 ) -> dict[int, dict[str, float]]:
-    """Pooled score per setting with paired question-bootstrap intervals.
+    """Pooled score per setting with paired bootstrap intervals.
 
     The pooled score is the mean over models of each model's mean over
-    questions. One draw of question indices is shared by every setting, so
-    the interval on the difference between two settings reflects only which
-    questions were asked — the eight settings answered the same 1,000.
+    questions. One draw is shared by every setting, so the interval on the
+    difference between two settings reflects only what was resampled — the
+    eight settings answered the same 1,000 questions.
+
+    `unit` picks what that is. "questions" resamples them independently;
+    "cities" resamples the ablation's cities with all of their questions at
+    once, which is the article's "over worlds" interval and the only one it
+    quotes. Both reach the same code below: a resample is a weight per
+    question either way.
 
     Returns, per cap: point, lo, hi, and delta/dlo/dhi against the smallest
     setting (zero for that setting itself).
@@ -2144,10 +2238,32 @@ def batching_bootstrap(
     sec = [r for r in rows if r["section"] == section]
     questions = sorted({r["question_id"] for r in sec})
     nq = len(questions)
-    draws = np.random.default_rng(seed).integers(0, nq, (resamples, nq))
-    weights = np.zeros((resamples, nq))
-    for i, d in enumerate(draws):
-        weights[i] = np.bincount(d, minlength=nq)
+    qpos = {q: i for i, q in enumerate(questions)}
+    rng = np.random.default_rng(seed)
+    if unit == "cities":
+        city_of_q = {}
+        for r in sec:
+            city = city_of_row(r)
+            if city:
+                city_of_q[r["question_id"]] = city
+        if len(city_of_q) != nq:
+            raise ValueError("every batching question needs a city to cluster on")
+        cities = sorted(set(city_of_q.values()))
+        member = np.zeros((len(cities), nq))
+        cpos = {c: i for i, c in enumerate(cities)}
+        for q, city in city_of_q.items():
+            member[cpos[city], qpos[q]] = 1.0
+        ncity = len(cities)
+        draws = rng.integers(0, ncity, (resamples, ncity))
+        city_w = np.stack(
+            [np.bincount(d, minlength=ncity) for d in draws]
+        ).astype(float)
+        weights = city_w @ member
+    else:
+        draws = rng.integers(0, nq, (resamples, nq))
+        weights = np.zeros((resamples, nq))
+        for i, d in enumerate(draws):
+            weights[i] = np.bincount(d, minlength=nq)
 
     pooled = {}
     points = {}
@@ -2191,6 +2307,30 @@ def batching_rho(
         ]
         out[s["cap"]] = correlate("", predictor, slice_rows, key, models, ALL)
     return out
+
+
+def batching_rho_cities(
+    rows: list[dict], settings: list[dict], section: str, key: str, models: list[str]
+) -> dict[int, tuple | None]:
+    """Each setting's ECI correlation with a cluster interval over cities.
+
+    The counterpart of batching_rho's interval over models: same coefficient,
+    resampling the ablation's cities instead of its models.
+    """
+    predictor = by_model_id(eci_by_name_of(models), models)
+    out: dict[int, tuple | None] = {}
+    for s in settings:
+        slice_rows = [
+            r for r in rows if r["section"] == section and r["cap"] == s["cap"]
+        ]
+        ci, _ = cluster_ci(predictor, slice_rows, key)
+        out[s["cap"]] = ci
+    return out
+
+
+def batching_ncities(rows: list[dict]) -> int:
+    """How many cities the ablation drew its questions from."""
+    return len({c for c in (city_of_row(r) for r in rows) if c})
 
 
 def per_model_mean(rows: list[dict], cap: int, section: str, key: str, model: str):
@@ -2247,7 +2387,11 @@ def draw_batching_figure(
     boot: dict[str, dict[int, dict[str, float]]],
     production: dict | None,
 ) -> Path | None:
-    """Scores and cost against questions per prompt; see BATCHING_FIG_NAME."""
+    """Scores and cost against questions per prompt; see BATCHING_FIG_NAME.
+
+    `boot` is the city-clustered bootstrap, so the shaded band is the
+    interval over worlds the article quotes everywhere else.
+    """
     import matplotlib
 
     matplotlib.use("pgf")
@@ -2489,19 +2633,28 @@ def batching_lines(
     models: list[str],
     names: dict[str, str],
     boot: dict[str, dict[int, dict[str, float]]],
+    boot_cities: dict[str, dict[int, dict[str, float]]],
     rho: dict[str, dict[int, object]],
+    rho_cities: dict[str, dict[int, tuple | None]],
     production: dict | None,
     recheck: list[dict] | None,
 ) -> list[str]:
-    r"""\MPDBatch* : every number the questions-per-prompt appendix quotes."""
+    r"""\MPDBatch* : every number the questions-per-prompt appendix quotes.
+
+    Every interval comes twice: *CI and *CIModels resample questions and
+    models, *CICities the ablation's cities. The article quotes only the
+    city ones, the others staying for the record.
+    """
     pre = MACRO_PREFIX
     nc = lambda name, value: f"\\newcommand{{\\{pre}Batch{name}}}{{{value}}}"
     first, last = settings[0], settings[-1]
     lines = [
         "% The questions-per-prompt ablation (appendix D). Pooled scores are",
         "% means of per-model means; Delta* are paired against the smallest",
-        "% prompt, with the shared question draw's 95% interval; Rho* are",
-        "% sign-adjusted as every other correlation here.",
+        "% prompt, with the shared draw's 95% interval; Rho* are",
+        "% sign-adjusted as every other correlation here. *CICities is the",
+        "% cluster bootstrap over the ablation's cities, which is the interval",
+        "% the article quotes; *CI (questions) and *CIModels are beside it.",
     ]
     sec_rows = {
         MID_RANGE: [r for r in rows if r["section"] == MID_RANGE],
@@ -2527,6 +2680,7 @@ def batching_lines(
         nc("NSettings", len(settings)),
         nc("SmallestSize", size_label(first["qpp"], tex=True)),
         nc("LargestSize", size_label(last["qpp"], tex=True)),
+        nc("NCities", batching_ncities(rows)),
         nc("SnapshotQuestions", f"{group:.0f}" if group else "---"),
         nc(
             "UnevenExample",
@@ -2560,10 +2714,25 @@ def batching_lines(
                 f"DeltaMid{w}CI",
                 macro_band((boot[MID_RANGE][cap]["dlo"], boot[MID_RANGE][cap]["dhi"])),
             ),
+            nc(
+                f"DeltaMid{w}CICities",
+                macro_band(
+                    (
+                        boot_cities[MID_RANGE][cap]["dlo"],
+                        boot_cities[MID_RANGE][cap]["dhi"],
+                    )
+                ),
+            ),
             nc(f"DeltaTail{w}", f"${boot[TAIL][cap]['delta']:+.3f}$"),
             nc(
                 f"DeltaTail{w}CI",
                 macro_band((boot[TAIL][cap]["dlo"], boot[TAIL][cap]["dhi"])),
+            ),
+            nc(
+                f"DeltaTail{w}CICities",
+                macro_band(
+                    (boot_cities[TAIL][cap]["dlo"], boot_cities[TAIL][cap]["dhi"])
+                ),
             ),
             nc(f"Parse{w}", f"{parsed:.1f}"),
             nc(f"Cost{w}", f"{cost:.2f}" if cost is not None else "---"),
@@ -2577,6 +2746,10 @@ def batching_lines(
                 nc(
                     f"Rho{tag}{w}CIModels",
                     macro_band(adjusted_band(c.rho_models)) if c else "---",
+                ),
+                nc(
+                    f"Rho{tag}{w}CICities",
+                    macro_band(adjusted_band(rho_cities[section][cap])),
                 ),
             ]
     # The mechanism: mean (forecast - p) on tail questions, and the Pearson
@@ -2759,7 +2932,13 @@ def batching_lines(
     # Robustness: the pooled picture without the anchor model.
     rest = [m for m in models if m != anchor]
     b_rest = batching_bootstrap(rows, settings, TAIL, "excess_bits", rest)
+    b_rest_cities = batching_bootstrap(
+        rows, settings, TAIL, "excess_bits", rest, unit="cities"
+    )
     rho_rest = batching_rho(rows, settings, TAIL, "excess_bits", rest)
+    rho_rest_cities = batching_rho_cities(
+        rows, settings, TAIL, "excess_bits", rest
+    )
     lines += [
         nc("NModelsNoAnchor", len(rest)),
         nc("TailSmallestNoAnchor", f"{b_rest[first['cap']]['point']:.3f}"),
@@ -2772,10 +2951,20 @@ def batching_lines(
             macro_band((b_rest[4]["dlo"], b_rest[4]["dhi"])) if 4 in b_rest else "---",
         ),
         nc(
+            "DeltaTailFourNoAnchorCICities",
+            macro_band((b_rest_cities[4]["dlo"], b_rest_cities[4]["dhi"]))
+            if 4 in b_rest_cities
+            else "---",
+        ),
+        nc(
             "RhoTailSmallestNoAnchor",
             f"{adjusted(rho_rest[first['cap']].rho):.2f}"
             if rho_rest[first["cap"]]
             else "---",
+        ),
+        nc(
+            "RhoTailSmallestNoAnchorCICities",
+            macro_band(adjusted_band(rho_rest_cities[first["cap"]])),
         ),
         nc(
             "RhoTailNoAnchorMin",
@@ -3051,12 +3240,13 @@ def write_macros(
     names: dict[str, str],
     by_horizon: dict[str, dict[str, object]],
     fb: dict[str, object],
+    fb_cities: dict[str, tuple],
     rates: dict[str, float],
     totals: dict[str, dict[str, float]],
     items: dict[str, int],
     binary: list[dict],
-    continuous: list[dict],
-    models_for_ci: list[str],
+    city_ci: dict[str, tuple[float, float]],
+    ncities: int,
     extra: list[str] | None = None,
 ) -> Path:
     r"""Write micropolis-macros.tex: every quoted number as a \newcommand.
@@ -3096,11 +3286,11 @@ def write_macros(
     lines += cost_lines(totals, items)
     lines += band_lines(binary)
     lines += horizon_years_lines()
-    lines += city_ci_lines(binary, continuous, models_for_ci)
+    lines += city_ci_lines(city_ci, ncities)
     lines += extra or []
     lines += bootstrap_lines()
     if fb:
-        lines += predictor_lines("FB", "ForecastBench overall", fb)
+        lines += predictor_lines("FB", "ForecastBench overall", fb, fb_cities)
     if missing:
         print(f"[warn] no correlation for {', '.join(missing)}; macros not defined")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -3380,6 +3570,11 @@ def main() -> None:
     names = display_names(args.datadir / MODEL_SCORES_CSV_NAME)
     by_horizon = correlations_by_horizon(specs)
     fb = correlations_for(specs, PREDICTORS[1][2])
+    fb_cities = predictor_city_cis(specs, PREDICTORS[1][2])
+    # The interval the article quotes for every Micropolis correlation: a
+    # cluster bootstrap over this world's cities. Computed once, for the
+    # macros and for the capability figure's own brackets.
+    city_ci, ncities = city_cis(binary, continuous, models_in_order(binary))
     rates = parse_rates(coverage)
     for name, rate in sorted(rates.items()):
         print(f"lowest parse rate, {name}: {rate:.1f}%")
@@ -3407,8 +3602,20 @@ def main() -> None:
         section: batching_bootstrap(batching, settings, section, key, ablation_models)
         for section, key, _, _ in BATCHING_PANELS
     }
+    boot_cities = {
+        section: batching_bootstrap(
+            batching, settings, section, key, ablation_models, unit="cities"
+        )
+        for section, key, _, _ in BATCHING_PANELS
+    }
     rho = {
         section: batching_rho(batching, settings, section, key, ablation_models)
+        for section, key, _, _ in BATCHING_PANELS
+    }
+    rho_cities = {
+        section: batching_rho_cities(
+            batching, settings, section, key, ablation_models
+        )
         for section, key, _, _ in BATCHING_PANELS
     }
     print(
@@ -3422,10 +3629,12 @@ def main() -> None:
     )
     for s_ in settings:
         b_m, b_t = boot[MID_RANGE][s_["cap"]], boot[TAIL][s_["cap"]]
+        b_tc = boot_cities[TAIL][s_["cap"]]
         print(
             f"  {size_label(s_['qpp']):>6} per prompt: mid {b_m['point']:.4f}"
             f" ({b_m['delta']:+.4f} vs smallest)  tail bits {b_t['point']:.3f}"
-            f" ({b_t['delta']:+.3f}, CI {format_band((b_t['dlo'], b_t['dhi']), 0)})"
+            f" ({b_t['delta']:+.3f}, CI cities"
+            f" {format_band((b_tc['dlo'], b_tc['dhi']), 0)})"
         )
     if recheck is None:
         print(f"  [note] {RECHECK_CSV_NAME} absent; rerun macros not defined")
@@ -3437,7 +3646,9 @@ def main() -> None:
         ablation_models,
         names,
         boot,
+        boot_cities,
         rho,
+        rho_cities,
         production,
         recheck,
     )
@@ -3447,12 +3658,13 @@ def main() -> None:
         names,
         by_horizon,
         fb,
+        fb_cities,
         rates,
         totals,
         items,
         binary,
-        continuous,
-        models_in_order(binary),
+        city_ci,
+        ncities,
         batch_macros,
     )
     tables = write_tables(
@@ -3483,6 +3695,7 @@ def main() -> None:
         args.outdir / CAPABILITY_FIG_NAME,
         found,
         names,
+        world_bands_by_figure(city_ci),
     )
 
     horizon_fig = draw_horizon_figure(args.outdir / HORIZON_FIG_NAME, binary, names)
@@ -3493,7 +3706,7 @@ def main() -> None:
         batching_runs,
         settings,
         ablation_models,
-        boot,
+        boot_cities,
         production,
     )
 
