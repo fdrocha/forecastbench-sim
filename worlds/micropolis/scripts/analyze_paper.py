@@ -2373,6 +2373,16 @@ def run_stat(runs: list[dict], cap: int, model: str | None, field: str):
     return sum(vals) / len(vals) if vals else None
 
 
+def run_total(runs: list[dict], cap: int, field: str):
+    """One run field summed over every model at a cap, or None when unreported.
+
+    run_stat averages; the table wants what the whole panel cost at a
+    setting, which is the sum.
+    """
+    vals = [r[field] for r in runs if r["cap"] == cap and r[field] != ""]
+    return sum(vals) if vals else None
+
+
 def parse_rate(runs: list[dict], cap: int, model: str) -> float | None:
     for r in runs:
         if r["cap"] == cap and r["model"] == model and r["nforecasts"]:
@@ -2559,17 +2569,22 @@ def batching_table(
     rho: dict[str, dict[int, object]],
     production: dict | None,
 ) -> str:
-    """Per setting: size, prompts, the two pooled scores, parse rate, cost, rho."""
+    """Per setting: size, prompts, the two pooled scores, parse rate, cost, rho.
+
+    The cost column is what the setting cost over the whole panel, not per
+    model and not per question: one number per row, so the column answers
+    "what would this setting cost to run" directly.
+    """
     lines = [
         r"\setlength{\tabcolsep}{3.5pt}",
-        r"\begin{tabular}{rrrrrrrrr}",
+        r"\begin{tabular}{rrrrrrrr}",
         r"\toprule",
         (
             r"\multicolumn{2}{c}{Per model} & \multicolumn{2}{c}{Pooled score}"
-            r" & Parsed & \multicolumn{2}{c}{Cost per model} & \multicolumn{2}{c}{$\rho$ with ECI} \\"
+            r" & Parsed & Total cost & \multicolumn{2}{c}{$\rho$ with ECI} \\"
         ),
-        r"\cmidrule(lr){1-2}\cmidrule(lr){3-4}\cmidrule(lr){6-7}\cmidrule(lr){8-9}",
-        r"Q/prompt & Prompts & Mid-range & Tail & (\%) & \$ & \textcent/question & Mid-range & Tail \\",
+        r"\cmidrule(lr){1-2}\cmidrule(lr){3-4}\cmidrule(lr){7-8}",
+        r"Q/prompt & Prompts & Mid-range & Tail & (\%) & (\$) & Mid-range & Tail \\",
         r"\midrule",
     ]
     for s in settings:
@@ -2578,8 +2593,7 @@ def batching_table(
         if production is not None and cap == production["cap"]:
             size += r"$^\dagger$"
         parsed = min(parse_rate(runs, cap, m) or 0.0 for m in models)
-        cost = run_stat(runs, cap, None, "cost_usd")
-        nq = run_stat(runs, cap, None, "nforecasts")
+        cost = run_total(runs, cap, "cost_usd")
         r_mid, r_tail = rho[MID_RANGE][cap], rho[TAIL][cap]
         lines.append(
             " & ".join(
@@ -2590,7 +2604,6 @@ def batching_table(
                     cell(boot[TAIL][cap]["point"], "{:.3f}"),
                     f"{parsed:.1f}",
                     cell(cost, "{:.2f}"),
-                    cell(100.0 * cost / nq if cost and nq else None, "{:.2f}"),
                     cell(adjusted(r_mid.rho) if r_mid else None, "{:.2f}"),
                     cell(adjusted(r_tail.rho) if r_tail else None, "{:.2f}"),
                 ]
@@ -2602,7 +2615,8 @@ def batching_table(
         lines,
         "Questions-per-prompt ablation, per setting. Sources: batching_forecasts.csv,"
         " batching_runs.csv. Pooled score = mean of per-model means; Parsed = the"
-        " lowest parse rate over the models; rho sign-adjusted.",
+        " lowest parse rate over the models; Total cost = summed over the models;"
+        " rho sign-adjusted.",
     )
 
 
