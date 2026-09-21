@@ -23,6 +23,14 @@ actually computed at, not a per-model mean:
   sidecars beside the cached responses. The paper reports the run's cost per
   model and per question kind, and neither is recoverable from the forecast
   rows.
+- batching_forecasts.csv and batching_runs.csv: the questions-per-prompt
+  ablation (configs/batching/), scored the same way, one row per (setting,
+  model, question), plus per (setting, model) what was asked, parsed and paid.
+- gpt5_check_forecasts.csv: the one-question-per-prompt rerun of GPT-5 mini in
+  its own data directory (configs/gpt5-check-1q.json5), with each response's
+  finish reason, for the appendix's account of that model's failures. Read by
+  path from that directory, since a process works in one data directory and
+  this one is the paper's.
 
 Model names are written as model *ids*: this world's ":suffix" (":loeff", the
 reasoning effort a run was gathered under) is dropped, since the paper reports
@@ -52,6 +60,8 @@ Usage:
 """
 
 import argparse
+import csv
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -97,6 +107,9 @@ from micropolis_world.scenarios import (
 # scores: the same section rule, the same Brier/excess/bits, the same CRPS.
 sys.path.insert(0, str(Path(__file__).parent))
 from analyze_binary import (
+    MID_RANGE,
+    TAIL,
+    TAIL_THRESHOLD,
     TURNS_PER_YEAR,
     score_forecasts_binary,
     section_of,
@@ -195,7 +208,67 @@ USAGE_COLUMNS = [
     "output_tokens",
     "reasoning_tokens",
     "cost_usd",
+    "latency_ms_sum",
+    "latency_ms_p50",
 ]
+
+# The questions-per-prompt ablation: the binary set on five cities and eight
+# models, asked once per cap on the number of questions a prompt may carry.
+# Scored with the same functions as the main run, so its rows are the paper's
+# binary rows with the setting prepended. `cap` is the config's value; the
+# batcher splits a snapshot's questions evenly under it, so the prompts a cap
+# of 8 produces carry 7 or 8 questions, and questions_per_prompt is what they
+# actually carried on average — the number the article's axis shows.
+BATCHING_CONFIG_GLOB = "batching/binary-subset-*q.json5"
+BATCHING_CSV_NAME = "batching_forecasts.csv"
+BATCHING_COLUMNS = [
+    "setting",
+    "cap",
+    "questions_per_prompt",
+    "prompts_per_model",
+    *BINARY_COLUMNS,
+]
+BATCHING_RUNS_CSV_NAME = "batching_runs.csv"
+BATCHING_RUNS_COLUMNS = [
+    "setting",
+    "cap",
+    "questions_per_prompt",
+    "prompts_per_model",
+    "model",
+    "provider",
+    "nforecasts",
+    "nvalid",
+    "ncalls",
+    "input_tokens",
+    "output_tokens",
+    "reasoning_tokens",
+    "cost_usd",
+    "latency_ms_sum",
+    "latency_ms_p50",
+]
+
+# The GPT-5 mini rerun at one question per prompt. It lives in its own data
+# directory (the config's data_dir) precisely so its prompts missed the main
+# cache, and a process works in one data directory, so it is read by path
+# from analyze_binary.py's results.csv there rather than through Config.
+# Unparsed forecasts are KEPT here, as empty cells, because the count of them
+# is one of the things the appendix reports about this run.
+RECHECK_DIR_NAME = "micropolis_gpt5_check"
+RECHECK_LABEL = "1q"
+RECHECK_CSV_NAME = "gpt5_check_forecasts.csv"
+RECHECK_COLUMNS = [
+    "model",
+    "question_id",
+    "qid",
+    "section",
+    "horizon",
+    "forecast",
+    "real_prob",
+    "finish_reason",
+    "output_tokens",
+    "has_block",
+]
+ANSWER_BLOCK_MARKER = "<<<PROBABILITIES>>>"
 
 CONTINUOUS_CSV_NAME = "continuous_forecasts.csv"
 CONTINUOUS_COLUMNS = [
@@ -510,6 +583,13 @@ def usage_rows(eval_name: str, cfg: Config) -> list[dict]:
                 "output_tokens": totals.output_tokens,
                 "reasoning_tokens": totals.reasoning_tokens,
                 "cost_usd": f"{totals.cost_usd:.4f}",
+                # Summed over the model's calls: model time, not wall clock,
+                # since calls run concurrently. The ratio between settings is
+                # what the article uses it for.
+                "latency_ms_sum": f"{sum(totals.latencies):.0f}",
+                "latency_ms_p50": (
+                    f"{totals.latency_percentile(0.5):.0f}" if totals.latencies else ""
+                ),
             }
         )
     total = sum(float(r["cost_usd"]) for r in rows)
@@ -517,6 +597,122 @@ def usage_rows(eval_name: str, cfg: Config) -> list[dict]:
         f"usage:      {eval_name}: {sum(r['ncalls'] for r in rows)} calls over "
         f"{len(rows)} models, ${total:.2f}, {len(hashes)} prompts per model"
     )
+    return rows
+
+
+def batching_rows(config_paths: list[Path]) -> tuple[list[dict], list[dict]]:
+    """The questions-per-prompt ablation: forecast rows and per-run rows.
+
+    One config per cap. Each is scored exactly as the main run is — the same
+    binary_rows — and its calls are costed exactly as the main run's are, so
+    the ablation's numbers are on the paper's footing rather than a report's.
+    """
+    forecasts, runs = [], []
+    for path in config_paths:
+        cfg = load_config_at(path)
+        label = cfg.get_label(None)
+        rows, coverage = binary_rows(cfg)
+        usage = usage_rows("binary", cfg)
+        prompts = {u["nprompts"] for u in usage}
+        asked = {c["nforecasts"] for c in coverage}
+        if len(prompts) != 1 or len(asked) != 1:
+            sys.exit(
+                f"[error] {path}: models were sent different numbers of prompts"
+                f" ({sorted(prompts)}) or questions ({sorted(asked)})"
+            )
+        nprompts, nasked = prompts.pop(), asked.pop()
+        per_prompt = nasked / nprompts
+        cap = cfg.get_questions_per_prompt()
+        head = {
+            "setting": label,
+            # An unsplit batch (cap -1) carries a snapshot's whole question
+            # set; reported as that size, which is what the setting means.
+            "cap": cap if cap > 0 else round(per_prompt),
+            "questions_per_prompt": f"{per_prompt:.2f}",
+            "prompts_per_model": nprompts,
+        }
+        forecasts += [{**head, **r} for r in rows]
+        by_model = {u["model"]: u for u in usage}
+        for c in coverage:
+            u = by_model[c["model"]]
+            runs.append(
+                {
+                    **head,
+                    "model": c["model"],
+                    "provider": u["provider"],
+                    "nforecasts": c["nforecasts"],
+                    "nvalid": c["nvalid"],
+                    **{
+                        k: u[k]
+                        for k in (
+                            "ncalls",
+                            "input_tokens",
+                            "output_tokens",
+                            "reasoning_tokens",
+                            "cost_usd",
+                            "latency_ms_sum",
+                            "latency_ms_p50",
+                        )
+                    },
+                }
+            )
+        print()
+    return forecasts, runs
+
+
+def recheck_rows(dirname: str) -> list[dict]:
+    """The GPT-5 mini rerun's forecasts, with each response's finish reason.
+
+    Empty when the rerun has not been scored yet, with a note saying how; the
+    paper's other data does not depend on it.
+    """
+    root = g.DATA_ROOT / dirname
+    results = root / "binary" / RECHECK_LABEL / "results.csv"
+    if not results.exists():
+        warn(
+            f"{results} not found; {RECHECK_CSV_NAME} not written. Run"
+            " scripts/run_eval_binary.py, extract_ground_truth.py and"
+            " analyze_binary.py on configs/gpt5-check-1q.json5 to produce it."
+        )
+        return []
+    cache = root / "binary" / "cache"
+    rows = []
+    with results.open(newline="") as f:
+        for r in csv.DictReader(f):
+            response = cache / r["response_file"]
+            sidecar = response.parent / (
+                "usage-"
+                + response.name[len("response-") :].removesuffix(".txt")
+                + ".json"
+            )
+            meta = json.loads(sidecar.read_text()) if sidecar.exists() else {}
+            text = response.read_text() if response.exists() else ""
+            p = float(r["real_prob"])
+            disasters = (
+                "disasters"
+                if r["disasters"] in ("1", "True", "true")
+                else "nodisasters"
+            )
+            rows.append(
+                {
+                    "model": to_model_id(r["model"]),
+                    "question_id": (
+                        f"{r['city']}_{disasters}_seed{r['seed']}_T{r['snapshot_turn']}"
+                        f"_H{r['horizon']}_{r['question_id']}"
+                    ),
+                    "qid": r["question_id"],
+                    "section": TAIL if p < TAIL_THRESHOLD else MID_RANGE,
+                    "horizon": years(int(r["horizon"])),
+                    "forecast": "" if r["forecast"] in ("", "nan") else r["forecast"],
+                    "real_prob": r["real_prob"],
+                    "finish_reason": meta.get("finish_reason", ""),
+                    "output_tokens": meta.get("output_tokens", ""),
+                    "has_block": int(ANSWER_BLOCK_MARKER in text),
+                }
+            )
+    unparsed = sum(1 for r in rows if r["forecast"] == "")
+    print(f"recheck:    {results}")
+    print(f"            {len(rows)} forecasts, {unparsed} unparsed")
     return rows
 
 
@@ -557,7 +753,23 @@ def main() -> None:
         help="JSON5 config for the binary half "
         f"(default: {DEFAULT_BINARY_CONFIG_PATH})",
     )
+    ap.add_argument(
+        "--batching-configs",
+        nargs="*",
+        type=Path,
+        default=sorted(CONFIG_DIR.glob(BATCHING_CONFIG_GLOB)),
+        help="the questions-per-prompt ablation's configs, one per cap "
+        f"(default: configs/{BATCHING_CONFIG_GLOB})",
+    )
+    ap.add_argument(
+        "--recheck-dir",
+        default=RECHECK_DIR_NAME,
+        help="the data directory the GPT-5 mini rerun was made in "
+        f"(default: {RECHECK_DIR_NAME})",
+    )
     args = ap.parse_args()
+    if not args.batching_configs:
+        sys.exit(f"[error] no batching configs match configs/{BATCHING_CONFIG_GLOB}")
 
     continuous_cfg = load_config_at(args.continuous_config)
     binary_cfg = load_config_at(args.binary_config)
@@ -575,6 +787,9 @@ def main() -> None:
     continuous, continuous_coverage = continuous_rows(continuous_cfg)
     scales = scale_rows(continuous_cfg)
     usage = usage_rows("binary", binary_cfg) + usage_rows("continuous", continuous_cfg)
+    print()
+    batching, batching_runs = batching_rows(args.batching_configs)
+    recheck = recheck_rows(args.recheck_dir)
 
     print()
     for name, columns, rows in [
@@ -587,6 +802,9 @@ def main() -> None:
             binary_coverage + continuous_coverage,
         ),
         (USAGE_CSV_NAME, USAGE_COLUMNS, usage),
+        (BATCHING_CSV_NAME, BATCHING_COLUMNS, batching),
+        (BATCHING_RUNS_CSV_NAME, BATCHING_RUNS_COLUMNS, batching_runs),
+        *([(RECHECK_CSV_NAME, RECHECK_COLUMNS, recheck)] if recheck else []),
     ]:
         print(f"Wrote {write_csv(out / name, columns, rows)}")
 

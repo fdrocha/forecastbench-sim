@@ -134,11 +134,14 @@ from analyze_continuous import (
     format_band,
 )
 from gather_paper_data import (
+    BATCHING_CSV_NAME,
+    BATCHING_RUNS_CSV_NAME,
     BINARY_CSV_NAME,
     CONTINUOUS_CSV_NAME,
     COVERAGE_CSV_NAME,
     MODEL_SCORES_CSV_NAME,
     OUT_DIR,
+    RECHECK_CSV_NAME,
     SCALES_CSV_NAME,
     USAGE_CSV_NAME,
 )
@@ -208,7 +211,41 @@ TABLE_NAMES = {
     "models": "micropolis_models.tex",
     "horizon": "micropolis_horizon.tex",
     "continuous": "micropolis_continuous.tex",
+    "batching": "micropolis_batching.tex",
+    "batching_models": "micropolis_batching_models.tex",
 }
+
+# The questions-per-prompt ablation (appendix D). Three panels: the two binary
+# scores against the number of questions a prompt carried, and what each
+# setting cost. The pooled line is a mean of per-model means with a PAIRED
+# question bootstrap — one shared draw of questions across settings — so the
+# difference between two settings is what the interval speaks to.
+BATCHING_FIG_NAME = "fig_micropolis_batching.pdf"
+BATCHING_SIZE = (5.5, 2.15)
+BATCHING_PANELS = [
+    (MID_RANGE, "excess_brier", "Excess Brier score", "(a) Mid-range questions"),
+    (TAIL, "excess_bits", "Excess bits", "(b) Tail questions"),
+]
+
+# Macro names cannot hold digits, so each cap gets a word. Keyed by the
+# config's cap, which is stable, where the size a prompt actually carried
+# (7--8 under a cap of 8) is what the article prints.
+CAP_WORDS = {
+    1: "One",
+    2: "Two",
+    4: "Four",
+    8: "Eight",
+    16: "Sixteen",
+    32: "ThirtyTwo",
+    64: "SixtyFour",
+    100: "Hundred",
+}
+
+# The two probabilities the binary epilogue shows as its example answer block
+# ("Q1: 0.65 / Q2: 0.03"). Some models return them verbatim; the appendix
+# measures how often. Prompt constants rather than data, so they are named
+# here: analyze_paper.py reads only the paper's directory.
+EXAMPLE_VALUES = (0.65, 0.03)
 
 # Where the macros land in the article: it \inputs them from data/, beside
 # the other generated definitions, not from its root.
@@ -2000,18 +2037,895 @@ def write_shared_tables(
     return written
 
 
+def read_batching(path: Path) -> list[dict]:
+    """batching_forecasts.csv: the paper's binary rows with a setting prepended."""
+    rows = read_rows(path)
+    for r in rows:
+        r["cap"] = int(r["cap"])
+        r["questions_per_prompt"] = float(r["questions_per_prompt"])
+        r["prompts_per_model"] = int(r["prompts_per_model"])
+    return rows
+
+
+def read_batching_runs(path: Path) -> list[dict]:
+    """batching_runs.csv: per (setting, model) what was asked, parsed and paid."""
+    if not path.exists():
+        sys.exit(
+            f"[error] {path} not found\n"
+            "  rerun scripts/gather_paper_data.py; it writes the ablation's"
+            " per-run rows"
+        )
+    numeric = {
+        "cap": int,
+        "questions_per_prompt": float,
+        "prompts_per_model": int,
+        "nforecasts": int,
+        "nvalid": int,
+        "ncalls": int,
+        "cost_usd": float,
+        "latency_ms_sum": float,
+        "latency_ms_p50": float,
+    }
+    with path.open(newline="") as f:
+        rows = [
+            {
+                k: (numeric[k](v) if k in numeric and v != "" else v)
+                for k, v in r.items()
+            }
+            for r in csv.DictReader(f)
+        ]
+    if not rows:
+        sys.exit(f"[error] {path} holds no rows")
+    return rows
+
+
+def read_recheck(path: Path) -> list[dict] | None:
+    """gpt5_check_forecasts.csv, or None when the rerun has not been gathered.
+
+    Unparsed forecasts are rows with an empty forecast here, unlike every
+    other forecast file: the count of them is the point.
+    """
+    if not path.exists():
+        return None
+    with path.open(newline="") as f:
+        rows = []
+        for r in csv.DictReader(f):
+            r["forecast"] = float(r["forecast"]) if r["forecast"] != "" else None
+            r["real_prob"] = float(r["real_prob"])
+            r["has_block"] = int(r["has_block"])
+            r["model_id"] = r.pop("model")
+            rows.append(r)
+    return rows
+
+
+def batching_settings(rows: list[dict]) -> list[dict]:
+    """The ablation's settings, smallest prompt first.
+
+    Each is {cap, qpp, prompts, setting}; qpp is the mean number of questions
+    a prompt actually carried, which is what every axis and table prints.
+    """
+    seen = {}
+    for r in rows:
+        seen[r["cap"]] = {
+            "cap": r["cap"],
+            "qpp": r["questions_per_prompt"],
+            "prompts": r["prompts_per_model"],
+            "setting": r["setting"],
+        }
+    return sorted(seen.values(), key=lambda s: s["qpp"])
+
+
+def size_label(qpp: float, tex: bool = False) -> str:
+    """A prompt size for an axis or a table: "4", or "7--8" for an uneven split."""
+    import math
+
+    if abs(qpp - round(qpp)) < 1e-6:
+        return f"{round(qpp)}"
+    dash = "--" if tex else "–"
+    return f"{math.floor(qpp)}{dash}{math.ceil(qpp)}"
+
+
+def cap_word(cap: int) -> str:
+    """The macro-name word for a cap, failing loudly on one not in the table."""
+    if cap not in CAP_WORDS:
+        sys.exit(
+            f"[error] no macro word for a cap of {cap}; add it to CAP_WORDS in"
+            " analyze_paper.py"
+        )
+    return CAP_WORDS[cap]
+
+
+def production_setting(settings: list[dict], qpp: float) -> dict | None:
+    """The ablation setting whose prompts are the paper's own run, if any.
+
+    The main run and the ablation split a snapshot's questions the same way,
+    so a setting that carried the same number per prompt asked the very same
+    prompts and, the cache being shared, got the very same responses.
+    """
+    for s in settings:
+        if abs(s["qpp"] - qpp) < 0.5:
+            return s
+    return None
+
+
+def _score_matrix(rows: list[dict], key: str, questions: list[str], models: list[str]):
+    """rows as a (questions x models) array, NaN where a model has no score."""
+    import numpy as np
+
+    qpos = {q: i for i, q in enumerate(questions)}
+    mpos = {m: j for j, m in enumerate(models)}
+    a = np.full((len(questions), len(models)), np.nan)
+    for r in rows:
+        if r["question_id"] in qpos and r["model_id"] in mpos and r[key] != "":
+            a[qpos[r["question_id"]], mpos[r["model_id"]]] = r[key]
+    return a
+
+
+def batching_bootstrap(
+    rows: list[dict],
+    settings: list[dict],
+    section: str,
+    key: str,
+    models: list[str],
+    resamples: int = BOOTSTRAP_RESAMPLES,
+    seed: int = BOOTSTRAP_SEED,
+) -> dict[int, dict[str, float]]:
+    """Pooled score per setting with paired question-bootstrap intervals.
+
+    The pooled score is the mean over models of each model's mean over
+    questions. One draw of question indices is shared by every setting, so
+    the interval on the difference between two settings reflects only which
+    questions were asked — the eight settings answered the same 1,000.
+
+    Returns, per cap: point, lo, hi, and delta/dlo/dhi against the smallest
+    setting (zero for that setting itself).
+    """
+    import numpy as np
+
+    sec = [r for r in rows if r["section"] == section]
+    questions = sorted({r["question_id"] for r in sec})
+    nq = len(questions)
+    draws = np.random.default_rng(seed).integers(0, nq, (resamples, nq))
+    weights = np.zeros((resamples, nq))
+    for i, d in enumerate(draws):
+        weights[i] = np.bincount(d, minlength=nq)
+
+    pooled = {}
+    points = {}
+    for s in settings:
+        a = _score_matrix(
+            [r for r in sec if r["cap"] == s["cap"]], key, questions, models
+        )
+        present = ~np.isnan(a)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            means = (weights @ np.where(present, a, 0.0)) / (weights @ present)
+        pooled[s["cap"]] = np.nanmean(means, axis=1)
+        points[s["cap"]] = float(np.nanmean(np.nanmean(a, axis=0)))
+
+    base = settings[0]["cap"]
+    out = {}
+    for s in settings:
+        cap = s["cap"]
+        lo, hi = np.percentile(pooled[cap], [2.5, 97.5])
+        d = pooled[cap] - pooled[base]
+        dlo, dhi = np.percentile(d, [2.5, 97.5])
+        out[cap] = {
+            "point": points[cap],
+            "lo": float(lo),
+            "hi": float(hi),
+            "delta": points[cap] - points[base],
+            "dlo": float(dlo),
+            "dhi": float(dhi),
+        }
+    return out
+
+
+def batching_rho(
+    rows: list[dict], settings: list[dict], section: str, key: str, models: list[str]
+) -> dict[int, object]:
+    """ECI correlation per setting, on the section's per-model means."""
+    predictor = by_model_id(eci_by_name_of(models), models)
+    out = {}
+    for s in settings:
+        slice_rows = [
+            r for r in rows if r["section"] == section and r["cap"] == s["cap"]
+        ]
+        out[s["cap"]] = correlate("", predictor, slice_rows, key, models, ALL)
+    return out
+
+
+def per_model_mean(rows: list[dict], cap: int, section: str, key: str, model: str):
+    return _mean_of(
+        [r for r in rows if r["cap"] == cap and r["section"] == section],
+        model,
+        None,
+        key,
+    )
+
+
+def run_stat(runs: list[dict], cap: int, model: str | None, field: str):
+    """One run field for a (cap, model), or its mean over models when model is None."""
+    vals = [
+        r[field]
+        for r in runs
+        if r["cap"] == cap and (model is None or r["model"] == model) and r[field] != ""
+    ]
+    return sum(vals) / len(vals) if vals else None
+
+
+def parse_rate(runs: list[dict], cap: int, model: str) -> float | None:
+    for r in runs:
+        if r["cap"] == cap and r["model"] == model and r["nforecasts"]:
+            return 100.0 * r["nvalid"] / r["nforecasts"]
+    return None
+
+
+def example_share(rows: list[dict], cap: int, model: str, value: float) -> float:
+    """Share (%) of a model's parsed answers at a cap that equal `value` exactly."""
+    mine = [r for r in rows if r["cap"] == cap and r["model_id"] == model]
+    if not mine:
+        return 0.0
+    return 100.0 * sum(1 for r in mine if abs(r["forecast"] - value) < 1e-9) / len(mine)
+
+
+def without_value(rows: list[dict], value: float) -> list[dict]:
+    return [r for r in rows if abs(r["forecast"] - value) >= 1e-9]
+
+
+def pooled_mean(rows: list[dict], cap: int, section: str, key: str, models: list[str]):
+    """Mean over models of each model's mean: the ablation's pooled score."""
+    vals = [per_model_mean(rows, cap, section, key, m) for m in models]
+    vals = [v for v in vals if v is not None]
+    return sum(vals) / len(vals) if vals else None
+
+
+def draw_batching_figure(
+    path: Path,
+    rows: list[dict],
+    runs: list[dict],
+    settings: list[dict],
+    models: list[str],
+    boot: dict[str, dict[int, dict[str, float]]],
+    production: dict | None,
+) -> Path | None:
+    """Scores and cost against questions per prompt; see BATCHING_FIG_NAME."""
+    import matplotlib
+
+    matplotlib.use("pgf")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    if not settings:
+        print(f"[skipped] {BATCHING_FIG_NAME}: no ablation rows")
+        return None
+    xs = np.array([s["qpp"] for s in settings])
+    caps = [s["cap"] for s in settings]
+    labels = [size_label(s["qpp"]) for s in settings]
+
+    with plt.rc_context(
+        {
+            "pgf.texsystem": "pdflatex",
+            "text.usetex": True,
+            "font.family": "serif",
+            "pgf.rcfonts": False,
+            "font.size": 7,
+            "axes.labelsize": 7,
+            "xtick.labelsize": 6,
+            "ytick.labelsize": 6.5,
+            "axes.linewidth": 0.6,
+            "xtick.major.width": 0.6,
+            "ytick.major.width": 0.6,
+            "xtick.major.size": 2.0,
+            "ytick.major.size": 2.0,
+        }
+    ):
+        fig, axes = plt.subplots(1, 3, figsize=BATCHING_SIZE, layout="constrained")
+        fig.get_layout_engine().set(w_pad=0.04, h_pad=0.02, wspace=0.04)
+
+        for ax, (section, key, ylabel, title) in zip(axes[:2], BATCHING_PANELS):
+            b = boot[section]
+            for m in models:
+                ys = [per_model_mean(rows, c, section, key, m) for c in caps]
+                if all(y is not None for y in ys):
+                    ax.plot(xs, ys, color="0.78", lw=0.6, zorder=1)
+            ax.fill_between(
+                xs,
+                [b[c]["lo"] for c in caps],
+                [b[c]["hi"] for c in caps],
+                color=POINT_COLOR,
+                alpha=0.15,
+                lw=0,
+                zorder=2,
+            )
+            ax.plot(
+                xs,
+                [b[c]["point"] for c in caps],
+                color=POINT_COLOR,
+                lw=1.2,
+                marker="o",
+                ms=2.8,
+                zorder=3,
+                label=f"Mean of {len(models)} models",
+            )
+            if production is not None:
+                ax.plot(
+                    [production["qpp"]],
+                    [b[production["cap"]]["point"]],
+                    marker="s",
+                    ms=5,
+                    mfc="none",
+                    mec=EXTREME_COLOR,
+                    mew=1.0,
+                    ls="none",
+                    zorder=4,
+                    label="The paper's run",
+                )
+            ax.set_ylabel(ylabel)
+            ax.set_title(title, fontsize=7)
+            ax.set_ylim(bottom=0)
+
+        # Cost per model, log-log, against the 1/n line a fixed per-prompt
+        # cost would give: the gap past ~8 is the answer text, which does not
+        # shrink with the shared report.
+        ax = axes[2]
+        for m in models:
+            ys = [run_stat(runs, c, m, "cost_usd") for c in caps]
+            if all(y for y in ys):
+                ax.plot(xs, ys, color="0.78", lw=0.6, zorder=1)
+        cost = [run_stat(runs, c, None, "cost_usd") for c in caps]
+        ax.plot(
+            xs,
+            cost,
+            color=POINT_COLOR,
+            lw=1.2,
+            marker="o",
+            ms=2.8,
+            zorder=3,
+            label=f"Mean of {len(models)} models",
+        )
+        ax.plot(
+            xs,
+            [cost[0] * xs[0] / x for x in xs],
+            color="0.45",
+            lw=0.8,
+            ls="--",
+            zorder=2,
+            label=r"$\propto 1/n$",
+        )
+        if production is not None:
+            ax.plot(
+                [production["qpp"]],
+                [run_stat(runs, production["cap"], None, "cost_usd")],
+                marker="s",
+                ms=5,
+                mfc="none",
+                mec=EXTREME_COLOR,
+                mew=1.0,
+                ls="none",
+                zorder=4,
+            )
+        ax.set_yscale("log")
+        ax.set_ylabel(r"Cost per model (\$)")
+        ax.set_title("(c) Cost", fontsize=7)
+
+        for ax in axes:
+            ax.set_xscale("log")
+            ax.set_xticks(xs)
+            # Rotated: "7–8" and "14–15" sit a log-step apart and collide flat.
+            ax.set_xticklabels(labels, rotation=45, ha="right", rotation_mode="anchor")
+            ax.minorticks_off()
+            ax.set_xlabel("Questions per prompt")
+            ax.spines[["top", "right"]].set_visible(False)
+        # Where the data is not: the mid-range panel is empty below its lowest
+        # model, the cost panel below its cheapest at small n.
+        axes[0].legend(fontsize=5, frameon=False, loc="lower left")
+        axes[2].legend(fontsize=5, frameon=False, loc="lower left")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(path)
+        plt.close(fig)
+    return path
+
+
+def batching_table(
+    rows: list[dict],
+    runs: list[dict],
+    settings: list[dict],
+    models: list[str],
+    boot: dict[str, dict[int, dict[str, float]]],
+    rho: dict[str, dict[int, object]],
+    production: dict | None,
+) -> str:
+    """Per setting: size, prompts, the two pooled scores, parse rate, cost, rho."""
+    lines = [
+        r"\setlength{\tabcolsep}{3.5pt}",
+        r"\begin{tabular}{rrrrrrrrr}",
+        r"\toprule",
+        (
+            r"\multicolumn{2}{c}{Per model} & \multicolumn{2}{c}{Pooled score}"
+            r" & Parsed & \multicolumn{2}{c}{Cost per model} & \multicolumn{2}{c}{$\rho$ with ECI} \\"
+        ),
+        r"\cmidrule(lr){1-2}\cmidrule(lr){3-4}\cmidrule(lr){6-7}\cmidrule(lr){8-9}",
+        r"Q/prompt & Prompts & Mid-range & Tail & (\%) & \$ & \textcent/question & Mid-range & Tail \\",
+        r"\midrule",
+    ]
+    for s in settings:
+        cap = s["cap"]
+        size = size_label(s["qpp"], tex=True)
+        if production is not None and cap == production["cap"]:
+            size += r"$^\dagger$"
+        parsed = min(parse_rate(runs, cap, m) or 0.0 for m in models)
+        cost = run_stat(runs, cap, None, "cost_usd")
+        nq = run_stat(runs, cap, None, "nforecasts")
+        r_mid, r_tail = rho[MID_RANGE][cap], rho[TAIL][cap]
+        lines.append(
+            " & ".join(
+                [
+                    size,
+                    f"{s['prompts']:,}",
+                    cell(boot[MID_RANGE][cap]["point"], "{:.4f}"),
+                    cell(boot[TAIL][cap]["point"], "{:.3f}"),
+                    f"{parsed:.1f}",
+                    cell(cost, "{:.2f}"),
+                    cell(100.0 * cost / nq if cost and nq else None, "{:.2f}"),
+                    cell(adjusted(r_mid.rho) if r_mid else None, "{:.2f}"),
+                    cell(adjusted(r_tail.rho) if r_tail else None, "{:.2f}"),
+                ]
+            )
+            + r" \\"
+        )
+    lines += [r"\bottomrule", r"\end{tabular}"]
+    return table_file(
+        lines,
+        "Questions-per-prompt ablation, per setting. Sources: batching_forecasts.csv,"
+        " batching_runs.csv. Pooled score = mean of per-model means; Parsed = the"
+        " lowest parse rate over the models; rho sign-adjusted.",
+    )
+
+
+def batching_models_table(
+    rows: list[dict], settings: list[dict], models: list[str], names: dict[str, str]
+) -> str:
+    """Per model x setting: mid-range excess Brier, then tail excess bits."""
+    ncol = len(settings)
+    head = " & ".join(size_label(s["qpp"], tex=True) for s in settings)
+    lines = [
+        r"\setlength{\tabcolsep}{3pt}",
+        r"\begin{tabular}{l" + "r" * ncol + "}",
+        r"\toprule",
+        rf"Model & \multicolumn{{{ncol}}}{{c}}{{Questions per prompt}} \\",
+        rf"\cmidrule(lr){{2-{ncol + 1}}}",
+        f" & {head} " + r"\\",
+    ]
+    for section, key, label, fmt in [
+        (
+            MID_RANGE,
+            "excess_brier",
+            "Mid-range questions, excess Brier score",
+            "{:.3f}",
+        ),
+        (TAIL, "excess_bits", "Tail questions, excess bits", "{:.3f}"),
+    ]:
+        lines += [
+            r"\midrule",
+            rf"\multicolumn{{{ncol + 1}}}{{l}}{{\emph{{{label}}}}} \\",
+        ]
+        for m in sorted(models, key=lambda m: -(eci_of(m) or 0)):
+            vals = [per_model_mean(rows, s["cap"], section, key, m) for s in settings]
+            lines.append(
+                " & ".join([tex_escape(names.get(m, m)), *(cell(v, fmt) for v in vals)])
+                + r" \\"
+            )
+    lines += [r"\bottomrule", r"\end{tabular}"]
+    return table_file(
+        lines,
+        "Questions-per-prompt ablation, per model. Source: batching_forecasts.csv."
+        " Models ordered by ECI.",
+    )
+
+
+def batching_lines(
+    rows: list[dict],
+    runs: list[dict],
+    settings: list[dict],
+    models: list[str],
+    names: dict[str, str],
+    boot: dict[str, dict[int, dict[str, float]]],
+    rho: dict[str, dict[int, object]],
+    production: dict | None,
+    recheck: list[dict] | None,
+) -> list[str]:
+    r"""\MPDBatch* : every number the questions-per-prompt appendix quotes."""
+    pre = MACRO_PREFIX
+    nc = lambda name, value: f"\\newcommand{{\\{pre}Batch{name}}}{{{value}}}"
+    first, last = settings[0], settings[-1]
+    lines = [
+        "% The questions-per-prompt ablation (appendix D). Pooled scores are",
+        "% means of per-model means; Delta* are paired against the smallest",
+        "% prompt, with the shared question draw's 95% interval; Rho* are",
+        "% sign-adjusted as every other correlation here.",
+    ]
+    sec_rows = {
+        MID_RANGE: [r for r in rows if r["section"] == MID_RANGE],
+        TAIL: [r for r in rows if r["section"] == TAIL],
+    }
+    one = [r for r in rows if r["cap"] == first["cap"]]
+    nq = len({r["question_id"] for r in rows})
+    lines += [
+        nc("NModels", len(models)),
+        nc("NQuestions", f"{nq:,}"),
+        nc("NMid", f"{len({r['question_id'] for r in sec_rows[MID_RANGE]}):,}"),
+        nc("NTail", f"{len({r['question_id'] for r in sec_rows[TAIL]}):,}"),
+        nc("NSettings", len(settings)),
+        nc("SmallestSize", size_label(first["qpp"], tex=True)),
+        nc("LargestSize", size_label(last["qpp"], tex=True)),
+        nc("CostTotal", f"{sum(r['cost_usd'] for r in runs):.2f}"),
+    ]
+    if production is not None:
+        lines += [
+            nc("ProductionSize", size_label(production["qpp"], tex=True)),
+            nc("ProductionCap", production["cap"]),
+        ]
+    # Per setting.
+    for s in settings:
+        cap, w = s["cap"], cap_word(s["cap"])
+        cost = run_stat(runs, cap, None, "cost_usd")
+        nf = run_stat(runs, cap, None, "nforecasts")
+        parsed = min(parse_rate(runs, cap, m) or 0.0 for m in models)
+        lat = run_stat(runs, cap, None, "latency_ms_sum")
+        lines += [
+            nc(f"Size{w}", size_label(s["qpp"], tex=True)),
+            nc(f"Prompts{w}", f"{s['prompts']:,}"),
+            nc(f"Mid{w}", f"{boot[MID_RANGE][cap]['point']:.4f}"),
+            nc(f"Tail{w}", f"{boot[TAIL][cap]['point']:.3f}"),
+            nc(f"DeltaMid{w}", f"{boot[MID_RANGE][cap]['delta']:+.4f}"),
+            nc(
+                f"DeltaMid{w}CI",
+                macro_band((boot[MID_RANGE][cap]["dlo"], boot[MID_RANGE][cap]["dhi"])),
+            ),
+            nc(f"DeltaTail{w}", f"{boot[TAIL][cap]['delta']:+.3f}"),
+            nc(
+                f"DeltaTail{w}CI",
+                macro_band((boot[TAIL][cap]["dlo"], boot[TAIL][cap]["dhi"])),
+            ),
+            nc(f"Parse{w}", f"{parsed:.1f}"),
+            nc(f"Cost{w}", f"{cost:.2f}" if cost is not None else "---"),
+            nc(f"Cents{w}", f"{100 * cost / nf:.2f}" if cost and nf else "---"),
+            nc(f"LatencyMin{w}", f"{lat / 60000:.0f}" if lat else "---"),
+        ]
+        for section, tag in ((MID_RANGE, "Mid"), (TAIL, "Tail")):
+            c = rho[section][cap]
+            lines += [
+                nc(f"Rho{tag}{w}", f"{adjusted(c.rho):.2f}" if c else "---"),
+                nc(
+                    f"Rho{tag}{w}CIModels",
+                    macro_band(adjusted_band(c.rho_models)) if c else "---",
+                ),
+            ]
+    # The mechanism: mean (forecast - p) on tail questions, and the Pearson
+    # correlation between a model's forecasts and the ground truth over all
+    # its questions, each a mean over models. Overshoot that shrinks with the
+    # prompt while discrimination does not is a calibration effect.
+    import numpy as np
+
+    for s_ in settings:
+        w = cap_word(s_["cap"])
+        biases, corrs = [], []
+        for m in models:
+            mine = [r for r in rows if r["cap"] == s_["cap"] and r["model_id"] == m]
+            tail_m = [r for r in mine if r["section"] == TAIL]
+            if tail_m:
+                biases.append(
+                    sum(r["forecast"] - r["real_prob"] for r in tail_m) / len(tail_m)
+                )
+            if len(mine) > 2:
+                f = np.array([r["forecast"] for r in mine])
+                q = np.array([r["real_prob"] for r in mine])
+                if f.std() > 0 and q.std() > 0:
+                    corrs.append(float(np.corrcoef(f, q)[0, 1]))
+        lines += [
+            nc(
+                f"TailBias{w}", f"{sum(biases) / len(biases):+.3f}" if biases else "---"
+            ),
+            nc(f"Discrim{w}", f"{sum(corrs) / len(corrs):.2f}" if corrs else "---"),
+        ]
+    discrims = [
+        float(v.split("}{")[1].rstrip("}"))
+        for v in lines
+        if "BatchDiscrim" in v and not v.endswith("{---}")
+    ]
+    if discrims:
+        lines += [
+            nc("DiscrimMin", f"{min(discrims):.2f}"),
+            nc("DiscrimMax", f"{max(discrims):.2f}"),
+        ]
+    # Across settings.
+    for section, tag in ((MID_RANGE, "Mid"), (TAIL, "Tail")):
+        rhos = [
+            adjusted(rho[section][s["cap"]].rho)
+            for s in settings
+            if rho[section][s["cap"]]
+        ]
+        lines += [
+            nc(f"Rho{tag}Min", f"{min(rhos):.2f}"),
+            nc(f"Rho{tag}Max", f"{max(rhos):.2f}"),
+        ]
+    c1, cN = (
+        run_stat(runs, first["cap"], None, "cost_usd"),
+        run_stat(runs, last["cap"], None, "cost_usd"),
+    )
+    l1, lN = (
+        run_stat(runs, first["cap"], None, "latency_ms_sum"),
+        run_stat(runs, last["cap"], None, "latency_ms_sum"),
+    )
+    p1 = run_stat(runs, first["cap"], None, "latency_ms_p50")
+    pN = run_stat(runs, last["cap"], None, "latency_ms_p50")
+    lines += [
+        nc("CostRatio", f"{c1 / cN:.0f}" if c1 and cN else "---"),
+        nc("LatencyRatio", f"{l1 / lN:.0f}" if l1 and lN else "---"),
+        nc("LatencyMedianSmallest", f"{p1 / 1000:.0f}" if p1 else "---"),
+        nc("LatencyMedianLargest", f"{pN / 1000:.0f}" if pN else "---"),
+    ]
+
+    # The example-value effect. The model that copies the example most at the
+    # smallest prompt, and the runner-up, are found rather than named.
+    ex = EXAMPLE_VALUES[0]
+    shares = sorted(
+        ((example_share(rows, first["cap"], m, ex), m) for m in models), reverse=True
+    )
+    anchor, copier = shares[0][1], shares[1][1]
+    second = settings[1]
+    beyond = [s["cap"] for s in settings[2:]]
+    lines += [
+        "% The epilogue's example answers, returned verbatim.",
+        nc("ExampleValue", f"{ex:g}"),
+        nc("ExampleValueTwo", f"{EXAMPLE_VALUES[1]:g}"),
+        nc("AnchorModel", tex_escape(names.get(anchor, anchor))),
+        nc("AnchorShareSmallest", f"{shares[0][0]:.1f}"),
+        nc(
+            "AnchorShareSecond", f"{example_share(rows, second['cap'], anchor, ex):.1f}"
+        ),
+        nc(
+            "AnchorShareBeyondMax",
+            f"{max(example_share(rows, c, anchor, ex) for c in beyond):.1f}",
+        ),
+        nc(
+            "AnchorTailCountSmallest",
+            sum(
+                1
+                for r in one
+                if r["model_id"] == anchor
+                and r["section"] == TAIL
+                and abs(r["forecast"] - ex) < 1e-9
+            ),
+        ),
+        nc("CopierModel", tex_escape(names.get(copier, copier))),
+        nc("CopierShareSmallest", f"{shares[1][0]:.1f}"),
+        nc(
+            "CopierShareSecond", f"{example_share(rows, second['cap'], copier, ex):.1f}"
+        ),
+        nc(
+            "CopierSecondValueShareSecond",
+            f"{example_share(rows, second['cap'], copier, EXAMPLE_VALUES[1]):.1f}",
+        ),
+        nc(
+            "CopierShareBeyondMax",
+            f"{max(example_share(rows, c, copier, ex) for c in beyond):.1f}",
+        ),
+        nc(
+            "OthersShareMax",
+            f"{max(example_share(rows, s['cap'], m, ex) for s in settings for m in models if m not in (anchor, copier)):.1f}",
+        ),
+    ]
+    # What the copies cost: pooled tail bits at the smallest prompt with and
+    # without them, and the anchor model's own scores likewise.
+    wo = without_value(rows, ex)
+    lines += [
+        nc(
+            "TailSmallestNoExample",
+            f"{pooled_mean(wo, first['cap'], TAIL, 'excess_bits', models):.3f}",
+        ),
+        nc(
+            "MidSmallestNoExample",
+            f"{pooled_mean(wo, first['cap'], MID_RANGE, 'excess_brier', models):.4f}",
+        ),
+        nc(
+            "NoExampleGapBeyondMax",
+            f"{max(abs(pooled_mean(rows, s['cap'], TAIL, 'excess_bits', models) - pooled_mean(wo, s['cap'], TAIL, 'excess_bits', models)) for s in settings[1:]):.3f}",
+        ),
+        nc(
+            "AnchorTailSmallest",
+            f"{per_model_mean(rows, first['cap'], TAIL, 'excess_bits', anchor):.3f}",
+        ),
+        nc(
+            "AnchorTailSmallestNoExample",
+            f"{per_model_mean(wo, first['cap'], TAIL, 'excess_bits', anchor):.3f}",
+        ),
+        nc(
+            "AnchorMidSmallest",
+            f"{per_model_mean(rows, first['cap'], MID_RANGE, 'excess_brier', anchor):.3f}",
+        ),
+        nc(
+            "AnchorMidSmallestNoExample",
+            f"{per_model_mean(wo, first['cap'], MID_RANGE, 'excess_brier', anchor):.3f}",
+        ),
+    ]
+    # The anchor model's unanswered questions, by setting.
+    unparsed = [
+        (100.0 - (parse_rate(runs, s["cap"], anchor) or 100.0), s) for s in settings
+    ]
+    peak = max(unparsed, key=lambda u: u[0])
+    others_unparsed = max(
+        100.0 - (parse_rate(runs, s["cap"], m) or 100.0)
+        for s in settings
+        for m in models
+        if m != anchor
+    )
+    lines += [
+        nc("AnchorUnparsedSmallest", f"{unparsed[0][0]:.1f}"),
+        nc("AnchorUnparsedPeak", f"{peak[0]:.1f}"),
+        nc("AnchorUnparsedPeakSize", size_label(peak[1]["qpp"], tex=True)),
+        nc(
+            "AnchorUnparsedZeroFrom",
+            size_label(
+                next(
+                    s["qpp"]
+                    for u, s in unparsed
+                    if u == 0.0 and s["qpp"] > peak[1]["qpp"]
+                ),
+                tex=True,
+            ),
+        ),
+        nc("OthersUnparsedMax", f"{others_unparsed:.1f}"),
+    ]
+    # Robustness: the pooled picture without the anchor model.
+    rest = [m for m in models if m != anchor]
+    b_rest = batching_bootstrap(rows, settings, TAIL, "excess_bits", rest)
+    rho_rest = batching_rho(rows, settings, TAIL, "excess_bits", rest)
+    lines += [
+        nc("NModelsNoAnchor", len(rest)),
+        nc("TailSmallestNoAnchor", f"{b_rest[first['cap']]['point']:.3f}"),
+        nc(
+            "DeltaTailFourNoAnchor",
+            f"{b_rest[4]['delta']:+.3f}" if 4 in b_rest else "---",
+        ),
+        nc(
+            "DeltaTailFourNoAnchorCI",
+            macro_band((b_rest[4]["dlo"], b_rest[4]["dhi"])) if 4 in b_rest else "---",
+        ),
+        nc(
+            "RhoTailSmallestNoAnchor",
+            f"{adjusted(rho_rest[first['cap']].rho):.2f}"
+            if rho_rest[first["cap"]]
+            else "---",
+        ),
+        nc(
+            "RhoTailNoAnchorMin",
+            f"{min(adjusted(c.rho) for c in rho_rest.values() if c):.2f}",
+        ),
+    ]
+    # The rerun in its own data directory, when gathered.
+    if recheck:
+        mine = [r for r in recheck if r["model_id"] == anchor]
+        parsed = [r for r in mine if r["forecast"] is not None]
+        stop = sum(1 for r in mine if r["finish_reason"] == "stop")
+        noblock = [r for r in mine if not r["has_block"]]
+        old = {r["question_id"]: r["forecast"] for r in one if r["model_id"] == anchor}
+        pairs = [
+            (old[r["question_id"]], r["forecast"])
+            for r in parsed
+            if r["question_id"] in old
+        ]
+        old65 = [(a, b) for a, b in pairs if abs(a - ex) < 1e-9]
+        tail = [r for r in parsed if r["section"] == TAIL]
+        mid = [r for r in parsed if r["section"] == MID_RANGE]
+        import math
+
+        def bits(f, p):
+            f = min(max(f, 0.001), 0.999)
+            v = 0.0
+            if p > 0:
+                v += p * math.log2(p / f)
+            if p < 1:
+                v += (1 - p) * math.log2((1 - p) / (1 - f))
+            return v
+
+        lines += [
+            "% The GPT-5 mini rerun at the smallest prompt, in its own data directory.",
+            nc("RecheckN", f"{len(mine):,}"),
+            nc("RecheckUnparsed", len(mine) - len(parsed)),
+            nc(
+                "RecheckStopShare", f"{100.0 * stop / len(mine):.1f}" if mine else "---"
+            ),
+            nc("RecheckNoBlock", len(noblock)),
+            nc(
+                "RecheckNoBlockStop",
+                sum(1 for r in noblock if r["finish_reason"] == "stop"),
+            ),
+            nc(
+                "RecheckExampleShare",
+                f"{100.0 * sum(1 for r in parsed if abs(r['forecast'] - ex) < 1e-9) / len(parsed):.1f}"
+                if parsed
+                else "---",
+            ),
+            nc(
+                "RecheckTail",
+                f"{sum(bits(r['forecast'], r['real_prob']) for r in tail) / len(tail):.3f}"
+                if tail
+                else "---",
+            ),
+            nc(
+                "RecheckMid",
+                f"{sum((r['forecast'] - r['real_prob']) ** 2 for r in mid) / len(mid):.3f}"
+                if mid
+                else "---",
+            ),
+            nc(
+                "RecheckMeanAbsDelta",
+                f"{sum(abs(a - b) for a, b in pairs) / len(pairs):.3f}"
+                if pairs
+                else "---",
+            ),
+            nc(
+                "RecheckIdenticalShare",
+                f"{100.0 * sum(1 for a, b in pairs if abs(a - b) < 1e-9) / len(pairs):.0f}"
+                if pairs
+                else "---",
+            ),
+            nc(
+                "RecheckExampleAgainShare",
+                f"{100.0 * sum(1 for a, b in old65 if abs(b - ex) < 1e-9) / len(old65):.0f}"
+                if old65
+                else "---",
+            ),
+        ]
+    # Caption.
+    prod_note = (
+        f" The open square is the paper's own run: a cap of \\{pre}BatchProductionCap\\"
+        " questions splits a snapshot's 100 into two prompts of"
+        f" \\{pre}BatchProductionSize, the very prompts the main run asked."
+        if production is not None
+        else ""
+    )
+    caption = (
+        "The Micropolis binary set under different numbers of questions per prompt:"
+        f" \\{pre}BatchNModels\\ models, \\{pre}BatchNQuestions\\ question instances"
+        f" (\\{pre}BatchNMid\\ mid-range, \\{pre}BatchNTail\\ tail), each setting one"
+        " run. (a) Mid-range questions, excess Brier score; (b) tail questions,"
+        " excess bits; lower is better in both. Grey: one line per model. Dark:"
+        " the mean of the per-model means, with a 95\\% interval from a paired"
+        f" bootstrap over questions ({BOOTSTRAP_RESAMPLES:,} resamples, one shared"
+        " draw across settings). (c) Cost per model per setting, log scale, against"
+        " the $1/n$ line a fixed cost per prompt would give. Prompt sizes are what"
+        " the prompts actually carried: a cap the batcher cannot divide evenly"
+        " gives two sizes (7--8)." + prod_note
+    )
+    lines += [
+        "",
+        "% The batching figure's caption.",
+        f"\\newcommand{{\\{pre}CapBatching}}{{{caption}}}",
+        "",
+    ]
+    return lines
+
+
 def write_tables(
     datadir: Path,
     binary: list[dict],
     continuous: list[dict],
     coverage: list[dict],
     names: dict[str, str],
+    extra: dict[str, str] | None = None,
 ) -> list[Path]:
-    """The three appendix tables, as files the article \\inputs."""
+    """The appendix tables, as files the article \\inputs.
+
+    `extra` carries tables built elsewhere (the ablation's), keyed like
+    TABLE_NAMES.
+    """
     built = {
         "models": models_table(binary, continuous, coverage, names),
         "horizon": horizon_table(binary, names),
         "continuous": continuous_table(continuous, names),
+        **(extra or {}),
     }
     out = []
     for key, text in built.items():
@@ -2191,8 +3105,12 @@ def write_macros(
     binary: list[dict],
     continuous: list[dict],
     models_for_ci: list[str],
+    extra: list[str] | None = None,
 ) -> Path:
     r"""Write micropolis-macros.tex: every quoted number as a \newcommand.
+
+    `extra` is appended verbatim: macro lines built elsewhere in this script
+    (the ablation's), so one file still holds every number the paper quotes.
 
     A headline whose correlation was not computed is skipped rather than
     written as a placeholder: \MPDRhoTail expanding to a dash in the article
@@ -2226,6 +3144,7 @@ def write_macros(
     lines += cost_lines(totals, items)
     lines += band_lines(binary)
     lines += city_ci_lines(binary, continuous, models_for_ci)
+    lines += extra or []
     lines += bootstrap_lines()
     if fb:
         lines += predictor_lines("FB", "ForecastBench overall", fb)
@@ -2476,6 +3395,9 @@ def main() -> None:
     continuous = normalize(continuous, scales)
     coverage = read_coverage(args.datadir / COVERAGE_CSV_NAME)
     usage = read_usage(args.datadir / USAGE_CSV_NAME)
+    batching = read_batching(args.datadir / BATCHING_CSV_NAME)
+    batching_runs = read_batching_runs(args.datadir / BATCHING_RUNS_CSV_NAME)
+    recheck = read_recheck(args.datadir / RECHECK_CSV_NAME)
 
     extra_dir = args.outdir / EXTRA_SUBDIR
     print("=" * 70)
@@ -2521,6 +3443,52 @@ def main() -> None:
         )
     print(f"cost, total: ${sum(t['cost'] for t in totals.values()):.2f}")
     print()
+
+    # The questions-per-prompt ablation. Its production setting is the one
+    # whose prompts carried as many questions as the main run's did.
+    settings = batching_settings(batching)
+    ablation_models = models_in_order(batching)
+    production = production_setting(
+        settings, items["binary"] / totals["binary"]["nprompts"]
+    )
+    boot = {
+        section: batching_bootstrap(batching, settings, section, key, ablation_models)
+        for section, key, _, _ in BATCHING_PANELS
+    }
+    rho = {
+        section: batching_rho(batching, settings, section, key, ablation_models)
+        for section, key, _, _ in BATCHING_PANELS
+    }
+    print(
+        f"questions-per-prompt ablation: {len(settings)} settings x"
+        f" {len(ablation_models)} models"
+        + (
+            f"; the paper's run is the {size_label(production['qpp'])}-per-prompt setting"
+            if production
+            else ""
+        )
+    )
+    for s_ in settings:
+        b_m, b_t = boot[MID_RANGE][s_["cap"]], boot[TAIL][s_["cap"]]
+        print(
+            f"  {size_label(s_['qpp']):>6} per prompt: mid {b_m['point']:.4f}"
+            f" ({b_m['delta']:+.4f} vs smallest)  tail bits {b_t['point']:.3f}"
+            f" ({b_t['delta']:+.3f}, CI {format_band((b_t['dlo'], b_t['dhi']), 0)})"
+        )
+    if recheck is None:
+        print(f"  [note] {RECHECK_CSV_NAME} absent; rerun macros not defined")
+    print()
+    batch_macros = batching_lines(
+        batching,
+        batching_runs,
+        settings,
+        ablation_models,
+        names,
+        boot,
+        rho,
+        production,
+        recheck,
+    )
     macros = write_macros(
         args.datadir / MACROS_NAME,
         found,
@@ -2533,8 +3501,29 @@ def main() -> None:
         binary,
         continuous,
         models_in_order(binary),
+        batch_macros,
     )
-    tables = write_tables(args.datadir, binary, continuous, coverage, names)
+    tables = write_tables(
+        args.datadir,
+        binary,
+        continuous,
+        coverage,
+        names,
+        {
+            "batching": batching_table(
+                batching,
+                batching_runs,
+                settings,
+                ablation_models,
+                boot,
+                rho,
+                production,
+            ),
+            "batching_models": batching_models_table(
+                batching, settings, ablation_models, names
+            ),
+        },
+    )
     cells = write_cells(args.datadir, binary, continuous)
     # The article's own figure, which is not one of the extra ones: --no-extra
     # skips the figures the paper does not place, and this is the one it does.
@@ -2546,10 +3535,19 @@ def main() -> None:
 
     horizon_fig = draw_horizon_figure(args.outdir / HORIZON_FIG_NAME, binary, names)
     bands_fig = draw_bands_figure(args.outdir / BANDS_FIG_NAME, binary)
+    batching_fig = draw_batching_figure(
+        args.outdir / BATCHING_FIG_NAME,
+        batching,
+        batching_runs,
+        settings,
+        ablation_models,
+        boot,
+        production,
+    )
 
     for out in figures.written:
         print(f"Wrote {out}")
-    for out in (capability, horizon_fig, bands_fig):
+    for out in (capability, horizon_fig, bands_fig, batching_fig):
         if out:
             print(f"Wrote {out}")
     print(f"Wrote {macros}")
