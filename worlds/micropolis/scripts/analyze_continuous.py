@@ -1515,14 +1515,16 @@ def normalized_by_model_and_horizon(
     }
 
 
-# Resamples behind each confidence interval. At this many the interval is stable
-# to about +/-0.03 across seeds, far finer than the intervals themselves are wide.
-BOOTSTRAP_RESAMPLES = 5000
+# Resamples behind each confidence interval. The other two worlds draw 10,000,
+# so every interval in the article is built the same way; at this many the
+# interval is stable well inside its own width.
+BOOTSTRAP_RESAMPLES = 10000
 
 # Fixed so re-running the analysis doesn't move the error bars. The intervals are
 # a property of the data, and a band that shifted every run would read as though
-# the underlying numbers had changed.
-BOOTSTRAP_SEED = 0
+# the underlying numbers had changed. 2026 is FreeCiv's seed; StarSim draws
+# its ECI tables at 0, so the article names the seed per world.
+BOOTSTRAP_SEED = 2026
 
 
 def resample_indices(n: int, resamples: int, seed: int):
