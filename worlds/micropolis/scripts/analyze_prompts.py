@@ -22,6 +22,10 @@ The report, under data/micropolis/continuous/comparisons/{name}/:
     the first of them given, over the models they share, with the same
     questions redrawn for both sides of every difference
   - a bar chart of the summary's means
+  - the extreme forecasts: excess nCRPS is unbounded, and one answer off by
+    orders of magnitude can move a config's mean more than every other
+    forecast together, so the ones above EXTREME are listed with the mean
+    they leave behind
   - a models x configs table of per-model means, rows sorted by ECI
   - a scatter of ECI against per-model mean excess nCRPS, one series per config
   - scores.csv: model_scores.csv with MPScore columns pooled over the configs
@@ -78,6 +82,11 @@ SCORE_KEY = "excess_ncrps"
 
 # The config whose cities and first snapshot define the scales: the main run's.
 SCALES_CONFIG_PATH = DEFAULT_CONTINUOUS_CONFIG_PATH
+
+# A forecast scoring above this — an error of ten times the city's scale for
+# the metric — is reported on its own: it is a wrong order of magnitude, not a
+# poor forecast, and the mean has no defense against it.
+EXTREME = 10.0
 
 
 def load_scales() -> tuple[dict[str, dict[str, float]], str]:
@@ -428,6 +437,48 @@ def print_summary_table(
     return {label: cell for label, cell in means.items() if cell is not None}
 
 
+def print_extremes(report: MdReport, scored: list[Scored]) -> None:
+    """The forecasts above EXTREME per config, and the mean without them."""
+    report.heading("Extreme forecasts", level=1)
+    report.text(
+        f"Forecasts scoring above {EXTREME:g}, an error of {EXTREME:g} times the "
+        "city's scale for the metric — a wrong order of magnitude rather than a "
+        "poor forecast. Excess nCRPS is unbounded, so a few such answers can move "
+        "a config's mean more than every other forecast together; 'mean without' "
+        "is the summary's mean (one vote per model) with them left out."
+    )
+    rows = []
+    for s in scored:
+        big = sorted(
+            (r for r in s.rows if r[SCORE_KEY] > EXTREME), key=lambda r: -r[SCORE_KEY]
+        )
+        if not big:
+            continue
+        rest = [r for r in s.rows if r[SCORE_KEY] <= EXTREME]
+        without = statistics.fmean(per_model_means(rest).values()) if rest else None
+        worst = big[0]
+        rows.append(
+            [
+                short(s.label),
+                f"{len(big)}",
+                ", ".join(sorted({r["model_id"].split("/")[-1] for r in big})),
+                f"{without:.3f}" if without is not None else "-",
+                (
+                    f"{worst[SCORE_KEY]:.0f} ({worst['model_id'].split('/')[-1]}, "
+                    f"{worst['question_id']})"
+                ),
+            ]
+        )
+    if not rows:
+        report.text(f"no forecast scores above {EXTREME:g}.")
+        return
+    report.table(
+        fixed_table(
+            ["Config", "forecasts", "models", "mean without", "worst"], rows, left=1
+        )
+    )
+
+
 def print_paired_table(report: MdReport, scored: list[Scored]) -> None:
     """Paired differences within each group of configs asking the same questions."""
     groups = [g for g in question_groups(scored) if len(g) > 1]
@@ -679,10 +730,13 @@ def main() -> None:
     for path in args.configs:
         try:
             s = load_and_score(path, args.seed, args.models, scales, args.incomplete)
-        except (FileNotFoundError, DatasetError, ConfigError, NotImplementedError) as e:
+        except (DatasetError, ConfigError) as e:
+            sys.exit(f"[error] {path}: {e}")
+        except (FileNotFoundError, NotImplementedError) as e:
             sys.exit(
-                f"[error] {path}: {e}\n  the excess measure needs the ground truth; "
-                "run extract_ground_truth.py on the config first"
+                f"[error] {path}: {e}\n  the excess measure needs the dataset and the "
+                "ground truth; run run_eval_continuous.py and extract_ground_truth.py "
+                "on the config first"
             )
         if any(t.label == s.label for t in scored):
             sys.exit(f"[error] two configs share the label {s.label!r}")
@@ -750,6 +804,7 @@ def main() -> None:
             fig = plot_mean_bars(report, means, outdir)
             if fig is not None:
                 written.append(fig)
+        print_extremes(report, with_rows)
         print_paired_table(report, with_rows)
         print_models_table(report, with_rows)
         if args.plot:
