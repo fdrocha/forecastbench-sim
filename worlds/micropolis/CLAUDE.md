@@ -190,9 +190,10 @@ and the structural constraints (§5). Read it before touching resolution.
   forecast, and is excluded from aggregates; `totalFunds` has no scale and so is excluded
   from normalized CRPS under every normalization mode, floor included; a per-question
   denominator is floored, never dropped, so every mode covers the same question set; skill (`CRPS_model / CRPS_baseline`) is aggregated as a geometric mean with t-based
-  CIs clustered on (scenario, snapshot turn). `analyze_skill_by_config.py` →
-  `analyze_baseline_skill.py` → `analyze_continuous.py` import each other via
-  `sys.path.insert` for exactly this reason.
+  CIs clustered on (scenario, snapshot turn). `analyze_baseline_skill.py` and
+  `analyze_prompts.py` both import from `analyze_continuous.py` via `sys.path.insert`
+  for exactly this reason: a cell in the cross-config report is the same number as the
+  single-config report's pooled row.
 
 ## Scripts
 
@@ -207,7 +208,7 @@ Simulation / inspection:
 - `check_determinism.py` — repeat a scenario at one seed and diff the outputs.
 
 Continuous forecasting eval (percentiles, `data/micropolis/continuous/`). The first three
-default to `configs/continuous.json5`; `analyze_skill_by_config.py` requires
+default to `configs/continuous.json5`; `analyze_prompts.py` requires
 its configs and `plot_forecasts.py` has its own:
 - `run_eval_continuous.py` — prompts models; writes `data.json`.
 - `analyze_continuous.py` — CRPS tables/figures under three normalizations (plus, per
@@ -247,8 +248,11 @@ its configs and `plot_forecasts.py` has its own:
   deciding whether the two worlds' excess figures are on one footing. Changes nothing.
 - `analyze_baseline_skill.py` — same forecasts scored against a naive (`plain`/`sigma`)
   no-change baseline, so 1.0 is the meaningful zero point.
-- `analyze_skill_by_config.py` — that skill compared across several configs (many-config
-  arg form), typically the prompt variants.
+- `analyze_prompts.py` — excess nCRPS compared across several configs (many-config arg
+  form), typically the prompt variants: one-vote-per-model means with question-bootstrap
+  intervals, paired differences between configs that ask the same questions, ρ with ECI per
+  config. Needs the ground truth, like every excess figure. Writes
+  `comparisons/{name}/prompts-{norm}.md`.
 - `plot_forecasts.py` — trajectories with forecast quantiles overlaid.
 
 Binary forecasting eval (P(Yes), `data/micropolis/binary/`, spec in `binary_forecasts.md`):

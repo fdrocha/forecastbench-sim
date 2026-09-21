@@ -47,13 +47,11 @@ scores and the bar chart that draws it, score against horizon as one small
 panel per model, score against ECI and against ForecastBench, and a
 model-by-city heatmap of the same scores, which is the only place the report
 breaks the cities apart rather than pooling them. All six
-metrics are pooled everywhere, city funds included; the funds split lives on
-only in analyze_skill_by_config.py, which imports its machinery from here.
-Every interval is a 95% t interval on mean log score, clustered on (scenario,
-snapshot turn) — questions read off one simulated trajectory are not
-independent draws — and that computation is likewise shared with
-analyze_skill_by_config.py by import, so a bar there and a bar here cannot
-disagree.
+metrics are pooled everywhere, city funds included. Every interval is a 95% t
+interval on mean log score, clustered on (scenario, snapshot turn) — questions
+read off one simulated trajectory are not independent draws. (The cross-config
+comparison, analyze_prompts.py, scores excess nCRPS instead and shares nothing
+with this script.)
 
 Writes the report to data/micropolis/continuous/{label}/analysis-skill.md
 (--baseline plain, the default) or analysis-skill-sigma.md (--baseline sigma),
@@ -141,23 +139,8 @@ BASELINE_SKILL = 1.0
 # fixed tax income against fixed expenses — so a model that spots the pattern
 # predicts it to a fraction of a percent, reaching scores of 0.002 against a
 # baseline interval far too wide for a series that barely wanders. This
-# script's own report pools it with the rest regardless; the split machinery
-# below stays because analyze_skill_by_config.py still reports the two sides
-# separately and imports it from here.
+# script's report pools it with the rest regardless.
 FUNDS_METRIC = "totalFunds"
-
-# The two sides of the city-funds split, as analyze_skill_by_config.py reports
-# them. Not used by this script's own report, which pools all six metrics.
-SPLITS = {
-    "behavioral": (
-        "behavioral metrics",
-        f"the five metrics other than {FUNDS_METRIC}",
-    ),
-    "funds": (
-        "city funds",
-        "reported alone, being a near-deterministic series unlike the other five",
-    ),
-}
 
 # The two baselines --baseline chooses between, and how each is described
 # wherever a table or figure has to say which one it scored against.
@@ -327,10 +310,6 @@ def geometric_mean_of(values: list[float]) -> float | None:
 
 # ---------------------------------------------------------------------------
 # Confidence intervals.
-#
-# analyze_skill_by_config.py imports everything in this block rather than
-# redefining it, so a bar drawn there is by construction the same computation
-# as a bar drawn here.
 
 # Two-sided 95%. The t quantile is taken at cluster_count-1 degrees of freedom
 # rather than a flat z, since the clustering leaves tens of effective
@@ -431,22 +410,6 @@ def error_arms(cells: list[tuple]) -> tuple[list[float], list[float]]:
     lower = [m - (lo if lo is not None else m) for m, lo, _hi, *_ in cells]
     upper = [(hi if hi is not None else m) - m for m, _lo, hi, *_ in cells]
     return lower, upper
-
-
-def split_rows(rows: list[dict], split: str) -> list[dict]:
-    """`rows` narrowed to one side of the city-funds split.
-
-    For analyze_skill_by_config.py; this script's own report pools the sides.
-    """
-    if split == "funds":
-        return [r for r in rows if r["metric"] == FUNDS_METRIC]
-    return [r for r in rows if r["metric"] != FUNDS_METRIC]
-
-
-def split_note(split: str) -> str:
-    """One line naming which side of the split a table or figure covers."""
-    name, how = SPLITS[split]
-    return f"{name}: {how}"
 
 
 def baseline_note(kind: str) -> str:

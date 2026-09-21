@@ -3,9 +3,7 @@
 The score is a ratio, which brings failure modes the scale-normalized score
 does not have: a zero denominator, a zero numerator, and an aggregation that
 has to be geometric rather than arithmetic for the scale to stay symmetric.
-These pin those down, along with the clustered confidence intervals — which
-analyze_skill_by_config.py imports from here, so what is tested once holds for
-both scripts.
+These pin those down, along with the clustered confidence intervals.
 """
 
 import importlib.util
@@ -278,34 +276,11 @@ def test_score_skill_carries_the_cluster_identity():
     assert [module.cluster_key(r) for r in rows] == [("s", 240)]
 
 
-def test_split_rows_never_mixes_city_funds_with_the_others():
-    """The split now serves analyze_skill_by_config.py, which imports it from
-    here; funds is a near-deterministic series the comparison reports apart."""
-    module = load_module()
-    rows = [
-        {"metric": module.FUNDS_METRIC, "skill": 0.01},
-        {"metric": "cityPop", "skill": 1.0},
-        {"metric": "crimeAverage", "skill": 1.0},
-    ]
-    assert [r["metric"] for r in module.split_rows(rows, "funds")] == [
-        module.FUNDS_METRIC
-    ]
-    assert module.FUNDS_METRIC not in [
-        r["metric"] for r in module.split_rows(rows, "behavioral")
-    ]
-    # Every row lands on exactly one side.
-    assert len(module.split_rows(rows, "funds")) + len(
-        module.split_rows(rows, "behavioral")
-    ) == len(rows)
-
-
-def test_baseline_and_split_notes_name_every_choice():
-    """Each table and figure has to say which baseline and which side it is."""
+def test_baseline_notes_name_every_choice():
+    """Each table and figure has to say which baseline it is."""
     module = load_module()
     for kind in module.BASELINES:
         assert module.BASELINES[kind][0] in module.baseline_note(kind)
-    for split in module.SPLITS:
-        assert module.SPLITS[split][0] in module.split_note(split)
 
 
 def test_baseline_crps_sigma_path_needs_a_cached_run(monkeypatch):
