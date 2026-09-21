@@ -14,16 +14,22 @@ from . import module_globals as g
 from .continuous_eval import ResponseId
 from .gather import EvalPaths, write_dataset
 
-OUT_DIR = g.DATA_DIR / "binary"
+SUBDIR = "binary"
 
 # The binary eval's cache layout — same content-addressing as the continuous
 # eval's, under the binary root. The helpers below are kept as module-level
-# functions because the script and tests import them by name.
-PATHS = EvalPaths(OUT_DIR)
+# functions because the script and tests import them by name. The root is
+# read through g.DATA_DIR at call time, never copied here: a config's
+# 'data_dir' rebinds it after import.
+PATHS = EvalPaths(SUBDIR)
+
+
+def out_dir() -> Path:
+    return g.DATA_DIR / SUBDIR
 
 
 def label_dir(label: str) -> Path:
-    return OUT_DIR / label
+    return out_dir() / label
 
 
 def data_path(label: str) -> Path:

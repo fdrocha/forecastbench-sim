@@ -109,6 +109,21 @@ and the structural constraints (§5). Read it before touching resolution.
   `configs/prompt-*.json5`.
   A config's `preamble_path`/`epilogue_path` is resolved against
   `micropolis_world/datafiles/`, not against the config's own directory.
+- **A config's `data_dir` gives a run a world of its own.** It names a subdirectory of
+  `data/` (default `micropolis`) and *everything* — sim logs, ground truth, both evals'
+  caches and datasets, the knowledge eval — lives under it. That is the only way to re-ask a
+  prompt the main cache already holds: the cache is never invalidated, so ask it somewhere
+  the earlier run never wrote (`configs/gpt5-check-1q.json5`). Sims and ground truth are
+  rebuilt there on first use, which is minutes, not money. `Config.load` applies the key
+  and fixes it for the process; a second config naming a different directory is a
+  `ConfigError`. Read paths through `g.DATA_DIR`/`g.RUNS_DIR` or the evals' `out_dir()`,
+  `PATHS.out_dir`, `ground_truth.out_dir()`, `runner.cache_dir()` — never copy them into a
+  module constant, which would freeze the default before the config loaded.
+- **Usage sidecars carry the response's metadata.** Beside tokens and cost, `CallUsage`
+  records `finish_reason` and `response` — the whole body the provider sent minus the
+  generated text (`content`, `reasoning*`) and the backend's private `_hidden_params`. Both
+  are `None` on sidecars written before 2026-09-21; `CallUsage.from_dict` fills them in, so
+  nothing that reads a sidecar may assume they are set.
 - **The response cache is content-addressed and never invalidated.** Prompts, raw responses
   and usage sidecars live in `{continuous,binary}/cache/{batch_id}/…-{prompt_hash}.txt|json`,
   shared across labels; a new variant adds files beside the old ones. A cached response is

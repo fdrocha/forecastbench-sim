@@ -148,9 +148,18 @@ class EvalPaths:
     batch directory can hold more than one prompt variant — a template or
     history_freq change simply adds new files alongside the old ones instead
     of colliding with or invalidating them.
+
+    Holds the eval's subdirectory name, not its path: the data directory it
+    sits under is fixed when a config is loaded, after this object was built
+    at import, so out_dir is resolved against g.DATA_DIR on every read. That
+    is what lets a config's 'data_dir' give a run a cache of its own.
     """
 
-    out_dir: Path
+    subdir: str
+
+    @property
+    def out_dir(self) -> Path:
+        return g.DATA_DIR / self.subdir
 
     @property
     def cache_dir(self) -> Path:

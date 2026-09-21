@@ -30,12 +30,25 @@ SHUFFLE_SEED = 20260807
 HERE = Path(__file__).parent
 PREAMBLE_PATH = HERE / "prompt_preamble.txt"
 
-OUT_DIR = g.DATA_DIR / "knowledge_eval"
+SUBDIR = "knowledge_eval"
 
-# Prompts, raw model responses and their usage sidecars live below OUT_DIR,
-# mirroring the continuous eval's cache layout, so OUT_DIR itself holds only
-# analysis outputs (plots, report, scores).
-CACHE_DIR = OUT_DIR / "cache"
+
+def out_dir() -> Path:
+    """This eval's directory under the process's data directory.
+
+    A function, not a constant: the data directory is fixed when a config is
+    loaded, after this module was imported.
+    """
+    return g.DATA_DIR / SUBDIR
+
+
+def cache_dir() -> Path:
+    """Prompts, raw model responses and their usage sidecars.
+
+    Below out_dir(), mirroring the continuous eval's cache layout, so out_dir()
+    itself holds only analysis outputs (plots, report, scores).
+    """
+    return out_dir() / "cache"
 
 
 class Answer(Enum):
@@ -94,7 +107,7 @@ def build_prompt() -> tuple[str, str]:
     """Return the full prompt text and its 8-character hash.
 
     Writes nothing: the hash is what identifies a cached response, so the
-    read-only paths need to derive it without touching OUT_DIR. Call
+    read-only paths need to derive it without touching out_dir(). Call
     save_prompt() to persist the prompt itself.
     """
     preamble = PREAMBLE_PATH.read_text(encoding="utf-8")
@@ -104,12 +117,12 @@ def build_prompt() -> tuple[str, str]:
 
 
 def save_prompt(prompt: str, phash: str) -> None:
-    """Write the prompt to prompt-<HASH>.txt in CACHE_DIR.
+    """Write the prompt to prompt-<HASH>.txt in cache_dir().
 
     Keeps every prompt a response was gathered under on disk alongside it.
     """
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    (CACHE_DIR / f"prompt-{phash}.txt").write_text(prompt, encoding="utf-8")
+    cache_dir().mkdir(parents=True, exist_ok=True)
+    (cache_dir() / f"prompt-{phash}.txt").write_text(prompt, encoding="utf-8")
 
 
 def model_slug(model_id: str) -> str:
@@ -130,7 +143,7 @@ def response_path(model_id: str, phash: str) -> Path:
     statement set simply misses the cache instead of silently reusing answers
     to different questions.
     """
-    return CACHE_DIR / f"response-{model_slug(model_id)}-{phash}.txt"
+    return cache_dir() / f"response-{model_slug(model_id)}-{phash}.txt"
 
 
 def usage_path(model_id: str, phash: str) -> Path:
@@ -140,7 +153,7 @@ def usage_path(model_id: str, phash: str) -> Path:
     when it is first paid or it is lost on every later run. The slug must match
     response_path's, or the sidecar lands next to nothing.
     """
-    return CACHE_DIR / f"usage-{model_slug(model_id)}-{phash}.json"
+    return cache_dir() / f"usage-{model_slug(model_id)}-{phash}.json"
 
 
 def save_usage(model_id: str, phash: str, usage: CallUsage) -> None:
@@ -177,7 +190,7 @@ def cached_models(phash: str) -> list[str]:
     prefix, suffix = "response-", f"-{phash}.txt"
     return sorted(
         p.name[len(prefix) : -len(suffix)]
-        for p in CACHE_DIR.glob(f"{prefix}*{suffix}")
+        for p in cache_dir().glob(f"{prefix}*{suffix}")
         if p.read_text(encoding="utf-8").strip()
     )
 
@@ -229,7 +242,7 @@ def get_model_answers(
 ) -> dict[str, list[Answer]]:
     """Administer the statement test to each model and parse the replies.
 
-    The response-<MODEL>-<HASH>.txt files in CACHE_DIR are the cache and the
+    The response-<MODEL>-<HASH>.txt files in cache_dir() are the cache and the
     source of truth: a model with a stored response for the current prompt is
     re-read and re-parsed rather than prompted again. Because the filename
     carries the prompt hash, editing the statements simply misses the cache
@@ -255,7 +268,7 @@ def get_model_answers(
 
     prompt, phash = build_prompt()
     save_prompt(prompt, phash)
-    print(f"prompt hash {phash} ({CACHE_DIR / f'prompt-{phash}.txt'})")
+    print(f"prompt hash {phash} ({cache_dir() / f'prompt-{phash}.txt'})")
 
     data: dict[str, list[Answer]] = {}
 
@@ -370,6 +383,6 @@ def get_cached_answers() -> dict[str, list[Answer]]:
     _, phash = build_prompt()
     answers = {}
     for slug in cached_models(phash):
-        path = CACHE_DIR / f"response-{slug}-{phash}.txt"
+        path = cache_dir() / f"response-{slug}-{phash}.txt"
         answers[slug] = parse_response(path.read_text(encoding="utf-8"))
     return answers

@@ -1,0 +1,48 @@
+// GPT-5 mini alone, one question per prompt, in a data directory of its own.
+//
+// A check on the batching ablation's oddest cell: at one question per prompt
+// GPT-5 mini answered 0.65 — the example value in epilogue-binary.txt — in a
+// quarter of its responses, and stopped before writing its answer block in
+// 1.4% of them. The response cache is content-addressed and never
+// invalidated, so the only way to ask those prompts again is to ask them in
+// a cache the earlier run never wrote to: data_dir does that. Everything
+// this run needs — sim logs, world reports, ground truth for scoring — is
+// built or extracted under data/micropolis_gpt5_check/ too, so nothing here
+// touches data/micropolis.
+//
+// Same five cities, snapshots, horizons and prompt text as
+// configs/batching/binary-subset-1q.json5, so the results compare directly
+// (1,000 questions; about $1.20 of API calls at the ablation's prices).
+//
+//   scripts/run_eval_binary.py configs/gpt5-check-1q.json5
+//   scripts/extract_ground_truth.py configs/gpt5-check-1q.json5   # before scoring
+//   scripts/analyze_binary.py configs/gpt5-check-1q.json5
+{
+  "data_dir": "micropolis_gpt5_check",
+
+  "seed": 42,
+  "label": "1q",
+
+  "cities": [
+    "bruce",
+    "haight",
+    "freds",
+    "happisle",
+    "joffburg",
+  ],
+  "disasters": [true],
+  "turns": 2400,
+
+  "snapshot_turns": [960, 1440], // 20 and 30 years
+  "horizons": [144, 240, 336, 480], // 3, 5, 7 and 10 years
+  "branch_nseeds": 1000,
+
+  "history_freq": 24,
+  "preamble_path": "preamble-binary.txt",
+  "epilogue_path": "epilogue-binary.txt",
+  "report_census": true,
+  "censorCityFunds": true,
+
+  "models": ["openai/gpt-5-mini:loeff"],
+  "questions_per_prompt": 1,
+}

@@ -28,7 +28,13 @@ from .binary_questions import (
 )
 from .city_sim import CitySimulation, _load_jsonl, turn_of
 
-OUT_DIR = g.DATA_DIR / "ground_truth"
+SUBDIR = "ground_truth"
+
+
+def out_dir() -> Path:
+    """Where the ground-truth files live: under the process's data directory."""
+    return g.DATA_DIR / SUBDIR
+
 
 # No package.json alias exists for the script, unlike run-sim, so tsx is
 # invoked directly from the engine's app directory.
@@ -47,7 +53,7 @@ def output_path(sim: CitySimulation, snapshot_turn: int) -> Path:
 
 
 def output_path_for(scenario_id: str, snapshot_turn: int) -> Path:
-    return OUT_DIR / f"{scenario_id}_T{snapshot_turn}.jsonl"
+    return out_dir() / f"{scenario_id}_T{snapshot_turn}.jsonl"
 
 
 def seed_shards(nseeds: int, jobs: int) -> list[tuple[int, int]]:

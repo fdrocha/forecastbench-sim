@@ -97,7 +97,17 @@ class Config:
             raise ConfigError(f"config file {path} is not valid JSON5: {e}") from e
         if not isinstance(data, dict):
             raise ConfigError(f"config file {path} must contain a JSON object")
-        return cls(data, path)
+        cfg = cls(data, path)
+        # Loading a config selects the data directory the whole process works
+        # in, so it happens here rather than in each script: every reader of a
+        # cached path goes through module_globals, and none of them takes a
+        # config. Absent, the key means the default world, which is also a
+        # choice — a later config naming another directory is an error.
+        try:
+            g.set_data_dir(cfg.get_str_or("data_dir", g.DEFAULT_DATA_SUBDIR), path)
+        except ValueError as e:
+            raise ConfigError(f"parameter 'data_dir' in {path}: {e}") from e
+        return cfg
 
     def _require(self, key: str) -> Any:
         if key not in self.data:

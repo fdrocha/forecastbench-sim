@@ -77,12 +77,12 @@ from scipy import stats
 from micropolis_world import model_scores
 from micropolis_world.config import Config, ConfigError, main_with_config
 from micropolis_world.continuous_eval import (
-    OUT_DIR,
     DatasetError,
     MdReport,
     ResponseId,
     data_path,
     load_dataset,
+    out_dir,
     select_for_config,
 )
 from micropolis_world.plot_labels import place_labels
@@ -175,7 +175,7 @@ def comparison_dir(name: str) -> Path:
     to the set of configs, not to one of them, and writing it into the first
     config's label dir would make the comparison look like that run's property.
     """
-    return OUT_DIR / "comparisons" / name
+    return out_dir() / "comparisons" / name
 
 
 def response_counts(
@@ -936,7 +936,7 @@ def main() -> None:
         "--name",
         default=None,
         help="Name of the output directory under "
-        f"{OUT_DIR / 'comparisons'} (default: the config labels joined with '+')",
+        f"{out_dir() / 'comparisons'} (default: the config labels joined with '+')",
     )
     ap.add_argument(
         "--no-plot",

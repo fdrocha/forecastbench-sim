@@ -260,7 +260,7 @@ def test_cross_check_trunk(tmp_path, monkeypatch):
 def test_load_truths(tmp_path, monkeypatch):
     import micropolis_world.ground_truth as gt
 
-    monkeypatch.setattr(gt, "OUT_DIR", tmp_path)
+    monkeypatch.setattr(gt, "out_dir", lambda: tmp_path)
     sim = CitySimulation(CITY, 42, disasters=True)
     merged = consume_stream(make_stream(), CITY, True, S, HORIZONS)
     write_lines(

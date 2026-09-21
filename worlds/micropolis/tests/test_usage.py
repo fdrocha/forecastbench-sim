@@ -290,3 +290,64 @@ def test_prompt_model_reports_usage_for_an_empty_reply(monkeypatch):
     assert got.finish_reason == "length"
     # The billed tokens are recorded even though nothing was written.
     assert got.usage.output_tokens == 4000
+
+
+# --- the response's own metadata --------------------------------------------
+
+
+def test_records_the_finish_reason():
+    usage = usage_from_response(make_response(finish_reason="length"), "openai/gpt-4o")
+    assert usage.finish_reason == "length"
+
+
+def test_records_the_response_minus_the_generated_text():
+    usage = usage_from_response(
+        make_response(content="the whole answer", finish_reason="stop"), "openai/gpt-4o"
+    )
+    assert usage.response is not None
+    assert usage.response["id"] == "chatcmpl-test"
+    assert usage.response["object"] == "chat.completion"
+    choice = usage.response["choices"][0]
+    assert choice["finish_reason"] == "stop"
+    # The text lives in the response file beside the sidecar, not here.
+    assert "content" not in choice["message"]
+    assert "the whole answer" not in str(usage.response)
+
+
+def test_response_metadata_drops_the_backends_private_params():
+    response = make_response()
+    response._hidden_params = {"request_body": {"messages": ["the prompt"]}}
+    usage = usage_from_response(response, "openai/gpt-4o")
+    assert "_hidden_params" not in usage.response
+    assert "the prompt" not in str(usage.response)
+
+
+def test_response_metadata_is_json_data():
+    import json
+
+    usage = usage_from_response(make_response(), "openai/gpt-4o")
+    json.dumps(usage.to_dict())  # must not raise
+
+
+def test_a_response_of_unknown_shape_records_no_metadata_rather_than_failing():
+    class Odd:
+        usage = None
+        choices = ()
+
+    usage = usage_from_response(Odd(), "openai/gpt-4o")
+    assert usage.response is None
+    assert usage.finish_reason is None
+
+
+def test_a_sidecar_written_before_metadata_was_kept_still_loads():
+    old = {
+        "model_id": "openai/gpt-4o",
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "total_tokens": 15,
+        "cost_usd": 0.001,
+    }
+    usage = CallUsage.from_dict(old)
+    assert usage.finish_reason is None
+    assert usage.response is None
+    assert usage.cost_usd == 0.001

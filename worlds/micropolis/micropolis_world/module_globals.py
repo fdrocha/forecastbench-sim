@@ -11,11 +11,58 @@ from .usage import LLMResponse, usage_from_response
 
 PKG_DIR = Path(__file__).resolve().parent.parent  # forecastbench-sim/worlds/micropolis
 FBS_DIR = PKG_DIR.parent.parent  # forecastbench-sim
-DATA_DIR = FBS_DIR / "data" / "micropolis"
+DATA_ROOT = FBS_DIR / "data"
+
+# Everything this world writes — sim logs, ground truth, both evals' caches and
+# datasets, the paper's CSVs — lives under one directory of data/. A config's
+# 'data_dir' names a different one, which gives a run a world of its own:
+# nothing there is shared with data/micropolis, so a prompt already answered
+# in the main cache is asked again. Read these through the module (g.DATA_DIR,
+# g.RUNS_DIR), never copy them at import time: set_data_dir rebinds them when
+# a config is loaded, after every import has run.
+DEFAULT_DATA_SUBDIR = "micropolis"
+DATA_DIR = DATA_ROOT / DEFAULT_DATA_SUBDIR
 # Per-run simulation output (log/events/report/plot files), one directory per
 # city. The engine's run_sim.js appends the city name to the base dir it's
 # given, so this is passed to it as --output-base-dir verbatim.
 RUNS_DIR = DATA_DIR / "runs"
+
+# The config that fixed DATA_DIR for this process, once one has. A process
+# works in one world: two configs naming different ones would have the second
+# silently read the first one's cache, so that is an error instead.
+_data_dir_source: Path | None = None
+
+
+def set_data_dir(subdir: str, source: Path) -> None:
+    """Point this process at data/<subdir>, on behalf of the config at `source`.
+
+    Validates the name (one path component, nothing that escapes data/),
+    rebinds DATA_DIR and RUNS_DIR, and remembers who did it. A second config
+    naming the same directory is fine; one naming a different directory raises
+    ValueError, which Config.load turns into a ConfigError naming both files.
+    """
+    global DATA_DIR, RUNS_DIR, _data_dir_source
+    if (
+        not subdir
+        or subdir in (".", "..")
+        or "/" in subdir
+        or "\\" in subdir
+        or subdir != subdir.strip()
+    ):
+        raise ValueError(
+            f"data_dir must be the name of one subdirectory of {DATA_ROOT},"
+            f" got {subdir!r}"
+        )
+    target = DATA_ROOT / subdir
+    if _data_dir_source is not None and target != DATA_DIR:
+        raise ValueError(
+            f"data_dir {subdir!r} conflicts with {DATA_DIR.name!r}, already fixed"
+            f" by {_data_dir_source}; a process works in one data directory"
+        )
+    DATA_DIR = target
+    RUNS_DIR = DATA_DIR / "runs"
+    _data_dir_source = source
+
 
 load_dotenv(PKG_DIR / ".env")
 MICROPOLIS_APP_PATH = Path(os.environ["MICROPOLIS_CORE_PATH"]) / "apps" / "micropolis"

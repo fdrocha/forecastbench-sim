@@ -49,9 +49,12 @@ DEFAULT_TURNS = 300
 # turning into a thicket. Also the number compared when only reporting.
 DEFAULT_REPEATS = 5
 
+
 # --plot figures go beside the run data rather than into data/micropolis/runs/,
 # whose per-city plot filenames belong to run_sim.py's single-run figures.
-PLOTS_DIR = g.DATA_DIR / "determinism"
+def plots_dir() -> Path:
+    """Under the process's data directory, which the config fixes after import."""
+    return g.DATA_DIR / "determinism"
 
 
 def snapshot_run(sim: CitySimulation, dest: Path) -> dict[str, Path]:
@@ -187,8 +190,8 @@ def plot_scenario_repeats(
     # Imported here so a check without --plot doesn't pull in matplotlib.
     from micropolis_world.plot_sim import plot_repeats
 
-    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
-    output = PLOTS_DIR / f"repeats-{sim.get_id_str()}-x{repeats}.png"
+    plots_dir().mkdir(parents=True, exist_ok=True)
+    output = plots_dir() / f"repeats-{sim.get_id_str()}-x{repeats}.png"
     plot_repeats(
         [load_rows(run["log"]) for run in runs],
         title=f"{sim.get_id_str()} — {repeats} runs at the same seed",
@@ -222,7 +225,7 @@ def main() -> None:
         action="store_true",
         help=(
             "Also write a figure per scenario overlaying every repeat's metrics, "
-            f"into {PLOTS_DIR}. Skips scenarios with disasters enabled"
+            f"into {plots_dir()}. Skips scenarios with disasters enabled"
         ),
     )
     ap.add_argument("--quiet", action="store_true", help="Only report differences")

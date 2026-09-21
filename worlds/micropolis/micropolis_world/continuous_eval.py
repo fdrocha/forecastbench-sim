@@ -34,17 +34,23 @@ from .usage import load_usage, save_usage  # noqa: F401 - re-exported for the sc
 # Batch prompts and raw model responses are cached here, shared across every
 # label: the cache filename already carries the prompt's hash (see
 # batch_dir), so two labels asking an identical prompt reuse the same cached
-# response rather than paying for it twice.
-OUT_DIR = g.DATA_DIR / "continuous"
+# response rather than paying for it twice. The root is read through
+# g.DATA_DIR at call time, never copied at import: a config's 'data_dir'
+# rebinds it after every import has run.
+SUBDIR = "continuous"
+
+
+def out_dir() -> Path:
+    return g.DATA_DIR / SUBDIR
 
 
 def label_dir(label: str) -> Path:
     """Where one label's dataset, plots and reports are written.
 
-    Kept apart per label — unlike OUT_DIR's shared cache — so runs made under
+    Kept apart per label — unlike out_dir()'s shared cache — so runs made under
     different prompt variants never overwrite each other's output.
     """
-    return OUT_DIR / label
+    return out_dir() / label
 
 
 def data_path(label: str) -> Path:
@@ -377,7 +383,7 @@ Responses = dict[ResponseId, Response]
 # The continuous eval's cache layout. The helpers below are kept as
 # module-level functions because the scripts and tests import them by name;
 # PATHS is what the shared gather machinery is handed.
-PATHS = EvalPaths(OUT_DIR)
+PATHS = EvalPaths(SUBDIR)
 
 
 def batch_dir(batch_id: str) -> Path:

@@ -111,8 +111,16 @@ DEFAULT_BINARY_CONFIG_PATH = CONFIG_DIR / "binary.json5"
 
 # The paper's own directory, flat: the figures are cited from the article by a
 # fixed path, so the config's label picks which data.json is read, not where
-# these land.
-OUT_DIR = g.DATA_DIR / "paper"
+# these land. OUT_DIR is the default world's, for analyze_paper.py, which
+# loads no config; the gather writes to paper_dir(), under whatever data
+# directory the configs it loaded fixed.
+PAPER_SUBDIR = "paper"
+OUT_DIR = g.DATA_DIR / PAPER_SUBDIR
+
+
+def paper_dir() -> Path:
+    return g.DATA_DIR / PAPER_SUBDIR
+
 
 # The paper normalizes downstream, per city and metric, so nothing is divided
 # here: score_forecasts still takes a Normalizer, and this one has no scale for
@@ -559,7 +567,8 @@ def main() -> None:
     print("=" * 70)
     print(f"configs:    {continuous_cfg.path}")
     print(f"            {binary_cfg.path}")
-    print(f"out:        {OUT_DIR}")
+    out = paper_dir()
+    print(f"out:        {out}")
     print()
 
     binary, binary_coverage = binary_rows(binary_cfg)
@@ -579,11 +588,11 @@ def main() -> None:
         ),
         (USAGE_CSV_NAME, USAGE_COLUMNS, usage),
     ]:
-        print(f"Wrote {write_csv(OUT_DIR / name, columns, rows)}")
+        print(f"Wrote {write_csv(out / name, columns, rows)}")
 
     # Verbatim, header and blank cells included: analyze_paper.py reads it
     # through the package's own parser, so it has to stay in that format.
-    scores_copy = OUT_DIR / MODEL_SCORES_CSV_NAME
+    scores_copy = out / MODEL_SCORES_CSV_NAME
     scores_copy.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(SCORES_PATH, scores_copy)
     print(f"Wrote {scores_copy}")

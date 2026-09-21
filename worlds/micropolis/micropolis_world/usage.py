@@ -46,6 +46,16 @@ class CallUsage:
             it never does. Recorded because a slug can be served by several
             providers at different quantizations and speeds, which shows up as
             otherwise unexplained variance between calls to "the same" model.
+        finish_reason: Why the first choice stopped ("stop", "length", ...),
+            as the provider reported it. Recorded so that a response with no
+            answer in it can be told apart after the fact: a model that ran out
+            of tokens and one that simply stopped talking look the same in the
+            response file. None for a sidecar written before this was kept.
+        response: Everything else the provider sent back, with the generated
+            text removed — see response_metadata(). The typed fields above are
+            the reading of it this module knows how to make; this is the raw
+            record for whatever question comes up later (native finish reason,
+            response id, system fingerprint, ...). None for older sidecars.
     """
 
     model_id: str
@@ -59,6 +69,8 @@ class CallUsage:
     cost_usd: float | None = None
     latency_ms: float | None = None
     provider: str | None = None
+    finish_reason: str | None = None
+    response: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """The usage as plain JSON-serializable data."""
@@ -202,6 +214,40 @@ def cost_from_response(response: Any, model_id: str | None = None) -> float | No
     return None if cost is None else float(cost)
 
 
+# The keys of a choice's message that hold generated text. Dropped from the
+# recorded response: the answer is the response file beside the sidecar, and
+# reasoning text can run to many KB per call. Everything else in the message
+# (role, refusal, tool calls, ...) is metadata and stays.
+GENERATED_TEXT_KEYS = ("content", "reasoning", "reasoning_content", "reasoning_details")
+
+
+def response_metadata(response: Any) -> dict[str, Any] | None:
+    """The response body as plain data, minus the text the model generated.
+
+    Both backends can render themselves as a dict (model_dump); the
+    OpenRouter one also tacks on the private _hidden_params it built for
+    LiteLLM parity, which carries the whole request — the prompt, cached
+    separately — and is not part of the response, so it is left out. Never
+    raises: a response whose shape this cannot read records None rather than
+    failing the call that was already paid for.
+    """
+    try:
+        dump = getattr(response, "model_dump", None)
+        data = dump() if callable(dump) else dict(response)
+        data = json.loads(json.dumps(data, default=str))
+    except Exception:  # noqa: BLE001 - recording metadata must never fail a call
+        return None
+    if not isinstance(data, dict):
+        return None
+    data.pop("_hidden_params", None)
+    for choice in data.get("choices") or []:
+        message = choice.get("message") if isinstance(choice, dict) else None
+        if isinstance(message, dict):
+            for key in GENERATED_TEXT_KEYS:
+                message.pop(key, None)
+    return data
+
+
 def usage_from_response(
     response: Any,
     model_id: str,
@@ -233,6 +279,9 @@ def usage_from_response(
     # to the sum rather than reporting a total that contradicts its own parts.
     total_tokens = getattr(usage, "total_tokens", 0) or 0
 
+    choices = getattr(response, "choices", None) or []
+    finish_reason = getattr(choices[0], "finish_reason", None) if choices else None
+
     return CallUsage(
         model_id=model_id,
         response_model=getattr(response, "model", None),
@@ -247,4 +296,6 @@ def usage_from_response(
         cost_usd=cost_from_response(response, model_id),
         latency_ms=latency_ms,
         provider=provider or None,
+        finish_reason=finish_reason,
+        response=response_metadata(response),
     )

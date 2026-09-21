@@ -30,11 +30,11 @@ from scipy import stats
 from micropolis_world import model_scores
 from micropolis_world.config import CONFIG_DIR, Config, main_with_config
 from micropolis_world.knowledge_eval.runner import (
-    OUT_DIR,
     Answer,
     Statement,
     get_cached_answers,
     model_slug,
+    out_dir,
     statements,
 )
 from micropolis_world.knowledge_eval.scoring import score, tally
@@ -45,9 +45,19 @@ from micropolis_world.plot_labels import place_labels
 # config argument to choose a different one.
 CONFIG_PATH = CONFIG_DIR / "knowledge_eval.json5"
 
-PLOTS_PATH = OUT_DIR / "plots"
-REPORT_PATH = OUT_DIR / "report.md"
-KNOWLEDGE_CSV_PATH = OUT_DIR / "knowledge.csv"
+
+# Functions, not constants: the data directory is fixed when the config is
+# loaded, after this module was imported.
+def plots_path() -> Path:
+    return out_dir() / "plots"
+
+
+def report_path() -> Path:
+    return out_dir() / "report.md"
+
+
+def knowledge_csv_path() -> Path:
+    return out_dir() / "knowledge.csv"
 
 
 @dataclass(frozen=True)
@@ -399,7 +409,7 @@ def plot_scatter(
     entries: list[Entry],
     sub: Subset,
     result: dict | None,
-    outdir: Path = PLOTS_PATH,
+    outdir: Path | None = None,
 ) -> Path:
     """Scatter each model's ECI against its score on one statement subset.
 
@@ -407,6 +417,7 @@ def plot_scatter(
     the shape: whether the trend is carried by the whole range or by a couple
     of models at the ends, and which models sit off the line.
     """
+    outdir = plots_path() if outdir is None else outdir
     import matplotlib
 
     matplotlib.use("Agg")
@@ -465,7 +476,7 @@ def plot_scatter(
 
 
 def plot_correlations_by_subset(
-    results: list[tuple[Subset, dict | None]], outdir: Path = PLOTS_PATH
+    results: list[tuple[Subset, dict | None]], outdir: Path | None = None
 ) -> Path:
     """ρ and r per statement subset, as two lines with 95% intervals.
 
@@ -485,6 +496,7 @@ def plot_correlations_by_subset(
     Subsets whose correlation was not computable are dropped rather than drawn
     as a gap, since a missing point reads like a coefficient of zero.
     """
+    outdir = plots_path() if outdir is None else outdir
     import matplotlib
 
     matplotlib.use("Agg")
@@ -585,11 +597,11 @@ def write_knowledge_csv(entries: list[Entry], skipped: list[Unscored]) -> Path:
     ]
     rows.sort(key=lambda row: -row[1])
 
-    with KNOWLEDGE_CSV_PATH.open("w", encoding="utf-8", newline="") as f:
+    with knowledge_csv_path().open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["model"] + [header for header, _ in columns])
         writer.writerows([row[0]] + [f"{s:.4f}" for s in row[1:]] for row in rows)
-    return KNOWLEDGE_CSV_PATH
+    return knowledge_csv_path()
 
 
 def write_report(
@@ -622,7 +634,7 @@ def write_report(
             "",
             f"### {sub.label}",
             "",
-            f"![{sub.name}]({path.relative_to(OUT_DIR)})",
+            f"![{sub.name}]({path.relative_to(out_dir())})",
         ]
     if summary is not None:
         lines += [
@@ -638,11 +650,11 @@ def write_report(
                 "statements."
             ),
             "",
-            f"![Correlations by subset]({summary.relative_to(OUT_DIR)})",
+            f"![Correlations by subset]({summary.relative_to(out_dir())})",
         ]
     lines.append("")
-    REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
-    return REPORT_PATH
+    report_path().write_text("\n".join(lines), encoding="utf-8")
+    return report_path()
 
 
 def print_caveats(entries: list[Entry]) -> None:

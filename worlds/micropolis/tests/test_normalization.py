@@ -107,7 +107,7 @@ def _write_ground_truth(tmp_path, monkeypatch, by_horizon, snapshot=None):
     import micropolis_world.continuous_eval as ce
     import micropolis_world.ground_truth as gt
 
-    monkeypatch.setattr(gt, "OUT_DIR", tmp_path)
+    monkeypatch.setattr(gt, "out_dir", lambda: tmp_path)
     lines = [
         {
             "scenario_id": "s",
