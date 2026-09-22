@@ -476,14 +476,13 @@ class Headline:
 
 
 # The capability figure's three panels, in the order FreeCiv's four are laid
-# out (continuous, tails, binary) so the two figures' panels line up when the
-# article places them near each other. `label` is the paper's word for the
-# slice — "Binary" is the mid-range questions and "Tail" the tail ones, since
-# "binary" covers both literally and only the pair reads unambiguously.
+# out (continuous, tails, mid-range) so the two figures' panels line up when
+# the article places them near each other. `label` is the word the panel
+# caption prints; the macros keep their "Binary" stem for the mid-range slice.
 PANELS = [
     ("Continuous", "eci_vs_excess_ncrps-city", "Excess nCRPS"),
     ("Tail", "eci_vs_excess_bits-tail", "Excess bits"),
-    ("Binary", "eci_vs_excess_brier-mid-range", "Excess Brier"),
+    ("Mid-range", "eci_vs_excess_brier-mid-range", "Excess Brier"),
 ]
 
 # The three the article quotes. The mid-range slice is named "Binary" and the
