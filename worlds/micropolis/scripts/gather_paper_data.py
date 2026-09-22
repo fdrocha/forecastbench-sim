@@ -26,6 +26,11 @@ actually computed at, not a per-model mean:
 - batching_forecasts.csv and batching_runs.csv: the questions-per-prompt
   ablation (configs/batching/), scored the same way, one row per (setting,
   model, question), plus per (setting, model) what was asked, parsed and paid.
+- variants_forecasts.csv, variants_runs.csv and variants_settings.csv: the
+  prompt variants (configs/prompt variants/), each scored exactly as the main
+  run's continuous rows are, one row per (variant, model, question); per
+  (variant, model) what was asked, parsed and paid; and per variant what its
+  config changed and which variant it is compared against.
 - gpt5_check_forecasts.csv: the one-question-per-prompt rerun of GPT-5 mini in
   its own data directory (configs/gpt5-check-1q.json5), with each response's
   finish reason, for the appendix's account of that model's failures. Read by
@@ -255,6 +260,73 @@ RECHECK_COLUMNS = [
 ]
 ANSWER_BLOCK_MARKER = "<<<PROBABILITIES>>>"
 
+# The prompt variants of appendix D: one continuous config per variant under
+# configs/prompt variants/, each the main run's settings but for the lever it
+# varies. Every variant is scored exactly as the main run is (continuous_rows)
+# and costed the same way (usage_rows). VARIANT_ORDER is the order the
+# appendix lists them in — the year-5/10 group from the least history to the
+# most, then the preamble, the labels and the batch size, then the later
+# snapshots — and VARIANT_PARENT names, for each, the variant it differs from
+# by one lever, which is what the appendix compares it against. A config not
+# named here follows the named ones, alphabetically, with no parent.
+VARIANTS_CONFIG_GLOB = "prompt variants/prompt-*.json5"
+VARIANT_ORDER = [
+    "snapshot-only",
+    "last-2y",
+    "yfreq",
+    "long",
+    "preamble2",
+    "semantic",
+    "smallbatch",
+    "20yhist",
+    "semlonger",
+    "numlonger",
+    "100yhist",
+]
+VARIANT_PARENT = {
+    "snapshot-only": "long",
+    "last-2y": "yfreq",
+    "yfreq": "long",
+    "preamble2": "long",
+    "semantic": "preamble2",
+    "smallbatch": "preamble2",
+    "semlonger": "semantic",
+    "numlonger": "semlonger",
+    "20yhist": "numlonger",
+    "100yhist": "numlonger",
+}
+VARIANT_LABEL_PREFIX = "prompt-"
+VARIANTS_CSV_NAME = "variants_forecasts.csv"
+VARIANTS_RUNS_CSV_NAME = "variants_runs.csv"
+VARIANTS_SETTINGS_CSV_NAME = "variants_settings.csv"
+VARIANTS_RUNS_COLUMNS = [
+    "variant",
+    "model",
+    "provider",
+    "nforecasts",
+    "nvalid",
+    "ncalls",
+    "input_tokens",
+    "output_tokens",
+    "reasoning_tokens",
+    "cost_usd",
+    "latency_ms_sum",
+    "latency_ms_p50",
+]
+VARIANTS_SETTINGS_COLUMNS = [
+    "variant",
+    "parent",
+    "is_main",
+    "snapshot_turns",
+    "snapshot_years",
+    "history",
+    "preamble",
+    "tagging",
+    "sort",
+    "questions_per_prompt",
+    "prompts_per_model",
+    "report_effectiveness",
+]
 CONTINUOUS_CSV_NAME = "continuous_forecasts.csv"
 CONTINUOUS_COLUMNS = [
     "model",
@@ -439,8 +511,12 @@ def continuous_rows(cfg: Config) -> tuple[list[dict], list[dict]]:
             "city": cities[r["question_id"]],
             "metric": r["metric"],
             "horizon": years(r["horizon"]),
-            "crps": r["crps"],
-            "excess_crps": r["excess_crps"],
+            # Four decimals: the article prints three of the normalized value,
+            # and full precision doubles the size of every file built on this.
+            "crps": round(r["crps"], 4),
+            "excess_crps": (
+                round(r["excess_crps"], 4) if r["excess_crps"] is not None else None
+            ),
         }
         for r in scored
         # Belt and braces: forecast_questions already removed the read-off.
@@ -492,18 +568,13 @@ def coverage_rows(
     return rows
 
 
-def usage_rows(eval_name: str, cfg: Config) -> list[dict]:
-    """What each model's calls cost in this eval, one row per model.
+def prompt_hashes(eval_name: str, cfg: Config) -> dict[str, str]:
+    """The hash of every prompt a config sends, keyed by batch id.
 
-    A sidecar's filename carries the hash of the prompt that produced the call,
-    so the prompts have to be rebuilt to know which stored calls belong to this
-    config rather than to an ablation cached beside them. That is the same
-    derivation analyze_usage.py does, through the same builders the run scripts
-    use, so both read the same set of calls.
-
-    Models with no recorded call are still given a row, at zero: the paper's
-    per-model cost column needs an entry for every model in the panel, and a
-    gap there would read as a missing model rather than a missing sidecar.
+    Rebuilt through the same builders the run scripts use, so this names
+    exactly the cached calls that belong to the config — the derivation
+    analyze_usage.py makes. Two configs with equal hashes sent the very same
+    prompts, which is how a variant is recognized as the main run's own.
     """
     seed = cfg.get_seed(None)
     label = cfg.get_label(None)
@@ -538,11 +609,26 @@ def usage_rows(eval_name: str, cfg: Config) -> list[dict]:
                 context, questions, preamble, epilogue, tagging
             )
 
-    per_prompt = cfg.get_questions_per_prompt()
-    batches = group_into_batches(corpus, per_prompt)
-    hashes = {
+    batches = group_into_batches(corpus, cfg.get_questions_per_prompt())
+    return {
         bid: prompt_hash(build(qs[0]["context"], qs)) for bid, qs in batches.items()
     }
+
+
+def usage_rows(eval_name: str, cfg: Config) -> list[dict]:
+    """What each model's calls cost in this eval, one row per model.
+
+    A sidecar's filename carries the hash of the prompt that produced the call,
+    so the prompts are rebuilt (prompt_hashes) to know which stored calls
+    belong to this config rather than to an ablation cached beside them.
+
+    Models with no recorded call are still given a row, at zero: the paper's
+    per-model cost column needs an entry for every model in the panel, and a
+    gap there would read as a missing model rather than a missing sidecar.
+    """
+    paths = BINARY_PATHS if eval_name == "binary" else CONTINUOUS_PATHS
+    per_prompt = cfg.get_questions_per_prompt()
+    hashes = prompt_hashes(eval_name, cfg)
     models = cfg.get_models(None)
     check_no_suffix_collisions(models)
 
@@ -645,6 +731,122 @@ def batching_rows(config_paths: list[Path]) -> tuple[list[dict], list[dict]]:
     return forecasts, runs
 
 
+def variant_name(cfg: Config) -> str:
+    """A variant's name: its label minus the shared prompt- prefix."""
+    return cfg.get_label(None).removeprefix(VARIANT_LABEL_PREFIX)
+
+
+def variant_sort_key(path: Path) -> tuple:
+    name = load_config_at(path).get_label(None).removeprefix(VARIANT_LABEL_PREFIX)
+    return (
+        VARIANT_ORDER.index(name) if name in VARIANT_ORDER else len(VARIANT_ORDER),
+        name,
+    )
+
+
+def preamble_name(cfg: Config) -> str:
+    """The preamble as the appendix names it: 1, 1 (snapshot) or 2b."""
+    path = cfg.get_preamble_path()
+    stem = path.stem if path is not None else "preamble1"
+    name = stem.removeprefix("preamble")
+    if name.endswith("-snapshot"):
+        return f"{name.removesuffix('-snapshot')} (snapshot)"
+    return name
+
+
+def history_description(cfg: Config) -> str:
+    """The report's history table in words: its sampling and any cap."""
+    if cfg.get_bool_or("snapshot_only_report", False):
+        return "none"
+    freq = cfg.get_int("history_freq")
+    length = cfg.get_int_or("history_length", -1)
+    text = f"every {freq} turns"
+    if length > 0:
+        text += f", last {length} rows"
+    return text
+
+
+def variant_settings(
+    cfg: Config, main_hashes: dict[str, str], per_prompt: float, nprompts: int
+) -> dict:
+    """One variants_settings.csv row: what the variant asked and how.
+
+    is_main says whether the variant's prompts are, hash for hash, the main
+    run's own — it then gathered from that run's cache and cost nothing new.
+    """
+    name = variant_name(cfg)
+    turns = cfg.get_int_list("snapshot_turns")
+    return {
+        "variant": name,
+        "parent": VARIANT_PARENT.get(name, ""),
+        "is_main": int(prompt_hashes("continuous", cfg) == main_hashes),
+        "snapshot_turns": " ".join(str(t) for t in turns),
+        "snapshot_years": ", ".join(f"{t / TURNS_PER_YEAR:.0f}" for t in turns),
+        "history": history_description(cfg),
+        "preamble": preamble_name(cfg),
+        "tagging": cfg.get_question_tagging(),
+        "sort": cfg.get_questions_sort(),
+        "questions_per_prompt": f"{per_prompt:g}",
+        "prompts_per_model": nprompts,
+        "report_effectiveness": int(cfg.get_bool_or("report_effectiveness", False)),
+    }
+
+
+def variants_rows(
+    config_paths: list[Path], main_cfg: Config
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """The prompt variants: forecast rows, per-run rows and settings rows.
+
+    One config per variant, in VARIANT_ORDER. Each is scored exactly as the
+    main run is — the same continuous_rows, so the same excess CRPS the
+    article divides by the city scales — and costed exactly as the main
+    run's calls are.
+    """
+    forecasts, runs, settings = [], [], []
+    main_hashes = prompt_hashes("continuous", main_cfg)
+    for path in sorted(config_paths, key=variant_sort_key):
+        cfg = load_config_at(path)
+        name = variant_name(cfg)
+        rows, coverage = continuous_rows(cfg)
+        usage = usage_rows("continuous", cfg)
+        prompts = {u["nprompts"] for u in usage}
+        asked = {c["nforecasts"] for c in coverage}
+        if len(prompts) != 1 or len(asked) != 1:
+            sys.exit(
+                f"[error] {path}: models were sent different numbers of prompts"
+                f" ({sorted(prompts)}) or questions ({sorted(asked)})"
+            )
+        nprompts, nasked = prompts.pop(), asked.pop()
+        settings.append(variant_settings(cfg, main_hashes, nasked / nprompts, nprompts))
+        forecasts += [{"variant": name, **r} for r in rows]
+        by_model = {u["model"]: u for u in usage}
+        for c in coverage:
+            u = by_model[c["model"]]
+            runs.append(
+                {
+                    "variant": name,
+                    "model": c["model"],
+                    "provider": u["provider"],
+                    "nforecasts": c["nforecasts"],
+                    "nvalid": c["nvalid"],
+                    **{
+                        k: u[k]
+                        for k in (
+                            "ncalls",
+                            "input_tokens",
+                            "output_tokens",
+                            "reasoning_tokens",
+                            "cost_usd",
+                            "latency_ms_sum",
+                            "latency_ms_p50",
+                        )
+                    },
+                }
+            )
+        print()
+    return forecasts, runs, settings
+
+
 def recheck_rows(dirname: str) -> list[dict]:
     """The GPT-5 mini rerun's forecasts, with each response's finish reason.
 
@@ -743,6 +945,14 @@ def main() -> None:
         f"(default: configs/{BATCHING_CONFIG_GLOB})",
     )
     ap.add_argument(
+        "--variants-configs",
+        nargs="*",
+        type=Path,
+        default=sorted(CONFIG_DIR.glob(VARIANTS_CONFIG_GLOB)),
+        help="the prompt variants' configs, one per variant "
+        f"(default: configs/{VARIANTS_CONFIG_GLOB})",
+    )
+    ap.add_argument(
         "--recheck-dir",
         default=RECHECK_DIR_NAME,
         help="the data directory the GPT-5 mini rerun was made in "
@@ -770,6 +980,10 @@ def main() -> None:
     usage = usage_rows("binary", binary_cfg) + usage_rows("continuous", continuous_cfg)
     print()
     batching, batching_runs = batching_rows(args.batching_configs)
+    print()
+    variants, variants_runs, variants_settings = variants_rows(
+        args.variants_configs, continuous_cfg
+    )
     recheck = recheck_rows(args.recheck_dir)
 
     print()
@@ -785,6 +999,9 @@ def main() -> None:
         (USAGE_CSV_NAME, USAGE_COLUMNS, usage),
         (BATCHING_CSV_NAME, BATCHING_COLUMNS, batching),
         (BATCHING_RUNS_CSV_NAME, BATCHING_RUNS_COLUMNS, batching_runs),
+        (VARIANTS_CSV_NAME, ["variant", *CONTINUOUS_COLUMNS], variants),
+        (VARIANTS_RUNS_CSV_NAME, VARIANTS_RUNS_COLUMNS, variants_runs),
+        (VARIANTS_SETTINGS_CSV_NAME, VARIANTS_SETTINGS_COLUMNS, variants_settings),
         *([(RECHECK_CSV_NAME, RECHECK_COLUMNS, recheck)] if recheck else []),
     ]:
         print(f"Wrote {write_csv(out / name, columns, rows)}")

@@ -155,6 +155,9 @@ from gather_paper_data import (
     RECHECK_CSV_NAME,
     SCALES_CSV_NAME,
     USAGE_CSV_NAME,
+    VARIANTS_CSV_NAME,
+    VARIANTS_RUNS_CSV_NAME,
+    VARIANTS_SETTINGS_CSV_NAME,
 )
 
 FIGURES_DIR = OUT_DIR / "figures"
@@ -224,7 +227,51 @@ TABLE_NAMES = {
     "continuous": "micropolis_continuous.tex",
     "batching": "micropolis_batching.tex",
     "batching_models": "micropolis_batching_models.tex",
+    "variants": "micropolis_variants.tex",
+    "variants_settings": "micropolis_variants_settings.tex",
 }
+
+# The prompt variants (appendix D). One bar per variant: the pooled excess
+# nCRPS, a mean of per-model means, with a paired bootstrap over the panel —
+# one shared draw of the models across variants, so the difference between
+# two variants is what the interval speaks to, whatever questions they asked.
+VARIANTS_FIG_NAME = "fig_micropolis_variants.pdf"
+VARIANTS_SIZE = (5.5, 2.1)
+
+# Macro names cannot hold digits or hyphens, so each variant gets a word.
+VARIANT_WORDS = {
+    "snapshot-only": "SnapshotOnly",
+    "last-2y": "LastTwoY",
+    "yfreq": "Yfreq",
+    "long": "Long",
+    "preamble2": "PreambleTwo",
+    "semantic": "Semantic",
+    "smallbatch": "Smallbatch",
+    "20yhist": "TwentyYHist",
+    "semlonger": "Semlonger",
+    "numlonger": "Numlonger",
+    "100yhist": "HundredYHist",
+}
+DIGIT_WORDS = dict(
+    zip(
+        "0123456789",
+        [
+            "Zero",
+            "One",
+            "Two",
+            "Three",
+            "Four",
+            "Five",
+            "Six",
+            "Seven",
+            "Eight",
+            "Nine",
+        ],
+    )
+)
+
+# One color per snapshot pair, in the order the variants introduce them.
+SNAPSHOT_COLORS = ["#7fb0a0", "#102b23", "#3d7a68", "#c4a35a"]
 
 # The questions-per-prompt ablation (appendix D). Three panels: the two binary
 # scores against the number of questions a prompt carried, and what each
@@ -1711,9 +1758,7 @@ def model_bands_by_figure(found: dict[str, object]) -> dict[str, tuple]:
     return out
 
 
-def city_ci_lines(
-    cis: dict[str, tuple[float, float]], ncities: int
-) -> list[str]:
+def city_ci_lines(cis: dict[str, tuple[float, float]], ncities: int) -> list[str]:
     r"""\MPDRho*CICities : each headline correlation's city cluster interval.
 
     The article's validation table carries a "CI (worlds)" column, which for
@@ -2272,9 +2317,9 @@ def batching_bootstrap(
             member[cpos[city], qpos[q]] = 1.0
         ncity = len(cities)
         draws = rng.integers(0, ncity, (resamples, ncity))
-        city_w = np.stack(
-            [np.bincount(d, minlength=ncity) for d in draws]
-        ).astype(float)
+        city_w = np.stack([np.bincount(d, minlength=ncity) for d in draws]).astype(
+            float
+        )
         weights = city_w @ member
     else:
         draws = rng.integers(0, nq, (resamples, nq))
@@ -2990,9 +3035,7 @@ def batching_lines(
         rows, settings, TAIL, "excess_bits", rest, unit="models"
     )
     rho_rest = batching_rho(rows, settings, TAIL, "excess_bits", rest)
-    rho_rest_cities = batching_rho_cities(
-        rows, settings, TAIL, "excess_bits", rest
-    )
+    rho_rest_cities = batching_rho_cities(rows, settings, TAIL, "excess_bits", rest)
     lines += [
         nc("NModelsNoAnchor", len(rest)),
         nc("TailSmallestNoAnchor", f"{b_rest[first['cap']]['point']:.3f}"),
@@ -3111,6 +3154,500 @@ def batching_lines(
                 if old65
                 else "---",
             ),
+        ]
+    return lines
+
+
+# ---------------------------------------------------------------------------
+# The prompt variants
+
+
+def read_variants(path: Path, scales: dict[str, dict[str, float]]) -> list[dict]:
+    """variants_forecasts.csv, normalized by the city scales like the main run."""
+    return normalize(read_rows(path), scales)
+
+
+def read_variants_runs(path: Path) -> list[dict]:
+    """variants_runs.csv: per (variant, model) what was asked, parsed and paid."""
+    if not path.exists():
+        sys.exit(
+            f"[error] {path} not found\n"
+            "  rerun scripts/gather_paper_data.py; it writes the variants'"
+            " per-run rows"
+        )
+    numeric = {
+        "nforecasts": int,
+        "nvalid": int,
+        "ncalls": int,
+        "cost_usd": float,
+        "latency_ms_sum": float,
+        "latency_ms_p50": float,
+    }
+    with path.open(newline="") as f:
+        rows = [
+            {
+                k: (numeric[k](v) if k in numeric and v != "" else v)
+                for k, v in r.items()
+            }
+            for r in csv.DictReader(f)
+        ]
+    if not rows:
+        sys.exit(f"[error] {path} holds no rows")
+    return rows
+
+
+def read_variants_settings(path: Path) -> list[dict]:
+    """variants_settings.csv, in the appendix's order."""
+    if not path.exists():
+        sys.exit(f"[error] {path} not found\n  rerun scripts/gather_paper_data.py")
+    with path.open(newline="") as f:
+        rows = list(csv.DictReader(f))
+    for r in rows:
+        r["is_main"] = bool(int(r["is_main"]))
+        r["report_effectiveness"] = bool(int(r["report_effectiveness"]))
+        r["questions_per_prompt"] = float(r["questions_per_prompt"])
+        r["prompts_per_model"] = int(r["prompts_per_model"])
+    if not rows:
+        sys.exit(f"[error] {path} holds no rows")
+    return rows
+
+
+def variant_word(name: str) -> str:
+    """The word a variant's macros are named with."""
+    if name in VARIANT_WORDS:
+        return VARIANT_WORDS[name]
+    return "".join(
+        DIGIT_WORDS[ch] if ch.isdigit() else ch
+        for part in name.replace("-", " ").replace("_", " ").split()
+        for ch in part.capitalize()
+    )
+
+
+def variant_rows(rows: list[dict], name: str) -> list[dict]:
+    return [r for r in rows if r["variant"] == name]
+
+
+def variant_bootstrap(
+    rows: list[dict],
+    settings: list[dict],
+    key: str,
+    models: list[str],
+    unit: str = "models",
+    resamples: int = BOOTSTRAP_RESAMPLES,
+    seed: int = BOOTSTRAP_SEED,
+) -> dict[str, dict]:
+    """Pooled score per variant with paired bootstrap intervals.
+
+    The pooled score is the mean over models of each model's mean over
+    questions. With `unit` "models" one draw of the panel is shared by every
+    variant, so the interval on a variant's difference from its parent is
+    paired on the models whatever questions the two asked. With "questions"
+    the questions are redrawn with the models fixed, one shared draw for the
+    variants that ask the same questions; a difference between variants that
+    ask different questions is then left unpaired (None).
+
+    Returns, per variant: point, lo, hi, and delta/dlo/dhi against its parent
+    (None without one).
+    """
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    model_draws = rng.integers(0, len(models), (resamples, len(models)))
+    question_draws: dict[int, object] = {}
+    pooled, points, qsets = {}, {}, {}
+    for s in settings:
+        name = s["variant"]
+        mine = variant_rows(rows, name)
+        questions = sorted({r["question_id"] for r in mine})
+        qsets[name] = frozenset(questions)
+        a = _score_matrix(mine, key, questions, models)
+        model_means = np.nanmean(a, axis=0)
+        points[name] = float(np.nanmean(model_means))
+        if unit == "models":
+            pooled[name] = np.nanmean(model_means[model_draws], axis=1)
+            continue
+        nq = len(questions)
+        if nq not in question_draws:
+            draws = rng.integers(0, nq, (resamples, nq))
+            weights = np.zeros((resamples, nq))
+            for i, d in enumerate(draws):
+                weights[i] = np.bincount(d, minlength=nq)
+            question_draws[nq] = weights
+        weights = question_draws[nq]
+        present = ~np.isnan(a)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            means = (weights @ np.where(present, a, 0.0)) / (weights @ present)
+        pooled[name] = np.nanmean(means, axis=1)
+
+    out = {}
+    for s in settings:
+        name, parent = s["variant"], s["parent"]
+        lo, hi = np.percentile(pooled[name], [2.5, 97.5])
+        cell = {"point": points[name], "lo": float(lo), "hi": float(hi)}
+        paired = parent in pooled and (unit == "models" or qsets[name] == qsets[parent])
+        if paired:
+            d = pooled[name] - pooled[parent]
+            dlo, dhi = np.percentile(d, [2.5, 97.5])
+            cell.update(
+                delta=points[name] - points[parent], dlo=float(dlo), dhi=float(dhi)
+            )
+        else:
+            cell.update(delta=None, dlo=None, dhi=None)
+        out[name] = cell
+    return out
+
+
+def variant_rho(
+    rows: list[dict], settings: list[dict], key: str, models: list[str]
+) -> dict[str, object]:
+    """ECI correlation per variant, on the per-model means, both intervals."""
+    predictor = by_model_id(eci_by_name_of(models), models)
+    return {
+        s["variant"]: correlate(
+            "", predictor, variant_rows(rows, s["variant"]), key, models, ALL
+        )
+        for s in settings
+    }
+
+
+def variant_rho_cities(
+    rows: list[dict], settings: list[dict], key: str, models: list[str]
+) -> dict[str, tuple | None]:
+    """Each variant's ECI correlation with a cluster interval over cities."""
+    predictor = by_model_id(eci_by_name_of(models), models)
+    out = {}
+    for s in settings:
+        ci, _ = cluster_ci(predictor, variant_rows(rows, s["variant"]), key)
+        out[s["variant"]] = ci
+    return out
+
+
+def variant_total(runs: list[dict], name: str, field: str) -> float | None:
+    vals = [r[field] for r in runs if r["variant"] == name and r[field] != ""]
+    return sum(vals) if vals else None
+
+
+def variant_unparsed(runs: list[dict], name: str) -> float | None:
+    """Share (%) of a variant's forecasts, over all models, that did not parse."""
+    asked = variant_total(runs, name, "nforecasts")
+    valid = variant_total(runs, name, "nvalid")
+    return 100.0 * (1 - valid / asked) if asked else None
+
+
+def main_variant(settings: list[dict]) -> str | None:
+    """The variant whose prompts are the main run's own, if one is."""
+    return next((s["variant"] for s in settings if s["is_main"]), None)
+
+
+def snapshot_colors(settings: list[dict]) -> dict[str, str]:
+    """One color per snapshot pair, keyed by the pair's years."""
+    pairs = list(dict.fromkeys(s["snapshot_years"] for s in settings))
+    return {p: SNAPSHOT_COLORS[i % len(SNAPSHOT_COLORS)] for i, p in enumerate(pairs)}
+
+
+def draw_variants_figure(
+    path: Path,
+    settings: list[dict],
+    models: list[str],
+    boot: dict[str, dict],
+    main: str | None,
+) -> Path | None:
+    """One bar per variant, its pooled excess nCRPS; see VARIANTS_FIG_NAME.
+
+    `boot` is the bootstrap over models, so the whiskers are the interval the
+    article quotes. Bars are colored by the snapshot pair the variant
+    forecasts from, since that is what separates the levels most.
+    """
+    import matplotlib
+
+    matplotlib.use("pgf")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+
+    if not settings:
+        print(f"[skipped] {VARIANTS_FIG_NAME}: no variant rows")
+        return None
+    colors = snapshot_colors(settings)
+    names = [s["variant"] for s in settings]
+    xs = list(range(len(names)))
+    ys = [boot[n]["point"] for n in names]
+    lower = [boot[n]["point"] - boot[n]["lo"] for n in names]
+    upper = [boot[n]["hi"] - boot[n]["point"] for n in names]
+
+    with plt.rc_context(
+        {
+            "pgf.texsystem": "pdflatex",
+            "text.usetex": True,
+            "font.family": "serif",
+            "pgf.rcfonts": False,
+            "font.size": 7,
+            "axes.labelsize": 7,
+            "xtick.labelsize": 6.5,
+            "ytick.labelsize": 6.5,
+            "axes.linewidth": 0.6,
+            "xtick.major.width": 0.6,
+            "ytick.major.width": 0.6,
+            "xtick.major.size": 2.0,
+            "ytick.major.size": 2.0,
+        }
+    ):
+        fig, ax = plt.subplots(figsize=VARIANTS_SIZE, layout="constrained")
+        ax.bar(
+            xs,
+            ys,
+            width=0.7,
+            color=[colors[s["snapshot_years"]] for s in settings],
+            edgecolor=[EXTREME_COLOR if n == main else "none" for n in names],
+            linewidth=[1.2 if n == main else 0 for n in names],
+            zorder=2,
+        )
+        ax.errorbar(
+            xs,
+            ys,
+            yerr=[lower, upper],
+            fmt="none",
+            ecolor="0.25",
+            elinewidth=0.7,
+            capsize=2,
+            zorder=3,
+        )
+        ax.set_xticks(xs)
+        ax.set_xticklabels(
+            [n + (r"$^\dagger$" if n == main else "") for n in names],
+            rotation=35,
+            ha="right",
+            rotation_mode="anchor",
+        )
+        ax.set_ylabel("Excess nCRPS")
+        ax.set_ylim(bottom=0)
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.grid(axis="y", color="0.9", lw=0.5, zorder=0)
+        handles = [
+            Patch(color=c, label=f"Snapshots at years {p}") for p, c in colors.items()
+        ]
+        if main is not None:
+            handles.append(
+                Patch(
+                    facecolor="none",
+                    edgecolor=EXTREME_COLOR,
+                    lw=1.2,
+                    label="The paper's run",
+                )
+            )
+        ax.legend(
+            handles=handles, fontsize=5.5, frameon=False, loc="upper right", ncol=2
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(path)
+        plt.close(fig)
+    return path
+
+
+def signed(value: float | None, fmt: str = "{:+.3f}") -> str:
+    """A signed number in math mode, so its minus matches the intervals'.
+
+    A value that rounds to zero is printed as 0.000 rather than as -0.000.
+    """
+    if value is None:
+        return "--"
+    text = fmt.format(value)
+    if text.lstrip("+-").strip("0.") == "":
+        text = text[1:]
+    return f"${text}$"
+
+
+def band3(ci: tuple[float, float] | None) -> str:
+    """macro_band to three decimals: the variants differ in the third."""
+    if ci is None:
+        return "---"
+    return f"$[{ci[0]:.3f},\\,{ci[1]:.3f}]$"
+
+
+def variants_table(
+    settings: list[dict],
+    runs: list[dict],
+    models: list[str],
+    boot: dict[str, dict],
+    rho: dict[str, object],
+    main: str | None,
+) -> str:
+    """Per variant: parent, pooled score, paired difference from the parent,
+    share unparsed, rho with ECI, and cost. The snapshot years are in the
+    settings table."""
+    lines = [
+        r"\setlength{\tabcolsep}{2pt}",
+        r"\begin{tabular}{llrrrrr}",
+        r"\toprule",
+        (
+            r"Variant & vs & Excess nCRPS & $\Delta$ vs parent"
+            r" & Unparsed & $\rho$ with ECI & Cost (\$) \\"
+        ),
+        r"\midrule",
+    ]
+    for s in settings:
+        name = s["variant"]
+        b = boot[name]
+        c = rho[name]
+        label = tex_escape(name) + (r"$^\dagger$" if name == main else "")
+        delta = (
+            f"{signed(b['delta'])} {band3((b['dlo'], b['dhi']))}"
+            if b["delta"] is not None
+            else "--"
+        )
+        rho_cell = (
+            f"{adjusted(c.rho):.2f} {macro_band(adjusted_band(c.rho_models))}"
+            if c
+            else "--"
+        )
+        cost = variant_total(runs, name, "cost_usd")
+        lines.append(
+            " & ".join(
+                [
+                    label,
+                    tex_escape(s["parent"]) if s["parent"] else "--",
+                    cell(b["point"], "{:.3f}"),
+                    delta,
+                    cell(variant_unparsed(runs, name), "{:.1f}"),
+                    rho_cell,
+                    cell(cost, "{:.2f}"),
+                ]
+            )
+            + r" \\"
+        )
+    lines += [r"\bottomrule", r"\end{tabular}"]
+    return table_file(
+        lines,
+        "Prompt variants, per variant. Sources: variants_forecasts.csv,"
+        " variants_runs.csv, variants_settings.csv. Excess nCRPS = mean of"
+        " per-model means; Delta = paired against the parent variant, 95%"
+        " bootstrap over the models; rho sign-adjusted, 95% bootstrap over the"
+        " models; Cost summed over the models.",
+    )
+
+
+def variants_settings_table(settings: list[dict], main: str | None) -> str:
+    """Per variant: what it changed, from its config."""
+    lines = [
+        r"\setlength{\tabcolsep}{3pt}",
+        r"\begin{tabular}{@{}llllllc@{}}",
+        r"\toprule",
+        r"Variant & vs & Snapshot & History & Preamble & Label, order & Per prompt \\",
+        r"\midrule",
+    ]
+    for s in settings:
+        name = s["variant"]
+        label = tex_escape(name) + (r"$^\dagger$" if name == main else "")
+        tag = "metric@turn" if s["tagging"] == "semantic" else "number"
+        history = s["history"].replace("every ", "")
+        if s["report_effectiveness"]:
+            history += r"$^\ast$"
+        lines.append(
+            " & ".join(
+                [
+                    label,
+                    tex_escape(s["parent"]) if s["parent"] else "--",
+                    s["snapshot_years"],
+                    history,
+                    s["preamble"],
+                    f"{tag}, {s['sort']}",
+                    f"{s['questions_per_prompt']:g}",
+                ]
+            )
+            + r" \\"
+        )
+    lines += [r"\bottomrule", r"\end{tabular}"]
+    return table_file(
+        lines,
+        "Prompt variants, their settings. Source: variants_settings.csv (from the"
+        " configs). Dagger: the main run's prompts; asterisk: the report also"
+        " prints the funding-effectiveness lines.",
+    )
+
+
+def variants_lines(
+    rows: list[dict],
+    runs: list[dict],
+    settings: list[dict],
+    models: list[str],
+    boot: dict[str, dict],
+    boot_q: dict[str, dict],
+    rho: dict[str, object],
+    rho_cities: dict[str, tuple | None],
+    main: str | None,
+) -> list[str]:
+    r"""\MPDVar* : every number the prompt-variants appendix quotes."""
+    pre = MACRO_PREFIX
+    nc = lambda name, value: f"\\newcommand{{\\{pre}Var{name}}}{{{value}}}"
+    names = [s["variant"] for s in settings]
+    by_point = sorted(names, key=lambda n: boot[n]["point"])
+    rhos = {n: adjusted(rho[n].rho) for n in names if rho[n]}
+    unparsed = {n: variant_unparsed(runs, n) for n in names}
+    cost_total = sum(variant_total(runs, n, "cost_usd") or 0.0 for n in names)
+    cost_main = variant_total(runs, main, "cost_usd") if main else 0.0
+    lines = [
+        "",
+        "% The prompt variants (appendix D). Pooled scores are means of per-model",
+        "% means; Delta* are paired against the variant's parent, with the",
+        "% shared model draw's 95% interval (CIModels) and, where the two ask the",
+        "% same questions, a shared question draw's (CIQuestions); Rho* are",
+        "% sign-adjusted as every other correlation here.",
+        nc("NModels", len(models)),
+        nc("NVariants", len(names)),
+        nc(
+            "NQuestions",
+            f"{len({r['question_id'] for r in variant_rows(rows, names[0])}):,}",
+        ),
+        nc("NCities", len({r["city"] for r in rows})),
+        nc("NPrompts", settings[0]["prompts_per_model"]),
+        nc("CostTotal", f"{cost_total:.2f}"),
+        nc("CostNew", f"{cost_total - (cost_main or 0.0):.2f}"),
+        nc("Main", tex_escape(main) if main else "---"),
+        nc("Best", tex_escape(by_point[0])),
+        nc("BestMean", f"{boot[by_point[0]]['point']:.3f}"),
+        nc("Worst", tex_escape(by_point[-1])),
+        nc("WorstMean", f"{boot[by_point[-1]]['point']:.3f}"),
+        nc("RhoMin", f"{min(rhos.values()):.2f}" if rhos else "---"),
+        nc("RhoMax", f"{max(rhos.values()):.2f}" if rhos else "---"),
+        nc("RhoMinVariant", tex_escape(min(rhos, key=rhos.get)) if rhos else "---"),
+        nc("RhoMaxVariant", tex_escape(max(rhos, key=rhos.get)) if rhos else "---"),
+        nc("UnparsedMin", f"{min(v for v in unparsed.values() if v is not None):.1f}"),
+        nc("UnparsedMax", f"{max(v for v in unparsed.values() if v is not None):.1f}"),
+        nc(
+            "UnparsedMaxVariant",
+            tex_escape(
+                max((n for n in names if unparsed[n] is not None), key=unparsed.get)
+            ),
+        ),
+    ]
+    for s in settings:
+        name, w = s["variant"], variant_word(s["variant"])
+        b, bq, c = boot[name], boot_q[name], rho[name]
+        lines += [
+            nc(f"{w}Years", s["snapshot_years"]),
+            nc(f"{w}Parent", tex_escape(s["parent"]) if s["parent"] else "---"),
+            nc(f"{w}Mean", f"{b['point']:.3f}"),
+            nc(f"{w}CIModels", band3((b["lo"], b["hi"]))),
+            nc(f"{w}CIQuestions", band3((bq["lo"], bq["hi"]))),
+            nc(f"{w}Delta", signed(b["delta"]) if b["delta"] is not None else "---"),
+            nc(
+                f"{w}DeltaCIModels",
+                band3((b["dlo"], b["dhi"])) if b["delta"] is not None else "---",
+            ),
+            nc(
+                f"{w}DeltaCIQuestions",
+                band3((bq["dlo"], bq["dhi"])) if bq["delta"] is not None else "---",
+            ),
+            nc(
+                f"{w}Unparsed",
+                f"{unparsed[name]:.1f}" if unparsed[name] is not None else "---",
+            ),
+            nc(f"{w}Rho", f"{adjusted(c.rho):.2f}" if c else "---"),
+            nc(
+                f"{w}RhoCIModels",
+                macro_band(adjusted_band(c.rho_models)) if c else "---",
+            ),
+            nc(f"{w}RhoCICities", macro_band(adjusted_band(rho_cities[name]))),
+            nc(f"{w}Cost", cell(variant_total(runs, name, "cost_usd"), "{:.2f}")),
         ]
     return lines
 
@@ -3605,6 +4142,11 @@ def main() -> None:
     usage = read_usage(args.datadir / USAGE_CSV_NAME)
     batching = read_batching(args.datadir / BATCHING_CSV_NAME)
     batching_runs = read_batching_runs(args.datadir / BATCHING_RUNS_CSV_NAME)
+    variants = read_variants(args.datadir / VARIANTS_CSV_NAME, scales)
+    variants_runs = read_variants_runs(args.datadir / VARIANTS_RUNS_CSV_NAME)
+    variants_settings = read_variants_settings(
+        args.datadir / VARIANTS_SETTINGS_CSV_NAME
+    )
     recheck = read_recheck(args.datadir / RECHECK_CSV_NAME)
 
     extra_dir = args.outdir / EXTRA_SUBDIR
@@ -3685,9 +4227,7 @@ def main() -> None:
         for section, key, _, _ in BATCHING_PANELS
     }
     rho_cities = {
-        section: batching_rho_cities(
-            batching, settings, section, key, ablation_models
-        )
+        section: batching_rho_cities(batching, settings, section, key, ablation_models)
         for section, key, _, _ in BATCHING_PANELS
     }
     print(
@@ -3725,6 +4265,48 @@ def main() -> None:
         production,
         recheck,
     )
+    # The prompt variants: scored like the main run, compared paired on the
+    # panel against each one's parent.
+    variant_models = models_in_order(variants)
+    var_boot = variant_bootstrap(
+        variants, variants_settings, "excess_ncrps", variant_models
+    )
+    var_boot_q = variant_bootstrap(
+        variants, variants_settings, "excess_ncrps", variant_models, unit="questions"
+    )
+    var_rho = variant_rho(variants, variants_settings, "excess_ncrps", variant_models)
+    var_rho_cities = variant_rho_cities(
+        variants, variants_settings, "excess_ncrps", variant_models
+    )
+    var_main = main_variant(variants_settings)
+    print(
+        f"prompt variants: {len(variants_settings)} variants x {len(variant_models)} models"
+        + (f"; the paper's run is {var_main}" if var_main else "")
+    )
+    for s_ in variants_settings:
+        b = var_boot[s_["variant"]]
+        d = (
+            f" ({b['delta']:+.3f} vs {s_['parent']}, CI models {format_band((b['dlo'], b['dhi']), 0)})"
+            if b["delta"] is not None
+            else ""
+        )
+        c = var_rho[s_["variant"]]
+        print(
+            f"  {s_['variant']:>14}: excess nCRPS {b['point']:.3f}{d}"
+            + (f"  rho {adjusted(c.rho):+.2f}" if c else "")
+        )
+    print()
+    variant_macros = variants_lines(
+        variants,
+        variants_runs,
+        variants_settings,
+        variant_models,
+        var_boot,
+        var_boot_q,
+        var_rho,
+        var_rho_cities,
+        var_main,
+    )
     macros = write_macros(
         args.datadir / MACROS_NAME,
         found,
@@ -3738,7 +4320,7 @@ def main() -> None:
         binary,
         city_ci,
         ncities,
-        batch_macros,
+        batch_macros + variant_macros,
     )
     tables = write_tables(
         args.datadir,
@@ -3759,6 +4341,15 @@ def main() -> None:
             "batching_models": batching_models_table(
                 batching, settings, ablation_models, names
             ),
+            "variants": variants_table(
+                variants_settings,
+                variants_runs,
+                variant_models,
+                var_boot,
+                var_rho,
+                var_main,
+            ),
+            "variants_settings": variants_settings_table(variants_settings, var_main),
         },
     )
     cells = write_cells(args.datadir, binary, continuous)
@@ -3785,7 +4376,15 @@ def main() -> None:
 
     for out in figures.written:
         print(f"Wrote {out}")
-    for out in (capability, horizon_fig, bands_fig, batching_fig):
+    variants_fig = draw_variants_figure(
+        args.outdir / VARIANTS_FIG_NAME,
+        variants_settings,
+        variant_models,
+        var_boot,
+        var_main,
+    )
+
+    for out in (capability, horizon_fig, bands_fig, batching_fig, variants_fig):
         if out:
             print(f"Wrote {out}")
     print(f"Wrote {macros}")
