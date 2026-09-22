@@ -152,6 +152,8 @@ from gather_paper_data import (
     CONTINUOUS_CSV_NAME,
     COVERAGE_CSV_NAME,
     KNOWLEDGE_CSV_NAME,
+    KNOWLEDGE_PREAMBLE_NAME,
+    KNOWLEDGE_PROMPT_NAME,
     KNOWLEDGE_RUNS_CSV_NAME,
     MODEL_SCORES_CSV_NAME,
     OUT_DIR,
@@ -234,7 +236,18 @@ TABLE_NAMES = {
     "variants_settings": "micropolis_variants_settings.tex",
     "knowledge": "micropolis_knowledge.tex",
     "knowledge_corr": "micropolis_knowledge_corr.tex",
+    "knowledge_preamble": "micropolis_knowledge_preamble.tex",
+    "knowledge_prompt_one": "micropolis_knowledge_prompt_one.tex",
+    "knowledge_prompt_two": "micropolis_knowledge_prompt_two.tex",
 }
+
+# The verbatim blocks the article sets prompts in: \small, lines wrapped at
+# this width with continuation lines indented, as appendix B does by hand.
+VERBATIM_WIDTH = 72
+VERBATIM_INDENT = "    "
+# Characters pdflatex's verbatim cannot set from the prompt's UTF-8; each is
+# replaced by an ASCII stand-in the article's note explains.
+VERBATIM_SUBSTITUTIONS = {"\u2014": "--", "\u2013": "-", "\u2264": "<=", "\u2265": ">="}
 
 # The knowledge test (appendix D). Two panels: the score against ECI, and the
 # main run's mid-range excess Brier against the score.
@@ -4053,6 +4066,63 @@ def knowledge_corr_table(corr: dict[str, dict]) -> str:
     )
 
 
+def verbatim_block(text: str, source: str) -> str:
+    """`text` as a \\small verbatim block, long lines wrapped like appendix B's.
+
+    A wrapped line continues indented, so a reader can tell a continuation
+    from a new line of the prompt; the model saw the unwrapped text.
+    """
+    import textwrap
+
+    for char, ascii_ in VERBATIM_SUBSTITUTIONS.items():
+        text = text.replace(char, ascii_)
+    lines = []
+    for line in text.rstrip("\n").splitlines():
+        if len(line) <= VERBATIM_WIDTH:
+            lines.append(line)
+            continue
+        lines += textwrap.wrap(
+            line,
+            width=VERBATIM_WIDTH,
+            subsequent_indent=VERBATIM_INDENT,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+    body = "\n".join(lines)
+    if "\\end{verbatim}" in body:
+        raise ValueError("the prompt text would close the verbatim block early")
+    return table_file(
+        [
+            r"\begin{small}",
+            r"\begin{verbatim}",
+            body,
+            r"\end{verbatim}",
+            r"\end{small}",
+        ],
+        source,
+    )
+
+
+def knowledge_prompt_blocks(datadir: Path) -> dict[str, str]:
+    """The preamble and each half's statement list as verbatim blocks."""
+    out = {}
+    preamble = datadir / KNOWLEDGE_PREAMBLE_NAME
+    if not preamble.exists():
+        sys.exit(f"[error] {preamble} not found\n  rerun scripts/gather_paper_data.py")
+    out["knowledge_preamble"] = verbatim_block(
+        preamble.read_text(encoding="utf-8"),
+        f"The knowledge test's preamble, verbatim. Source: {KNOWLEDGE_PREAMBLE_NAME}.",
+    )
+    for half, key in ((1, "knowledge_prompt_one"), (2, "knowledge_prompt_two")):
+        name = KNOWLEDGE_PROMPT_NAME.format(half=half)
+        out[key] = verbatim_block(
+            (datadir / name).read_text(encoding="utf-8"),
+            f"The knowledge test's prompt {half}, the statements after the preamble,"
+            f" verbatim. Source: {name}.",
+        )
+    return out
+
+
 def knowledge_lines(
     rows: list[dict],
     runs: list[dict],
@@ -4871,6 +4941,7 @@ def main() -> None:
             "variants_settings": variants_settings_table(variants_settings, var_main),
             "knowledge": knowledge_table(knowledge, names, know_models),
             "knowledge_corr": knowledge_corr_table(know_corr),
+            **knowledge_prompt_blocks(args.datadir),
         },
     )
     cells = write_cells(args.datadir, binary, continuous)
