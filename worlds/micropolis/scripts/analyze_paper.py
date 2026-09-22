@@ -217,9 +217,9 @@ HORIZON_PANELS = [
         MID_RANGE,
         "excess_brier",
         "Excess Brier score",
-        r"Mid-range questions ($p \geq 5\%$)",
+        r"Mid-range questions ($q \geq 5\%$)",
     ),
-    (TAIL, "excess_bits", "Excess bits", r"Tail questions ($p < 5\%$)"),
+    (TAIL, "excess_bits", "Excess bits", r"Tail questions ($q < 5\%$)"),
 ]
 TABLE_NAMES = {
     "models": "micropolis_models.tex",
@@ -1206,7 +1206,7 @@ def draw_bands_figure(path: Path, binary: list[dict]) -> Path | None:
             ax.axvline(split - 0.5, color=EXTREME_COLOR, lw=0.7, ls=":")
             ax.set_xticks(xs)
             ax.set_xticklabels([band_label(i) for i in range(nbands)], rotation=90)
-            ax.set_xlabel(r"Ground-truth probability $p$ (\%)")
+            ax.set_xlabel(r"Ground-truth probability $q$ (\%)")
             ax.spines[["top", "right"]].set_visible(False)
             ax.margins(x=0.02)
 
@@ -1803,7 +1803,7 @@ def band_lines(binary: list[dict]) -> list[str]:
     split = BAND_EDGES.index(TAIL_THRESHOLD)
     tail = grid[:split].sum()
     lines = [
-        "% The binary set's composition by ground-truth probability p, over",
+        "% The binary set's composition by ground-truth probability q, over",
         "% the questions one model is asked (every model is asked the same).",
         f"\\newcommand{{\\{pre}BandNQuestions}}{{{int(total):,}}}",
         f"\\newcommand{{\\{pre}BandTailShare}}{{{100.0 * tail / total:.1f}}}",
