@@ -3223,6 +3223,13 @@ def variant_word(name: str) -> str:
     )
 
 
+def variant_tt(name: str | None, dagger: bool = False) -> str:
+    """A variant's name as the article sets it: typewriter, dagger for the main run."""
+    if not name:
+        return "--"
+    return rf"\texttt{{{tex_escape(name)}}}" + (r"$^\dagger$" if dagger else "")
+
+
 def variant_rows(rows: list[dict], name: str) -> list[dict]:
     return [r for r in rows if r["variant"] == name]
 
@@ -3413,7 +3420,7 @@ def draw_variants_figure(
         )
         ax.set_xticks(xs)
         ax.set_xticklabels(
-            [n + (r"$^\dagger$" if n == main else "") for n in names],
+            [variant_tt(n, dagger=n == main) for n in names],
             rotation=35,
             ha="right",
             rotation_mode="anchor",
@@ -3488,7 +3495,7 @@ def variants_table(
         name = s["variant"]
         b = boot[name]
         c = rho[name]
-        label = tex_escape(name) + (r"$^\dagger$" if name == main else "")
+        label = variant_tt(name, dagger=name == main)
         delta = (
             f"{signed(b['delta'])} {band3((b['dlo'], b['dhi']))}"
             if b["delta"] is not None
@@ -3504,7 +3511,7 @@ def variants_table(
             " & ".join(
                 [
                     label,
-                    tex_escape(s["parent"]) if s["parent"] else "--",
+                    variant_tt(s["parent"]),
                     cell(b["point"], "{:.3f}"),
                     delta,
                     cell(variant_unparsed(runs, name), "{:.1f}"),
@@ -3536,7 +3543,7 @@ def variants_settings_table(settings: list[dict], main: str | None) -> str:
     ]
     for s in settings:
         name = s["variant"]
-        label = tex_escape(name) + (r"$^\dagger$" if name == main else "")
+        label = variant_tt(name, dagger=name == main)
         tag = "metric@turn" if s["tagging"] == "semantic" else "number"
         history = s["history"].replace("every ", "")
         if s["report_effectiveness"]:
@@ -3545,7 +3552,7 @@ def variants_settings_table(settings: list[dict], main: str | None) -> str:
             " & ".join(
                 [
                     label,
-                    tex_escape(s["parent"]) if s["parent"] else "--",
+                    variant_tt(s["parent"]),
                     s["snapshot_years"],
                     history,
                     s["preamble"],
@@ -3601,20 +3608,20 @@ def variants_lines(
         nc("NPrompts", settings[0]["prompts_per_model"]),
         nc("CostTotal", f"{cost_total:.2f}"),
         nc("CostNew", f"{cost_total - (cost_main or 0.0):.2f}"),
-        nc("Main", tex_escape(main) if main else "---"),
-        nc("Best", tex_escape(by_point[0])),
+        nc("Main", variant_tt(main) if main else "---"),
+        nc("Best", variant_tt(by_point[0])),
         nc("BestMean", f"{boot[by_point[0]]['point']:.3f}"),
-        nc("Worst", tex_escape(by_point[-1])),
+        nc("Worst", variant_tt(by_point[-1])),
         nc("WorstMean", f"{boot[by_point[-1]]['point']:.3f}"),
         nc("RhoMin", f"{min(rhos.values()):.2f}" if rhos else "---"),
         nc("RhoMax", f"{max(rhos.values()):.2f}" if rhos else "---"),
-        nc("RhoMinVariant", tex_escape(min(rhos, key=rhos.get)) if rhos else "---"),
-        nc("RhoMaxVariant", tex_escape(max(rhos, key=rhos.get)) if rhos else "---"),
+        nc("RhoMinVariant", variant_tt(min(rhos, key=rhos.get)) if rhos else "---"),
+        nc("RhoMaxVariant", variant_tt(max(rhos, key=rhos.get)) if rhos else "---"),
         nc("UnparsedMin", f"{min(v for v in unparsed.values() if v is not None):.1f}"),
         nc("UnparsedMax", f"{max(v for v in unparsed.values() if v is not None):.1f}"),
         nc(
             "UnparsedMaxVariant",
-            tex_escape(
+            variant_tt(
                 max((n for n in names if unparsed[n] is not None), key=unparsed.get)
             ),
         ),
@@ -3624,7 +3631,7 @@ def variants_lines(
         b, bq, c = boot[name], boot_q[name], rho[name]
         lines += [
             nc(f"{w}Years", s["snapshot_years"]),
-            nc(f"{w}Parent", tex_escape(s["parent"]) if s["parent"] else "---"),
+            nc(f"{w}Parent", variant_tt(s["parent"]) if s["parent"] else "---"),
             nc(f"{w}Mean", f"{b['point']:.3f}"),
             nc(f"{w}CIModels", band3((b["lo"], b["hi"]))),
             nc(f"{w}CIQuestions", band3((bq["lo"], bq["hi"]))),
