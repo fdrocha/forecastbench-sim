@@ -3535,7 +3535,7 @@ def variants_table(
 def variants_settings_table(settings: list[dict], main: str | None) -> str:
     """Per variant: what it changed, from its config."""
     lines = [
-        r"\setlength{\tabcolsep}{3pt}",
+        r"\setlength{\tabcolsep}{2.5pt}",
         r"\begin{tabular}{@{}llllllc@{}}",
         r"\toprule",
         r"Variant & vs & Snapshot & History & Preamble & Label, order & Per prompt \\",
