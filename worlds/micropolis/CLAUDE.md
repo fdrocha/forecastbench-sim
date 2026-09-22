@@ -310,9 +310,19 @@ Binary forecasting eval (P(Yes), `data/micropolis/binary/`, spec in `binary_fore
 
 Domain-knowledge eval (`micropolis_world/knowledge_eval/`, True/False/Unknown statements
 about the engine, own cache under `data/micropolis/knowledge_eval/`):
+- `statements.py` holds the set as PAIRS (a true statement and its one-change false twin),
+  UNPAIRED_TRUE/UNPAIRED_FALSE and HONEYPOTS, each with a difficulty and a topic (`engine`,
+  `cities`, `dynamics`). Every fact was checked against the fork's source or the cached city
+  logs; a new statement needs the same, in a trailing comment naming the file or the number.
+- Each model gets `runner.HALVES` (two) prompts, built by `split_halves` so that the two members
+  of a pair never share a prompt: seeing "one-in-eight" beside "one-in-two" would tell the
+  model exactly one is true. Each prompt is cached under its own hash; a model counts as
+  answered only when every half is cached. Editing any statement changes both hashes, so it
+  re-prompts everything.
 - `run_eval_knowledge.py` — gather answers (prompts models; defaults to
-  `configs/knowledge_eval.json5`).
-- `analyze_knowledge.py` — score them and correlate with ECI.
+  `configs/knowledge_eval.json5`, the main run's 24 models).
+- `analyze_knowledge.py` — score them and correlate with ECI, by difficulty, topic and honeypot
+  subset. The `Dynamics` subset is the one the paper reads against forecast skill.
 
 Cost accounting: `analyze_usage.py` — sums the usage sidecars, either for what given configs
 imply or for a `--glob` of sidecar paths. Each sidecar also records `provider`, the upstream

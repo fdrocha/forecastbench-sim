@@ -30,6 +30,7 @@ from scipy import stats
 from micropolis_world import model_scores
 from micropolis_world.config import CONFIG_DIR, Config, main_with_config
 from micropolis_world.knowledge_eval.runner import (
+    HALVES,
     Answer,
     Statement,
     get_cached_answers,
@@ -174,6 +175,13 @@ def subsets() -> list[Subset]:
     for d in sorted({s.difficulty for s in statements}):
         slices.append(
             Subset(f"Difficulty {d}", [s for s in statements if s.difficulty == d])
+        )
+    # The topics: general engine facts, the bundled cities, and the dynamics of
+    # an unmanaged city — the knowledge that could help a model forecast the
+    # world report, which is what the paper correlates forecast skill with.
+    for topic in sorted({s.topic for s in statements}):
+        slices.append(
+            Subset(topic.capitalize(), [s for s in statements if s.topic == topic])
         )
     slices.append(Subset("Honeypot", [s for s in statements if s.is_honeypot]))
     slices.append(Subset("Non-honeypot", [s for s in statements if not s.is_honeypot]))
@@ -320,10 +328,16 @@ def print_join_report(
         str(sum(1 for s in statements if s.difficulty == d)) for d in counts
     )
     honeypots = sum(1 for s in statements if s.is_honeypot)
+    topics = ", ".join(
+        f"{sum(1 for s in statements if s.topic == t)} {t}"
+        for t in sorted({s.topic for s in statements})
+    )
+    paired = sum(1 for s in statements if s.pair is not None)
     print(
         f"\n{len(statements)} statements "
         f"(difficulty {'/'.join(map(str, counts))} = {census}; "
-        f"{honeypots} honeypot)"
+        f"{topics}; {honeypots} honeypot; {paired} in true/false pairs, "
+        f"split over {HALVES} prompts)"
     )
 
 

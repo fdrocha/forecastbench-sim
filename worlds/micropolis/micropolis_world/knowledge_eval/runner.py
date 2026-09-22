@@ -1,7 +1,9 @@
-"""Build the Micropolis domain-knowledge prompt from the statement lists.
+"""Build the Micropolis domain-knowledge prompts from the statement set.
 
-Takes the union of true_statements, false_statements and honeypot_statements,
-shuffles it with a fixed seed, and appends the numbered result to the preamble.
+Shuffles statements.all_statements() with a fixed seed, splits the result into
+HALVES prompts so that the two members of a true/false pair never share one,
+and appends each half, numbered, to the preamble. Every model is asked every
+half; the answers are merged back into the order of the global `statements`.
 """
 
 import asyncio
@@ -23,7 +25,9 @@ from ..prompting import PromptJob, format_eta, format_latency, run_prompts
 from ..usage import CallUsage
 from ..usage import load_usage as read_usage
 from ..usage import save_usage as write_usage
-from .statements import false_statements, honeypot_statements, true_statements
+from .statements import Statement, all_statements
+
+__all__ = ["Statement"]
 
 SHUFFLE_SEED = 20260807
 
@@ -60,14 +64,6 @@ class Answer(Enum):
     UNPARSEABLE = "Unparseable"
 
 
-@dataclass(frozen=True)
-class Statement:
-    text: str
-    is_true: bool
-    is_honeypot: bool
-    difficulty: int
-
-
 def build_statement_list() -> list[Statement]:
     """Return the shuffled Statements, in administered order.
 
@@ -79,17 +75,46 @@ def build_statement_list() -> list[Statement]:
     depends only on the set of statements, not on their order within the three
     source lists.
     """
-    statements = (
-        [Statement(t, True, False, d) for t, d in true_statements]
-        + [Statement(t, False, False, d) for t, d in false_statements]
-        + [Statement(t, False, True, d) for t, d in honeypot_statements]
-    )
-    statements.sort(key=lambda s: s.text)
+    statements = sorted(all_statements(), key=lambda s: s.text)
     random.Random(SHUFFLE_SEED).shuffle(statements)
     return statements
 
 
 statements = build_statement_list()
+
+# How many prompts each model answers. Two is the least that keeps every
+# true/false pair apart; the halves are the same size to within one.
+HALVES = 2
+
+
+def split_halves(stmts: list[Statement], halves: int = HALVES) -> list[list[int]]:
+    """Positions of `stmts` for each prompt, the two members of a pair apart.
+
+    A pair's true statement goes to the half its pair index selects and the
+    false twin to the next one, so with two halves they never meet. Unpaired
+    statements are dealt round-robin in shuffled order, which keeps the halves
+    balanced. Deterministic, like the shuffle: the prompts, and so the cache
+    hashes, depend only on the statement set.
+    """
+    out: list[list[int]] = [[] for _ in range(halves)]
+    unpaired = 0
+    for i, s in enumerate(stmts):
+        if s.pair is None:
+            out[unpaired % halves].append(i)
+            unpaired += 1
+        else:
+            out[(s.pair + (0 if s.is_true else 1)) % halves].append(i)
+    return out
+
+
+@dataclass(frozen=True)
+class Prompt:
+    """One of a model's prompts: which statements it carries, its text and hash."""
+
+    index: int  # which half, 0-based
+    positions: list[int]  # into the global `statements`, in prompt order
+    text: str
+    hash: str
 
 
 def prompt_hash(prompt: str) -> str:
@@ -103,17 +128,40 @@ def prompt_hash(prompt: str) -> str:
     return base64.urlsafe_b64encode(digest).decode("ascii")[:8]
 
 
-def build_prompt() -> tuple[str, str]:
-    """Return the full prompt text and its 8-character hash.
+def build_prompts() -> list[Prompt]:
+    """The HALVES prompts, each numbered from 1, with their hashes.
 
     Writes nothing: the hash is what identifies a cached response, so the
     read-only paths need to derive it without touching out_dir(). Call
-    save_prompt() to persist the prompt itself.
+    save_prompt() to persist a prompt's text.
     """
     preamble = PREAMBLE_PATH.read_text(encoding="utf-8")
-    numbered = [f" {i}: {s.text}" for i, s in enumerate(statements, start=1)]
-    prompt = preamble + "\n".join(numbered) + "\n"
-    return prompt, prompt_hash(prompt)
+    prompts = []
+    for index, positions in enumerate(split_halves(statements)):
+        numbered = [
+            f" {i}: {statements[pos].text}" for i, pos in enumerate(positions, start=1)
+        ]
+        text = preamble + "\n".join(numbered) + "\n"
+        prompts.append(Prompt(index, positions, text, prompt_hash(text)))
+    return prompts
+
+
+def merge_answers(parts: dict[int, list[Answer]]) -> list[Answer]:
+    """Per-half answers back into the order of `statements`.
+
+    `parts` maps a half's index to the answers parsed from its reply, one per
+    position of that half. A half that is missing leaves its statements
+    UNPARSEABLE, so a caller can tell a partly answered model from a fully
+    answered one by the count.
+    """
+    merged = [Answer.UNPARSEABLE] * len(statements)
+    for prompt in build_prompts():
+        answers = parts.get(prompt.index)
+        if answers is None:
+            continue
+        for pos, answer in zip(prompt.positions, answers, strict=True):
+            merged[pos] = answer
+    return merged
 
 
 def save_prompt(prompt: str, phash: str) -> None:
@@ -195,8 +243,11 @@ def cached_models(phash: str) -> list[str]:
     )
 
 
-def parse_response(text: str | None) -> list[Answer]:
-    """Parse a model's reply into one Answer per statement, in statement order.
+def parse_response(text: str | None, count: int | None = None) -> list[Answer]:
+    """Parse a model's reply into one Answer per statement, in prompt order.
+
+    `count` is how many statements the prompt carried (a half's size); it
+    defaults to the whole set, which is what a single-prompt reply holds.
 
     The prompt asks for lines of the form "12: False". Anything that doesn't
     yield a recognized verdict for a given statement number — a missing line, a
@@ -207,7 +258,8 @@ def parse_response(text: str | None) -> list[Answer]:
     (models like to write "**12:** False."), but strict about the verdict word
     itself: only True/False/Unknown count.
     """
-    answers = [Answer.UNPARSEABLE] * len(statements)
+    count = len(statements) if count is None else count
+    answers = [Answer.UNPARSEABLE] * count
     if text is None:
         return answers
 
@@ -221,7 +273,7 @@ def parse_response(text: str | None) -> list[Answer]:
         number, word = int(m.group(1)), m.group(2).lower()
         # Out-of-range numbers are hallucinated statements; ignore them. A
         # repeated number keeps the first answer rather than the last.
-        if not 1 <= number <= len(statements) or number in seen:
+        if not 1 <= number <= count or number in seen:
             continue
         verdict = {
             "true": Answer.TRUE,
@@ -240,24 +292,23 @@ def get_model_answers(
     models: list[str],
     concurrency: int | None = None,
 ) -> dict[str, list[Answer]]:
-    """Administer the statement test to each model and parse the replies.
+    """Administer the test to each model, one call per half, and parse the replies.
 
     The response-<MODEL>-<HASH>.txt files in cache_dir() are the cache and the
-    source of truth: a model with a stored response for the current prompt is
-    re-read and re-parsed rather than prompted again. Because the filename
-    carries the prompt hash, editing the statements simply misses the cache
-    instead of reusing answers to different questions.
+    source of truth: a half a model has a stored response for is re-read and
+    re-parsed rather than prompted again. Because the filename carries the
+    prompt hash, editing the statements simply misses the cache instead of
+    reusing answers to different questions.
 
-    The uncached models are all prompted concurrently under run_prompts's
-    global cap (`concurrency` overrides it), and each response is
-    written to its cache file as it lands. There is one call per model, so
-    every model's block of output still prints whole, in completion order,
-    after the cached models' blocks.
+    The uncached (model, half) calls all run concurrently under run_prompts's
+    global cap (`concurrency` overrides it), and each response is written to
+    its cache file as it lands.
 
     Returns a dict of model id -> answers, one per entry of the global
-    `statements`, in the same order. A model whose request fails, or which
-    replies with nothing but whitespace, is warned about and left out of both
-    the result and the cache.
+    `statements`, in that order, for the models that answered every half. A
+    model whose request fails, or which replies with nothing but whitespace,
+    on any half is warned about and left out; the halves it did answer stay
+    cached, so a re-run only sends what is missing.
 
     The output cap is the backend's (model_specs.json5, or the provider
     default); it must leave room for one answer line per statement, since a cap
@@ -266,43 +317,51 @@ def get_model_answers(
     # Imported here so the scoring-only scripts don't pull in an LLM client.
     from fbsim_core.evaluation.models import get_models
 
-    prompt, phash = build_prompt()
-    save_prompt(prompt, phash)
-    print(f"prompt hash {phash} ({cache_dir() / f'prompt-{phash}.txt'})")
+    prompts = build_prompts()
+    for prompt in prompts:
+        save_prompt(prompt.text, prompt.hash)
+        print(
+            f"prompt {prompt.index + 1}/{len(prompts)}: {len(prompt.positions)}"
+            f" statements, hash {prompt.hash}"
+            f" ({cache_dir() / f'prompt-{prompt.hash}.txt'})"
+        )
 
-    data: dict[str, list[Answer]] = {}
+    parts: dict[str, dict[int, list[Answer]]] = {m: {} for m in models}
 
-    def record_answers(model_name: str, raw: str) -> None:
-        answers = parse_response(raw)
+    def record(model_name: str, prompt: Prompt, raw: str) -> None:
+        answers = parse_response(raw, len(prompt.positions))
         counts = Counter(answers)
         print(
-            "  answered "
+            f"  half {prompt.index + 1}: answered "
             + ", ".join(f"{counts[a]} {a.value}" for a in Answer)
-            + f" (of {len(statements)} statements)"
+            + f" (of {len(prompt.positions)} statements)"
         )
-        data[model_name] = answers
+        parts[model_name][prompt.index] = answers
 
-    # Cached models first: their blocks print instantly, so handling them
-    # before the fan-out keeps them from interleaving with live completions.
+    # Cached halves first: their lines print instantly, so handling them before
+    # the fan-out keeps them from interleaving with live completions.
     jobs: list[PromptJob] = []
     for model_name, model in zip(models, get_models(models)):
-        raw = cached_response(model_name, phash)
-        if raw is not None:
-            print(f"{model_name}: re-parsing cached response")
-            record_answers(model_name, raw)
-        else:
-            jobs.append(
-                PromptJob(
-                    key=model_name,
-                    model=model,
-                    model_name=model_name,
-                    messages=[{"role": "user", "content": prompt}],
+        for prompt in prompts:
+            raw = cached_response(model_name, prompt.hash)
+            if raw is not None:
+                print(
+                    f"{model_name}: re-parsing cached response, half {prompt.index + 1}"
                 )
-            )
+                record(model_name, prompt, raw)
+            else:
+                jobs.append(
+                    PromptJob(
+                        key=(model_name, prompt.index),
+                        model=model,
+                        model_name=model_name,
+                        messages=[{"role": "user", "content": prompt.text}],
+                    )
+                )
 
     total_cost = 0.0
     nunpriced = 0
-    failures: list[tuple[str, Exception]] = []
+    failures: list[tuple[str, int, Exception]] = []
 
     async def consume() -> None:
         nonlocal total_cost, nunpriced
@@ -313,51 +372,44 @@ def get_model_answers(
         async for result in run_prompts(jobs, limit=concurrency):
             done += 1
             eta = format_eta(start, done, len(jobs))
-            model_name = result.job.key
+            model_name, index = result.job.key
+            prompt = prompts[index]
+            tag = f"[{done}/{len(jobs)}] {model_name}, half {index + 1}"
             if not result.ok:
                 err = result.error
-                failures.append((model_name, err))
-                msg.error(
-                    f"[{done}/{len(jobs)}] {model_name}: "
-                    f"request FAILED: {type(err).__name__}: {err}{eta}"
-                )
+                failures.append((model_name, index, err))
+                msg.error(f"{tag}: request FAILED: {type(err).__name__}: {err}{eta}")
                 continue
-
             resp = result.response
             raw = resp.text
             # Usage and how long the call took on the header line even for a
             # blank reply: a model that spent its whole budget thinking still
-            # billed for it and still made you wait, and this is the only
-            # place that spend is ever reported — there's no response to cache
-            # it beside, so it isn't recorded on disk.
+            # billed for it, and this is the only place that spend is reported
+            # — there's no response to cache it beside.
             took = format_latency(resp.usage.latency_ms, resp.retries)
-            print(
-                f"[{done}/{len(jobs)}] {model_name}: {resp.usage.describe()}{took}{eta}"
-            )
+            print(f"{tag}: {resp.usage.describe()}{took}{eta}")
             print(f"  finish_reason: {resp.finish_reason}")
             if resp.usage.cost_usd is None:
                 nunpriced += 1
             else:
                 total_cost += resp.usage.cost_usd
             warn_if_truncated(model_name, resp.finish_reason)
-
             if raw is None or not raw.strip():
                 msg.warn(f"{model_name} returned a blank response; not caching")
                 continue
-
-            out_path = response_path(model_name, phash)
+            out_path = response_path(model_name, prompt.hash)
             # Saved as soon as it lands, so an interrupted run keeps what it
             # already paid for. Usage alongside the response, and only when the
             # response is kept, so the two never disagree about whether this
             # call happened.
             out_path.write_text(raw, encoding="utf-8")
-            save_usage(model_name, phash, resp.usage)
+            save_usage(model_name, prompt.hash, resp.usage)
             print(f"  saved response to {out_path}")
-            record_answers(model_name, raw)
+            record(model_name, prompt, raw)
 
     if jobs:
         asyncio.run(consume())
-        # What this run paid across all fresh calls; cached models cost nothing.
+        # What this run paid across all fresh calls; cached halves cost nothing.
         summary = f"this run's {len(jobs)} call(s) cost ${total_cost:.2f}"
         if nunpriced:
             summary += f" + {nunpriced} unpriced call(s)"
@@ -367,22 +419,42 @@ def get_model_answers(
                 f"{len(failures)} call(s) failed (not cached; "
                 "re-run this script to retry them):"
             )
-            for model_name, err in failures:
-                msg.plain(f"  {model_name}: {type(err).__name__}: {err}")
+            for model_name, index, err in failures:
+                msg.plain(
+                    f"  {model_name}, half {index + 1}: {type(err).__name__}: {err}"
+                )
 
+    data: dict[str, list[Answer]] = {}
+    for model_name in models:
+        got = parts[model_name]
+        if len(got) < len(prompts):
+            missing = [str(i + 1) for i in range(len(prompts)) if i not in got]
+            msg.warn(
+                f"{model_name}: no response for half {', '.join(missing)}; "
+                "left out until a re-run fills it"
+            )
+            continue
+        data[model_name] = merge_answers(got)
     return data
 
 
 def get_cached_answers() -> dict[str, list[Answer]]:
-    """Answers for every model with a stored response for the current prompt.
+    """Answers for every model with a stored response for every current prompt.
 
     Reads and parses the response files without prompting anything, so it works
     offline and costs nothing. Keys are filename slugs rather than the original
-    provider/name ids, which a filename does not preserve.
+    provider/name ids, which a filename does not preserve. A model with only
+    some halves cached is left out: its score would be over a different set.
     """
-    _, phash = build_prompt()
+    prompts = build_prompts()
+    slugs = set.intersection(*(set(cached_models(p.hash)) for p in prompts))
     answers = {}
-    for slug in cached_models(phash):
-        path = cache_dir() / f"response-{slug}-{phash}.txt"
-        answers[slug] = parse_response(path.read_text(encoding="utf-8"))
+    for slug in sorted(slugs):
+        parts = {}
+        for prompt in prompts:
+            path = cache_dir() / f"response-{slug}-{prompt.hash}.txt"
+            parts[prompt.index] = parse_response(
+                path.read_text(encoding="utf-8"), len(prompt.positions)
+            )
+        answers[slug] = merge_answers(parts)
     return answers
