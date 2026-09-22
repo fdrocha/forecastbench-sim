@@ -140,6 +140,7 @@ from analyze_continuous import (
     MIN_MODELS,
     _correlations_by_row,
     _percentile_interval,
+    bootstrap_rho_ci,
     by_model_id,
     correlate,
     format_band,
@@ -150,6 +151,8 @@ from gather_paper_data import (
     BINARY_CSV_NAME,
     CONTINUOUS_CSV_NAME,
     COVERAGE_CSV_NAME,
+    KNOWLEDGE_CSV_NAME,
+    KNOWLEDGE_RUNS_CSV_NAME,
     MODEL_SCORES_CSV_NAME,
     OUT_DIR,
     RECHECK_CSV_NAME,
@@ -229,7 +232,33 @@ TABLE_NAMES = {
     "batching_models": "micropolis_batching_models.tex",
     "variants": "micropolis_variants.tex",
     "variants_settings": "micropolis_variants_settings.tex",
+    "knowledge": "micropolis_knowledge.tex",
+    "knowledge_corr": "micropolis_knowledge_corr.tex",
 }
+
+# The knowledge test (appendix D). Two panels: the score against ECI, and the
+# main run's mid-range excess Brier against the score.
+KNOWLEDGE_FIG_NAME = "fig_micropolis_knowledge.pdf"
+KNOWLEDGE_SIZE = (5.5, 2.3)
+
+# The statement subsets the article scores, as (macro word, label, predicate).
+# Difficulty tiers are added from the data.
+KNOWLEDGE_SUBSETS = [
+    ("All", "All", lambda r: True),
+    ("Engine", "Engine", lambda r: r["topic"] == "engine"),
+    ("Cities", "Cities", lambda r: r["topic"] == "cities"),
+    ("Dynamics", "Dynamics", lambda r: r["topic"] == "dynamics"),
+    ("Honeypot", "Honeypot", lambda r: r["is_honeypot"] == 1),
+]
+DIFFICULTY_WORDS = {0: "Zero", 1: "One", 2: "Two"}
+
+# The three forecast scores the knowledge score is read against, with the
+# rows they come from: (macro word, label, source, key).
+KNOWLEDGE_SKILLS = [
+    ("Mid", "Mid-range excess Brier", "binary_mid", "excess_brier"),
+    ("Tail", "Tail excess bits", "binary_tail", "excess_bits"),
+    ("Cont", "Excess nCRPS", "continuous", "excess_ncrps"),
+]
 
 # The prompt variants (appendix D). One bar per variant: the pooled excess
 # nCRPS, a mean of per-model means, with a paired bootstrap over the panel —
@@ -3659,6 +3688,466 @@ def variants_lines(
     return lines
 
 
+# ---------------------------------------------------------------------------
+# The knowledge test
+
+
+def read_knowledge(path: Path) -> list[dict]:
+    """knowledge_answers.csv with its numbers as numbers."""
+    if not path.exists():
+        sys.exit(f"[error] {path} not found\n  rerun scripts/gather_paper_data.py")
+    with path.open(newline="") as f:
+        rows = []
+        for r in csv.DictReader(f):
+            for k in ("position", "half", "difficulty", "is_true", "is_honeypot"):
+                r[k] = int(r[k])
+            r["pair"] = int(r["pair"]) if r["pair"] != "" else None
+            r["correct"] = int(r["correct"]) if r["correct"] != "" else None
+            r["model_id"] = r.pop("model")
+            rows.append(r)
+    if not rows:
+        sys.exit(f"[error] {path} holds no rows")
+    return rows
+
+
+def read_knowledge_runs(path: Path) -> list[dict]:
+    if not path.exists():
+        sys.exit(f"[error] {path} not found\n  rerun scripts/gather_paper_data.py")
+    numeric = {"ncalls": int, "cost_usd": float, "latency_ms_sum": float}
+    with path.open(newline="") as f:
+        return [
+            {
+                k: (numeric[k](v) if k in numeric and v != "" else v)
+                for k, v in r.items()
+            }
+            for r in csv.DictReader(f)
+        ]
+
+
+def knowledge_subsets(rows: list[dict]) -> list[tuple[str, str, object]]:
+    """KNOWLEDGE_SUBSETS plus one entry per difficulty tier in the data."""
+
+    def tier(d):
+        return lambda r: r["difficulty"] == d
+
+    return KNOWLEDGE_SUBSETS + [
+        (f"Difficulty{DIFFICULTY_WORDS.get(d, d)}", f"Difficulty {d}", tier(d))
+        for d in sorted({r["difficulty"] for r in rows})
+    ]
+
+
+def knowledge_score(rows: list[dict]) -> float | None:
+    """The prompt's rule: +1 correct, -2 wrong or unparsed, 0 unknown, per statement."""
+    if not rows:
+        return None
+    points = sum(
+        1 if r["correct"] == 1 else -2 if r["correct"] == 0 else 0 for r in rows
+    )
+    return points / len(rows)
+
+
+def knowledge_by_model(rows: list[dict], subset) -> dict[str, float]:
+    out = {}
+    for m in models_in_order(rows):
+        s = knowledge_score([r for r in rows if r["model_id"] == m and subset(r)])
+        if s is not None:
+            out[m] = s
+    return out
+
+
+def answer_share(
+    rows: list[dict], model: str, answer: str, subset=lambda r: True
+) -> float:
+    """Share (%) of a model's statements in `subset` answered `answer`."""
+    mine = [r for r in rows if r["model_id"] == model and subset(r)]
+    if not mine:
+        return 0.0
+    return 100.0 * sum(1 for r in mine if r["answer"] == answer) / len(mine)
+
+
+def skill_by_model(
+    binary: list[dict], continuous: list[dict], models: list[str]
+) -> dict[str, dict[str, float]]:
+    """Each forecast score of KNOWLEDGE_SKILLS per model, pooled over horizons."""
+    src = {
+        "binary_mid": [r for r in binary if r["section"] == MID_RANGE],
+        "binary_tail": [r for r in binary if r["section"] == TAIL],
+        "continuous": continuous,
+    }
+    out = {}
+    for word, _label, source, key in KNOWLEDGE_SKILLS:
+        out[word] = {}
+        for m in models:
+            v = _mean_of(src[source], m, None, key)
+            if v is not None:
+                out[word][m] = v
+    return out
+
+
+def spearman_with_ci(xs: list[float], ys: list[float]) -> dict | None:
+    """rho, its p and a 95% bootstrap interval over the points (models)."""
+    from scipy import stats
+
+    if len(xs) < MIN_MODELS or len(set(xs)) < 2 or len(set(ys)) < 2:
+        return None
+    rho, p = stats.spearmanr(xs, ys)
+    return {
+        "rho": float(rho),
+        "p": float(p),
+        "ci": bootstrap_rho_ci(xs, ys),
+        "n": len(xs),
+    }
+
+
+def partial_spearman_with_ci(
+    xs: list[float],
+    ys: list[float],
+    zs: list[float],
+    resamples: int = BOOTSTRAP_RESAMPLES,
+    seed: int = BOOTSTRAP_SEED,
+) -> dict | None:
+    """Spearman of x and y with z partialled out, bootstrapped over the points.
+
+    Ranks all three, regresses the ranks of x and of y on the ranks of z, and
+    correlates the residuals: the association between knowledge and skill
+    that ECI does not already carry. The p-value is the t approximation on
+    n - 3 degrees of freedom.
+    """
+    import numpy as np
+    from scipy import stats
+
+    if len(xs) < MIN_MODELS + 1:
+        return None
+    x, y, z = (np.asarray(v, dtype=float) for v in (xs, ys, zs))
+
+    def partial(x, y, z):
+        rx, ry, rz = (stats.rankdata(v) for v in (x, y, z))
+        design = np.column_stack([np.ones_like(rz), rz])
+        ex = rx - design @ np.linalg.lstsq(design, rx, rcond=None)[0]
+        ey = ry - design @ np.linalg.lstsq(design, ry, rcond=None)[0]
+        if ex.std() == 0 or ey.std() == 0:
+            return np.nan
+        return float(np.corrcoef(ex, ey)[0, 1])
+
+    point = partial(x, y, z)
+    if np.isnan(point):
+        return None
+    idx = np.random.default_rng(seed).integers(0, len(x), (resamples, len(x)))
+    draws = np.array([partial(x[i], y[i], z[i]) for i in idx])
+    n = len(x)
+    tstat = point * np.sqrt((n - 3) / max(1e-12, 1 - point**2))
+    p = float(2 * stats.t.sf(abs(tstat), n - 3))
+    return {"rho": point, "p": p, "ci": _percentile_interval(draws, resamples), "n": n}
+
+
+def knowledge_correlations(
+    rows: list[dict], skills: dict[str, dict[str, float]], models: list[str]
+) -> dict[str, dict]:
+    """Per subset: rho of the knowledge score with ECI, with each forecast
+    score (sign-adjusted so positive means more knowledge, better forecasts),
+    and with each forecast score given ECI."""
+    out = {}
+    for word, label, subset in knowledge_subsets(rows):
+        score = knowledge_by_model(rows, subset)
+        ms = [m for m in models if m in score and eci_of(m) is not None]
+        cell = {
+            "label": label,
+            "n": len(ms),
+            "eci": spearman_with_ci([eci_of(m) for m in ms], [score[m] for m in ms]),
+            "skill": {},
+            "partial": {},
+        }
+        for sword, _l, _s, _k in KNOWLEDGE_SKILLS:
+            mm = [m for m in ms if m in skills[sword]]
+            ks = [score[m] for m in mm]
+            # Lower-is-better scores are negated, so a positive rho reads as
+            # "knows more, forecasts better", the article's convention.
+            neg = [-skills[sword][m] for m in mm]
+            cell["skill"][sword] = spearman_with_ci(ks, neg)
+            cell["partial"][sword] = partial_spearman_with_ci(
+                ks, neg, [eci_of(m) for m in mm]
+            )
+        out[word] = cell
+    return out
+
+
+def rho_cell(c: dict | None, band: bool = True) -> str:
+    if c is None:
+        return "--"
+    text = f"{c['rho']:.2f}"
+    if band and c["ci"]:
+        text += f" {macro_band(c['ci'])}"
+    return text
+
+
+def draw_knowledge_figure(
+    path: Path,
+    rows: list[dict],
+    skills: dict[str, dict[str, float]],
+    models: list[str],
+    corr: dict[str, dict],
+) -> Path | None:
+    """(a) knowledge score against ECI; (b) mid-range excess Brier against it."""
+    import matplotlib
+
+    matplotlib.use("pgf")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    score = knowledge_by_model(rows, lambda r: True)
+    ms = [m for m in models if m in score and eci_of(m) is not None]
+    if len(ms) < MIN_MODELS:
+        print(f"[skipped] {KNOWLEDGE_FIG_NAME}: too few models")
+        return None
+    with plt.rc_context(
+        {
+            "pgf.texsystem": "pdflatex",
+            "text.usetex": True,
+            "font.family": "serif",
+            "pgf.rcfonts": False,
+            "font.size": 7,
+            "axes.labelsize": 7,
+            "xtick.labelsize": 6.5,
+            "ytick.labelsize": 6.5,
+            "axes.linewidth": 0.6,
+            "xtick.major.width": 0.6,
+            "ytick.major.width": 0.6,
+            "xtick.major.size": 2.0,
+            "ytick.major.size": 2.0,
+        }
+    ):
+        fig, axes = plt.subplots(1, 2, figsize=KNOWLEDGE_SIZE, layout="constrained")
+        fig.get_layout_engine().set(w_pad=0.06, wspace=0.08)
+
+        def fitted(ax, xs, ys, label):
+            fit = np.polyfit(xs, ys, 1)
+            span = np.array([min(xs), max(xs)])
+            ax.plot(
+                span,
+                np.polyval(fit, span),
+                color=EXTREME_COLOR,
+                lw=1.0,
+                zorder=2,
+                label=label,
+            )
+
+        ax = axes[0]
+        xs = [eci_of(m) for m in ms]
+        ys = [score[m] for m in ms]
+        ax.scatter(xs, ys, s=12, color=POINT_COLOR, zorder=3)
+        c = corr["All"]["eci"]
+        fitted(ax, xs, ys, rf"$\rho={c['rho']:.2f}$" if c else None)
+        ax.set_xlabel("ECI")
+        ax.set_ylabel("Knowledge score")
+        ax.set_title("(a) Knowledge against capability", fontsize=7)
+
+        ax = axes[1]
+        mm = [m for m in ms if m in skills["Mid"]]
+        xs = [score[m] for m in mm]
+        ys = [skills["Mid"][m] for m in mm]
+        ax.scatter(xs, ys, s=12, color=POINT_COLOR, zorder=3)
+        c = corr["All"]["skill"]["Mid"]
+        cp = corr["All"]["partial"]["Mid"]
+        label = rf"$\rho={c['rho']:.2f}$" if c else None
+        if c and cp:
+            label += rf", given ECI ${cp['rho']:.2f}$"
+        fitted(ax, xs, ys, label)
+        ax.set_xlabel("Knowledge score")
+        ax.set_ylabel("Mid-range excess Brier")
+        ax.set_title("(b) Forecast skill against knowledge", fontsize=7)
+
+        for ax in axes:
+            ax.spines[["top", "right"]].set_visible(False)
+            ax.grid(color="0.92", lw=0.5, zorder=0)
+            ax.legend(fontsize=5.5, frameon=False, loc="best")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(path)
+        plt.close(fig)
+    return path
+
+
+def knowledge_table(rows: list[dict], names: dict[str, str], models: list[str]) -> str:
+    """Per model: ECI, the score on each subset, and how it answered."""
+    scores = {w: knowledge_by_model(rows, s) for w, _l, s in knowledge_subsets(rows)}
+    lines = [
+        r"\setlength{\tabcolsep}{3pt}",
+        r"\begin{tabular}{lrrrrrrrr}",
+        r"\toprule",
+        (
+            r"Model & ECI & All & Engine & Cities & Dynamics & Honeypot"
+            r" & Unknown (\%) & Wrong \\"
+        ),
+        r"\midrule",
+    ]
+    for m in sorted(models, key=lambda m: -(eci_of(m) or 0)):
+        wrong = sum(1 for r in rows if r["model_id"] == m and r["correct"] == 0)
+        lines.append(
+            " & ".join(
+                [
+                    tex_escape(names.get(m, m)),
+                    cell(eci_of(m), "{:.1f}"),
+                    *(
+                        cell(scores[w].get(m), "{:.2f}")
+                        for w in ("All", "Engine", "Cities", "Dynamics", "Honeypot")
+                    ),
+                    f"{answer_share(rows, m, 'Unknown'):.0f}",
+                    f"{wrong}",
+                ]
+            )
+            + r" \\"
+        )
+    lines += [r"\bottomrule", r"\end{tabular}"]
+    return table_file(
+        lines,
+        "Knowledge test, per model. Source: knowledge_answers.csv. Score = (+1 correct,"
+        " -2 wrong or unparsed, 0 unknown) / statements in the subset; Unknown = share"
+        " of all statements answered Unknown; Wrong counts wrong and unparsed answers.",
+    )
+
+
+def knowledge_corr_table(corr: dict[str, dict]) -> str:
+    """Per subset: rho with ECI, with each forecast score, and given ECI."""
+    words = ["All", "Engine", "Cities", "Dynamics", "Honeypot"] + [
+        w for w in corr if w.startswith("Difficulty")
+    ]
+    lines = [
+        r"\setlength{\tabcolsep}{3pt}",
+        r"\begin{tabular}{lrrrrrrrr}",
+        r"\toprule",
+        (
+            r"Subset & $n$ & $\rho$ with ECI & \multicolumn{3}{c}{$\rho$ with forecast score}"
+            r" & \multicolumn{3}{c}{$\rho$ with forecast score, given ECI} \\"
+        ),
+        r"\cmidrule(lr){4-6}\cmidrule(lr){7-9}",
+        r" & & & Mid-range & Tail & Continuous & Mid-range & Tail & Continuous \\",
+        r"\midrule",
+    ]
+    for w in words:
+        c = corr[w]
+        lines.append(
+            " & ".join(
+                [
+                    c["label"],
+                    f"{c['n']}",
+                    rho_cell(c["eci"]),
+                    *(
+                        rho_cell(c["skill"][s], band=False)
+                        for s in ("Mid", "Tail", "Cont")
+                    ),
+                    *(
+                        rho_cell(c["partial"][s], band=False)
+                        for s in ("Mid", "Tail", "Cont")
+                    ),
+                ]
+            )
+            + r" \\"
+        )
+    lines += [r"\bottomrule", r"\end{tabular}"]
+    return table_file(
+        lines,
+        "Knowledge test, correlations over the models. Sources: knowledge_answers.csv,"
+        " binary_forecasts.csv, continuous_forecasts.csv. rho with ECI carries a 95%"
+        " bootstrap interval over models; the forecast-score columns are sign-adjusted"
+        " so that positive means more knowledge, better forecasts; 'given ECI' partials"
+        " the ECI rank out of both.",
+    )
+
+
+def knowledge_lines(
+    rows: list[dict],
+    runs: list[dict],
+    models: list[str],
+    names: dict[str, str],
+    corr: dict[str, dict],
+) -> list[str]:
+    r"""\MPDKnow* : every number the knowledge appendix quotes."""
+    pre = MACRO_PREFIX
+    nc = lambda name, value: f"\\newcommand{{\\{pre}Know{name}}}{{{value}}}"
+    name_of = lambda m: tex_escape(names.get(m, m))
+    one = [r for r in rows if r["model_id"] == models[0]]
+    score_all = knowledge_by_model(rows, lambda r: True)
+    ranked = sorted(score_all, key=lambda m: -score_all[m])
+    unknown = {m: answer_share(rows, m, "Unknown") for m in models}
+    hp_true = {
+        m: answer_share(rows, m, "True", lambda r: r["is_honeypot"] == 1)
+        for m in models
+    }
+    abstainers = sorted(
+        (m for m in models if unknown[m] > 50), key=lambda m: -unknown[m]
+    )
+    author = next((m for m in models if "fable" in m), None)
+    halves = sorted({r["half"] for r in one})
+    lines = [
+        "",
+        "% The knowledge test (appendix D). Scores follow the prompt's rule; Rho*",
+        "% with ECI are over the models with a 95% bootstrap interval; RhoSkill*",
+        "% are sign-adjusted so positive means more knowledge, better forecasts;",
+        "% Partial* remove the ECI rank from both sides.",
+        nc("NStatements", len(one)),
+        nc("NPairs", len({r["pair"] for r in one if r["pair"] is not None})),
+        nc("NTrue", sum(1 for r in one if r["is_true"])),
+        nc("NFalse", sum(1 for r in one if not r["is_true"])),
+        nc("NHoneypots", sum(1 for r in one if r["is_honeypot"])),
+        nc("NEngine", sum(1 for r in one if r["topic"] == "engine")),
+        nc("NCities", sum(1 for r in one if r["topic"] == "cities")),
+        nc("NDynamics", sum(1 for r in one if r["topic"] == "dynamics")),
+        *(
+            nc(
+                f"NDifficulty{DIFFICULTY_WORDS.get(d, d)}",
+                sum(1 for r in one if r["difficulty"] == d),
+            )
+            for d in sorted({r["difficulty"] for r in one})
+        ),
+        nc("NPrompts", len(halves)),
+        nc("PerPrompt", max(sum(1 for r in one if r["half"] == h) for h in halves)),
+        nc("NModels", len(models)),
+        nc("Cost", f"{sum(r['cost_usd'] for r in runs):.2f}"),
+        nc("Best", name_of(ranked[0])),
+        nc("BestScore", f"{score_all[ranked[0]]:.2f}"),
+        nc("Second", name_of(ranked[1])),
+        nc("SecondScore", f"{score_all[ranked[1]]:.2f}"),
+        nc("Worst", name_of(ranked[-1])),
+        nc("WorstScore", f"{score_all[ranked[-1]]:.2f}"),
+        nc("MedianScore", f"{sorted(score_all.values())[len(score_all) // 2]:.2f}"),
+        nc("NAbstainers", len(abstainers)),
+        nc("Abstainers", ", ".join(name_of(m) for m in abstainers) or "---"),
+        nc("UnknownMax", f"{max(unknown.values()):.0f}"),
+        nc("UnknownMaxModel", name_of(max(unknown, key=unknown.get))),
+        nc("HoneypotTrueMean", f"{sum(hp_true.values()) / len(hp_true):.0f}"),
+        nc("HoneypotTrueMax", f"{max(hp_true.values()):.0f}"),
+        nc("HoneypotTrueMaxModel", name_of(max(hp_true, key=hp_true.get))),
+        nc("NHoneypotClean", sum(1 for v in hp_true.values() if v == 0)),
+    ]
+    if author is not None:
+        ms = [m for m in models if m != author and eci_of(m) is not None]
+        c = spearman_with_ci([eci_of(m) for m in ms], [score_all[m] for m in ms])
+        lines += [
+            nc("Author", name_of(author)),
+            nc("AuthorScore", f"{score_all[author]:.2f}"),
+            nc("AuthorRank", ranked.index(author) + 1),
+            nc("RhoAllNoAuthor", f"{c['rho']:.2f}" if c else "---"),
+        ]
+    for w, c in corr.items():
+        e = c["eci"]
+        lines += [
+            nc(f"N{w}Models", c["n"]),
+            nc(f"Rho{w}", f"{e['rho']:.2f}" if e else "---"),
+            nc(f"Rho{w}CIModels", macro_band(e["ci"]) if e else "---"),
+            nc(f"P{w}", macro_p(e["p"]) if e else "---"),
+        ]
+        for s in ("Mid", "Tail", "Cont"):
+            k, pk = c["skill"][s], c["partial"][s]
+            lines += [
+                nc(f"RhoSkill{s}{w}", f"{k['rho']:.2f}" if k else "---"),
+                nc(f"RhoSkill{s}{w}CIModels", macro_band(k["ci"]) if k else "---"),
+                nc(f"PSkill{s}{w}", macro_p(k["p"]) if k else "---"),
+                nc(f"Partial{s}{w}", f"{pk['rho']:.2f}" if pk else "---"),
+                nc(f"Partial{s}{w}CIModels", macro_band(pk["ci"]) if pk else "---"),
+                nc(f"PPartial{s}{w}", macro_p(pk["p"]) if pk else "---"),
+            ]
+    return lines
+
+
 def write_tables(
     datadir: Path,
     binary: list[dict],
@@ -4154,6 +4643,8 @@ def main() -> None:
     variants_settings = read_variants_settings(
         args.datadir / VARIANTS_SETTINGS_CSV_NAME
     )
+    knowledge = read_knowledge(args.datadir / KNOWLEDGE_CSV_NAME)
+    knowledge_runs = read_knowledge_runs(args.datadir / KNOWLEDGE_RUNS_CSV_NAME)
     recheck = read_recheck(args.datadir / RECHECK_CSV_NAME)
 
     extra_dir = args.outdir / EXTRA_SUBDIR
@@ -4314,6 +4805,27 @@ def main() -> None:
         var_rho_cities,
         var_main,
     )
+    # The knowledge test, against ECI and against the main run's own scores.
+    know_models = models_in_order(knowledge)
+    know_skills = skill_by_model(binary, continuous, know_models)
+    know_corr = knowledge_correlations(knowledge, know_skills, know_models)
+    print(
+        f"knowledge test: {len(know_models)} models x"
+        f" {len(knowledge) // len(know_models)} statements"
+    )
+    for c in know_corr.values():
+        e, k, pk = c["eci"], c["skill"]["Mid"], c["partial"]["Mid"]
+        print(
+            f"  {c['label']:>13}: rho ECI {e['rho']:+.2f}"
+            if e
+            else f"  {c['label']:>13}: ---",
+            f"| mid-range skill {k['rho']:+.2f}" if k else "",
+            f"| given ECI {pk['rho']:+.2f}" if pk else "",
+        )
+    print()
+    know_macros = knowledge_lines(
+        knowledge, knowledge_runs, know_models, names, know_corr
+    )
     macros = write_macros(
         args.datadir / MACROS_NAME,
         found,
@@ -4327,7 +4839,7 @@ def main() -> None:
         binary,
         city_ci,
         ncities,
-        batch_macros + variant_macros,
+        batch_macros + variant_macros + know_macros,
     )
     tables = write_tables(
         args.datadir,
@@ -4357,6 +4869,8 @@ def main() -> None:
                 var_main,
             ),
             "variants_settings": variants_settings_table(variants_settings, var_main),
+            "knowledge": knowledge_table(knowledge, names, know_models),
+            "knowledge_corr": knowledge_corr_table(know_corr),
         },
     )
     cells = write_cells(args.datadir, binary, continuous)
@@ -4391,7 +4905,18 @@ def main() -> None:
         var_main,
     )
 
-    for out in (capability, horizon_fig, bands_fig, batching_fig, variants_fig):
+    knowledge_fig = draw_knowledge_figure(
+        args.outdir / KNOWLEDGE_FIG_NAME, knowledge, know_skills, know_models, know_corr
+    )
+
+    for out in (
+        capability,
+        horizon_fig,
+        bands_fig,
+        batching_fig,
+        variants_fig,
+        knowledge_fig,
+    ):
         if out:
             print(f"Wrote {out}")
     print(f"Wrote {macros}")

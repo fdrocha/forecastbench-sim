@@ -31,6 +31,9 @@ actually computed at, not a per-model mean:
   run's continuous rows are, one row per (variant, model, question); per
   (variant, model) what was asked, parsed and paid; and per variant what its
   config changed and which variant it is compared against.
+- knowledge_answers.csv and knowledge_runs.csv: the knowledge test, one row per
+  (model, statement) with the statement's topic, difficulty, truth and the
+  model's parsed answer, and per model what its calls cost.
 - gpt5_check_forecasts.csv: the one-question-per-prompt rerun of GPT-5 mini in
   its own data directory (configs/gpt5-check-1q.json5), with each response's
   finish reason, for the appendix's account of that model's failures. Read by
@@ -327,6 +330,38 @@ VARIANTS_SETTINGS_COLUMNS = [
     "prompts_per_model",
     "report_effectiveness",
 ]
+# The knowledge test (appendix D): one row per (model, statement) with the
+# statement's tags and the model's parsed answer, so the article can score any
+# subset and correlate it with anything else it has per model; and what each
+# model's calls cost. Read from the knowledge eval's own cache through its
+# runner, which is the only code that knows the prompts' hashes.
+KNOWLEDGE_CONFIG_PATH = CONFIG_DIR / "knowledge_eval.json5"
+KNOWLEDGE_CSV_NAME = "knowledge_answers.csv"
+KNOWLEDGE_COLUMNS = [
+    "model",
+    "position",
+    "half",
+    "topic",
+    "difficulty",
+    "is_true",
+    "is_honeypot",
+    "pair",
+    "answer",
+    "correct",
+]
+KNOWLEDGE_RUNS_CSV_NAME = "knowledge_runs.csv"
+KNOWLEDGE_RUNS_COLUMNS = [
+    "model",
+    "provider",
+    "ncalls",
+    "input_tokens",
+    "output_tokens",
+    "reasoning_tokens",
+    "cost_usd",
+    "latency_ms_sum",
+    "latency_ms_p50",
+]
+
 CONTINUOUS_CSV_NAME = "continuous_forecasts.csv"
 CONTINUOUS_COLUMNS = [
     "model",
@@ -595,13 +630,11 @@ def prompt_hashes(eval_name: str, cfg: Config) -> dict[str, str]:
     preamble, epilogue = cfg.get_preamble_path(), cfg.get_epilogue_path()
     if eval_name == "binary":
         corpus = build_corpus_binary(*shape, cfg.get_bool_or("report_census", True))
-        paths = BINARY_PATHS
 
         def build(context, questions):
             return build_batch_prompt_binary(context, questions, preamble, epilogue)
     else:
         corpus = build_corpus(*shape, cfg.get_questions_sort())
-        paths = CONTINUOUS_PATHS
         tagging = cfg.get_question_tagging()
 
         def build(context, questions):
@@ -847,6 +880,81 @@ def variants_rows(
     return forecasts, runs, settings
 
 
+def knowledge_rows(cfg: Config) -> tuple[list[dict], list[dict]]:
+    """The knowledge test: one row per (model, statement), and per-model costs.
+
+    `correct` is 1 or 0 for an answered statement and empty for Unknown, so a
+    subset's score is (sum(correct) - 2 * count(correct == 0)) / n, the rule
+    the prompt states; an unparseable answer counts as wrong, as it says.
+    A configured model with a half missing from the cache is left out with a
+    warning: its score would be over a different set.
+    """
+    from statistics import median
+
+    from micropolis_world.knowledge_eval.runner import (
+        Answer,
+        build_prompts,
+        get_cached_answers,
+        load_usage,
+        model_slug,
+        statements,
+    )
+
+    prompts = build_prompts()
+    half_of = {pos: p.index for p in prompts for pos in p.positions}
+    cached = get_cached_answers()
+    answers, runs = [], []
+    for slug in cfg.get_models(None):
+        got = cached.get(model_slug(slug))
+        if got is None:
+            warn(f"knowledge: no complete cached answers for {slug}; left out")
+            continue
+        model = to_model_id(slug)
+        for pos, (s, a) in enumerate(zip(statements, got, strict=True)):
+            if a is Answer.UNKNOWN:
+                correct = ""
+            else:
+                correct = int(
+                    a is not Answer.UNPARSEABLE and (a is Answer.TRUE) == s.is_true
+                )
+            answers.append(
+                {
+                    "model": model,
+                    "position": pos,
+                    "half": half_of[pos],
+                    "topic": s.topic,
+                    "difficulty": s.difficulty,
+                    "is_true": int(s.is_true),
+                    "is_honeypot": int(s.is_honeypot),
+                    "pair": "" if s.pair is None else s.pair,
+                    "answer": a.value,
+                    "correct": correct,
+                }
+            )
+        usages = [u for p in prompts if (u := load_usage(slug, p.hash)) is not None]
+        latencies = [u.latency_ms for u in usages if u.latency_ms is not None]
+        runs.append(
+            {
+                "model": model,
+                "provider": "+".join(
+                    sorted({ur.provider_of(u.model_id) for u in usages})
+                ),
+                "ncalls": len(usages),
+                "input_tokens": sum(u.input_tokens or 0 for u in usages),
+                "output_tokens": sum(u.output_tokens or 0 for u in usages),
+                "reasoning_tokens": sum(u.reasoning_tokens or 0 for u in usages),
+                "cost_usd": f"{sum(u.cost_usd or 0.0 for u in usages):.4f}",
+                "latency_ms_sum": f"{sum(latencies):.0f}",
+                "latency_ms_p50": f"{median(latencies):.0f}" if latencies else "",
+            }
+        )
+    print(
+        f"knowledge:  {len(runs)} models x {len(statements)} statements over"
+        f" {len(prompts)} prompts, ${sum(float(r['cost_usd']) for r in runs):.2f}"
+    )
+    return answers, runs
+
+
 def recheck_rows(dirname: str) -> list[dict]:
     """The GPT-5 mini rerun's forecasts, with each response's finish reason.
 
@@ -953,6 +1061,11 @@ def main() -> None:
         f"(default: configs/{VARIANTS_CONFIG_GLOB})",
     )
     ap.add_argument(
+        "--knowledge-config",
+        default=KNOWLEDGE_CONFIG_PATH,
+        help=f"JSON5 config of the knowledge test (default: {KNOWLEDGE_CONFIG_PATH})",
+    )
+    ap.add_argument(
         "--recheck-dir",
         default=RECHECK_DIR_NAME,
         help="the data directory the GPT-5 mini rerun was made in "
@@ -984,6 +1097,7 @@ def main() -> None:
     variants, variants_runs, variants_settings = variants_rows(
         args.variants_configs, continuous_cfg
     )
+    knowledge, knowledge_runs = knowledge_rows(load_config_at(args.knowledge_config))
     recheck = recheck_rows(args.recheck_dir)
 
     print()
@@ -1002,6 +1116,8 @@ def main() -> None:
         (VARIANTS_CSV_NAME, ["variant", *CONTINUOUS_COLUMNS], variants),
         (VARIANTS_RUNS_CSV_NAME, VARIANTS_RUNS_COLUMNS, variants_runs),
         (VARIANTS_SETTINGS_CSV_NAME, VARIANTS_SETTINGS_COLUMNS, variants_settings),
+        (KNOWLEDGE_CSV_NAME, KNOWLEDGE_COLUMNS, knowledge),
+        (KNOWLEDGE_RUNS_CSV_NAME, KNOWLEDGE_RUNS_COLUMNS, knowledge_runs),
         *([(RECHECK_CSV_NAME, RECHECK_COLUMNS, recheck)] if recheck else []),
     ]:
         print(f"Wrote {write_csv(out / name, columns, rows)}")
