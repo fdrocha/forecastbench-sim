@@ -158,6 +158,7 @@ from gather_paper_data import (
     MODEL_SCORES_CSV_NAME,
     OUT_DIR,
     RECHECK_CSV_NAME,
+    REPLAYS_ARCHIVE_NAME,
     SCALES_CSV_NAME,
     TAIL_MAX,
     TOP,
@@ -747,10 +748,13 @@ def paper_csvs(datadir: Path) -> list[Path]:
 
     versions.txt goes with them: the article names this world's question-set
     version and cites that file for the commit behind it, so the two have to
-    travel together.
+    travel together. So does the archive of the continuous replays.
     """
     return sorted(
-        p for p in datadir.iterdir() if p.is_file() and p.suffix in (".csv", ".txt")
+        p
+        for p in datadir.iterdir()
+        if p.is_file()
+        and (p.suffix in (".csv", ".txt") or p.name == REPLAYS_ARCHIVE_NAME)
     )
 
 

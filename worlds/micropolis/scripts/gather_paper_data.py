@@ -36,6 +36,8 @@ actually computed at, not a per-model mean:
   model's parsed answer, and per model what its calls cost. Beside them the
   prompts as sent: knowledge_prompt_preamble.txt and the numbered statement
   list of each half, knowledge_prompt_1.txt and knowledge_prompt_2.txt.
+- continuous_replays.tar.gz: the ground-truth file of each of the continuous
+  config's snapshots, as extract_ground_truth.py wrote it, in one archive.
 - gpt5_check_forecasts.csv: the one-question-per-prompt rerun of GPT-5 mini in
   its own data directory (configs/gpt5-check-1q.json5), with each response's
   finish reason, for the appendix's account of that model's failures. Read by
@@ -71,9 +73,11 @@ Usage:
 
 import argparse
 import csv
+import gzip
 import json
 import shutil
 import sys
+import tarfile
 from pathlib import Path
 
 import micropolis_world.module_globals as g
@@ -102,7 +106,7 @@ from micropolis_world.continuous_eval import (
     score_forecasts,
     select_for_config,
 )
-from micropolis_world.ground_truth import load_truths
+from micropolis_world.ground_truth import load_truths, output_path
 from micropolis_world.messages import error, warn
 from micropolis_world.model_ids import to_model_id
 from micropolis_world.model_scores import SCORES_PATH
@@ -373,6 +377,11 @@ KNOWLEDGE_COLUMNS = [
 KNOWLEDGE_PREAMBLE_NAME = "knowledge_prompt_preamble.txt"
 KNOWLEDGE_PROMPT_NAME = "knowledge_prompt_{half}.txt"
 KNOWLEDGE_RUNS_CSV_NAME = "knowledge_runs.csv"
+
+# The replays behind every continuous score: one ground-truth file per
+# snapshot, archived under this directory name.
+REPLAYS_ARCHIVE_NAME = "continuous_replays.tar.gz"
+REPLAYS_ARCHIVE_DIR = "continuous_replays"
 KNOWLEDGE_RUNS_COLUMNS = [
     "model",
     "provider",
@@ -996,6 +1005,42 @@ def knowledge_rows(cfg: Config) -> tuple[list[dict], list[dict]]:
     return answers, runs
 
 
+def write_replays_archive(cfg: Config, path: Path) -> Path:
+    """Archive the ground-truth file of each of the config's snapshots.
+
+    Members are sorted and their metadata fixed, so the same files always
+    give the same bytes and a rerun leaves no diff in the article.
+    """
+    scenarios = get_base_scenarios(
+        seed=cfg.get_seed(None),
+        cities=cfg.get_cities(None),
+        disasters=cfg.get_disasters(None),
+    )
+    files = sorted(
+        output_path(s, t) for s in scenarios for t in cfg.get_int_list("snapshot_turns")
+    )
+    missing = [f for f in files if not f.exists()]
+    if missing:
+        sys.exit(
+            f"[error] {len(missing)} ground-truth file(s) missing, e.g. {missing[0]}\n"
+            "  run scripts/extract_ground_truth.py for the continuous config"
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with (
+        path.open("wb") as raw,
+        gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as gz,
+        tarfile.open(fileobj=gz, mode="w", format=tarfile.PAX_FORMAT) as tar,
+    ):
+        for f in files:
+            info = tar.gettarinfo(str(f), arcname=f"{REPLAYS_ARCHIVE_DIR}/{f.name}")
+            info.mtime, info.mode = 0, 0o644
+            info.uid = info.gid = 0
+            info.uname = info.gname = ""
+            with f.open("rb") as fh:
+                tar.addfile(info, fh)
+    return path
+
+
 def recheck_rows(dirname: str) -> list[dict]:
     """The GPT-5 mini rerun's forecasts, with each response's finish reason.
 
@@ -1165,6 +1210,7 @@ def main() -> None:
 
     for path in knowledge_prompt_files(out):
         print(f"Wrote {path}")
+    print(f"Wrote {write_replays_archive(continuous_cfg, out / REPLAYS_ARCHIVE_NAME)}")
 
     # Verbatim, header and blank cells included: analyze_paper.py reads it
     # through the package's own parser, so it has to stay in that format.
