@@ -15,3 +15,4 @@ those two files. Files written beside them that they do not feed (the cost and
 coverage tables, the figures, the macros) do not need a new version.
 
 v3 5302d75687d218e40e1ba5ce7553806ccff11ea8
+v4 d70eba91164188265e6b594447a758fee5f3905f
