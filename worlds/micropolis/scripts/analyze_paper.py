@@ -21,6 +21,7 @@ Writes to data/micropolis/paper/figures/extra/:
 - eci_vs_excess_brier-tail.pdf
 - eci_vs_excess_bits-tail.pdf        (FreeCiv's tail score)
 - eci_vs_excess_ncrps-city.pdf       (the continuous eval)
+- eci_vs_excess_{bits,brier}-pooled.pdf  (every binary question, one rule)
 
 "extra" is the figures the article does not currently place; --no-extra draws
 only the rest, which today is none of them, so the flag is a way to refresh the
@@ -127,7 +128,6 @@ from analyze_binary import (
     MID_RANGE,
     SCORES,
     TAIL,
-    TAIL_THRESHOLD,
     Score,
     capability_predictors,
     plot_eci_vs_score,
@@ -159,10 +159,15 @@ from gather_paper_data import (
     OUT_DIR,
     RECHECK_CSV_NAME,
     SCALES_CSV_NAME,
+    TAIL_MAX,
+    TOP,
+    TOP_MIN,
     USAGE_CSV_NAME,
     VARIANTS_CSV_NAME,
     VARIANTS_RUNS_CSV_NAME,
     VARIANTS_SETTINGS_CSV_NAME,
+    ZERO,
+    question_set,
 )
 
 FIGURES_DIR = OUT_DIR / "figures"
@@ -207,12 +212,16 @@ HORIZON_SIZE = (5.5, 2.6)
 BANDS_FIG_NAME = "fig_micropolis_bands.pdf"
 BANDS_SIZE = (5.5, 2.15)
 
-# The bands q is counted in. Deliberately not ten equal deciles: the set is
-# built to put most of its mass below 5% (that is what makes the tail section
-# a tail), so equal deciles would show one bar and nine slivers. The edges
-# below split that first decile and keep TAIL_THRESHOLD as a boundary, so the
-# figure's leftmost bars are exactly the tail section.
-BAND_EDGES = [0.0, 0.005, 0.02, TAIL_THRESHOLD, 0.1, 0.25, 0.5, 0.75, 0.95, 1.0]
+# The bands q is counted in. Deliberately not ten equal deciles: most of the
+# set's mass is below 5%, so equal deciles would show one bar and nine
+# slivers. Every boundary of question_set is an edge, so each band lies in one
+# set. Bands are left-open like the tail's (0, 5%], except that 95% opens the
+# top set, and q = 0 and q = 1 get bars of their own.
+BAND_EDGES = [0.0, 0.005, 0.02, TAIL_MAX, 0.1, 0.25, 0.5, 0.75, TOP_MIN, 1.0]
+
+# The four sets as the bands figure names them, and their macro words.
+SET_WORDS = {ZERO: "zero", TAIL: "tail", MID_RANGE: "mid-range", TOP: "top"}
+SET_MACROS = {ZERO: "Zero", TAIL: "Tail", MID_RANGE: "Mid", TOP: "Top"}
 
 # Its two panels, as (section, Score, axis label, panel title). The tail is
 # scored in excess bits here, as everywhere else in the paper now: the figure
@@ -222,9 +231,14 @@ HORIZON_PANELS = [
         MID_RANGE,
         "excess_brier",
         "Excess Brier score",
-        r"Mid-range questions ($q \geq 5\%$)",
+        rf"Mid-range questions (${100 * TAIL_MAX:g}\% < q < {100 * TOP_MIN:g}\%$)",
     ),
-    (TAIL, "excess_bits", "Excess bits", r"Tail questions ($q < 5\%$)"),
+    (
+        TAIL,
+        "excess_bits",
+        "Excess bits",
+        rf"Tail questions ($0 < q \leq {100 * TAIL_MAX:g}\%$)",
+    ),
 ]
 TABLE_NAMES = {
     "models": "micropolis_models.tex",
@@ -341,6 +355,10 @@ CAP_WORDS = {
     100: "Hundred",
 }
 
+# The settings the ablation's appendix reads as one, 4 to 14-15 per prompt,
+# by cap: it quotes the range of their tail scores.
+MIDDLE_CAPS = (4, 8, 16)
+
 # The two probabilities the binary epilogue shows as its example answer block
 # ("Q1: 0.65 / Q2: 0.03"). Some models return them verbatim; the appendix
 # measures how often. Prompt constants rather than data, so they are named
@@ -434,8 +452,16 @@ FIG_WIDTH, FIG_HEIGHT = 7.0, 4.3
 # the legend costs height instead, which a \textwidth figure has to spare.
 LEGEND_NCOLS = 4
 
+# Every binary question whatever its set, zero and top included: the pooled
+# check that neither the sets nor what they leave out drive the correlation.
+POOLED = "pooled"
+
 # How the reports name each section, for the axis labels the scatters keep.
-SECTION_NAMES = {MID_RANGE: "Mid-range probabilities", TAIL: "Tail probabilities"}
+SECTION_NAMES = {
+    MID_RANGE: "Mid-range probabilities",
+    TAIL: "Tail probabilities",
+    POOLED: "All binary questions",
+}
 
 # The binary scatters, as (section, Score). The tail carries the excess bits as
 # well: at p below 5% an always-No forecast has a near-zero excess Brier and
@@ -445,6 +471,8 @@ BINARY_FIGURES = [
     (MID_RANGE, EXCESS_BRIER),
     (TAIL, EXCESS_BRIER),
     (TAIL, EXCESS_BITS),
+    (POOLED, EXCESS_BRIER),
+    (POOLED, EXCESS_BITS),
 ]
 
 # The continuous figure is drawn by analyze_binary's scatter rather than
@@ -485,11 +513,12 @@ PANELS = [
     ("Mid-range", "eci_vs_excess_brier-mid-range", "Excess Brier"),
 ]
 
-# The three the article quotes. The mid-range slice is named "Binary" and the
+# The ones the article quotes. The mid-range slice is named "Binary" and the
 # tail one "Tail" because that is how the article's prose refers to them; the
-# gloss carries the precision the names drop. The fourth figure — the tail
-# excess Brier — is drawn but not quoted: at p below 5% an always-No forecast
-# has a near-zero excess Brier, so the excess bits is the tail's headline.
+# gloss carries the precision the names drop. The tail excess Brier is drawn
+# but not quoted: at p below 5% an always-No forecast has a near-zero excess
+# Brier, so the excess bits is the tail's headline. The two pooled ones score
+# all 3,000 questions with one rule each.
 HEADLINES = [
     Headline(
         "Binary",
@@ -506,7 +535,20 @@ HEADLINES = [
         "ECI vs per-city normalized excess CRPS, continuous eval",
         "eci_vs_excess_ncrps-city",
     ),
+    Headline(
+        "AllBits",
+        "ECI vs excess bits, every binary question pooled",
+        "eci_vs_excess_bits-pooled",
+    ),
+    Headline(
+        "AllBrier",
+        "ECI vs excess Brier, every binary question pooled",
+        "eci_vs_excess_brier-pooled",
+    ),
 ]
+
+# The headlines whose per-horizon correlations \MPDRhoHorizon{Min,Max} span.
+SET_HEADLINES = ("Binary", "Tail")
 
 
 # The two capability scales the article correlates against. ECI covers every
@@ -792,7 +834,27 @@ def read_rows(path: Path) -> list[dict]:
             rows.append(row)
     if not rows:
         sys.exit(f"[error] {path} holds no rows")
+    if "real_prob" in rows[0]:
+        assign_sets(rows, path)
     return rows
+
+
+def assign_sets(rows: list[dict], path: Path) -> None:
+    """Set each row's section from its own q, by question_set.
+
+    The CSV's column must agree; one that does not was gathered under an
+    older rule, and is an error rather than something to silently override.
+    """
+    stale = 0
+    for r in rows:
+        s = question_set(r["real_prob"])
+        stale += r["section"] != s
+        r["section"] = s
+    if stale:
+        sys.exit(
+            f"[error] {path}: {stale} rows' section is not the set their q falls in\n"
+            "  rerun scripts/gather_paper_data.py"
+        )
 
 
 def read_scales(path: Path) -> dict[str, dict[str, float]]:
@@ -1113,24 +1175,41 @@ def cluster_ci(
 
 
 def band_of(q: float) -> int:
-    """Which BAND_EDGES bucket a ground-truth probability falls in."""
-    for i in range(len(BAND_EDGES) - 1):
-        if q < BAND_EDGES[i + 1]:
+    """Which bar a ground-truth probability falls in: 0 for q = 0, then BAND_EDGES."""
+    if q == 0:
+        return 0
+    if q == 1:
+        return len(BAND_EDGES)
+    for i, hi in enumerate(BAND_EDGES[1:], start=1):
+        if q < hi or (q == hi and hi != TOP_MIN):
             return i
-    return len(BAND_EDGES) - 2
+    raise ValueError(f"q = {q} is not a probability")
+
+
+def band_set(i: int) -> str:
+    """The question set every q in bar i belongs to."""
+    if i == 0:
+        return ZERO
+    if i == len(BAND_EDGES):
+        return TOP
+    return question_set((BAND_EDGES[i - 1] + BAND_EDGES[i]) / 2)
 
 
 def band_label(i: int) -> str:
-    """A band's axis label, as a percentage range."""
+    """A bar's axis label, as a percentage range, or the one value it holds."""
 
     def pct(x: float) -> str:
         return f"{x * 100:g}"
 
-    return f"{pct(BAND_EDGES[i])}--{pct(BAND_EDGES[i + 1])}"
+    if i == 0:
+        return "0"
+    if i == len(BAND_EDGES):
+        return "100"
+    return f"{pct(BAND_EDGES[i - 1])}--{pct(BAND_EDGES[i])}"
 
 
-def band_counts(binary: list[dict]) -> tuple[list[list[int]], int]:
-    """Questions per (band, horizon), and the questions per model.
+def band_counts(binary: list[dict]) -> tuple[list[list[int]], list[dict]]:
+    """Questions per (bar, horizon), and the rows of one model counted.
 
     Counted over one model's rows, not all of them: every model is asked the
     same 3,000 questions, so counting all 24 would report the same set 24
@@ -1142,13 +1221,13 @@ def band_counts(binary: list[dict]) -> tuple[list[list[int]], int]:
     for r in binary:
         per_model.setdefault(r["model_id"], []).append(r)
     if not per_model:
-        return [], 0
+        return [], []
     rows = max(per_model.values(), key=len)
-    counts = [[0] * len(HORIZONS) for _ in range(len(BAND_EDGES) - 1)]
+    counts = [[0] * len(HORIZONS) for _ in range(len(BAND_EDGES) + 1)]
     for r in rows:
         if r["horizon"] in HORIZONS:
             counts[band_of(r["real_prob"])][HORIZONS.index(r["horizon"])] += 1
-    return counts, len(rows)
+    return counts, rows
 
 
 def draw_bands_figure(path: Path, binary: list[dict]) -> Path | None:
@@ -1160,8 +1239,8 @@ def draw_bands_figure(path: Path, binary: list[dict]) -> Path | None:
     horizon lengthens — a longer window makes rare events less rare, so the
     tail share should fall.
 
-    The tail/mid-range boundary is drawn on both panels, because the section
-    split every other figure here conditions on is exactly that line.
+    The boundaries between the four sets are drawn on both panels, and the
+    two sets the paper leaves out, zero and top, are shaded.
     """
     import matplotlib
 
@@ -1169,14 +1248,21 @@ def draw_bands_figure(path: Path, binary: list[dict]) -> Path | None:
     import matplotlib.pyplot as plt
     import numpy as np
 
-    counts, n_questions = band_counts(binary)
+    counts, rows = band_counts(binary)
+    n_questions = len(rows)
     if not n_questions:
         print(f"[skipped] {BANDS_FIG_NAME}: no binary rows")
         return None
     grid = np.array(counts, dtype=float)
     nbands = grid.shape[0]
-    # Where the tail ends: the first edge at or past the threshold.
-    split = BAND_EDGES.index(TAIL_THRESHOLD)
+    sets = [band_set(i) for i in range(nbands)]
+    # Each set's run of bars, as (set, first, last).
+    groups = []
+    for i, s_ in enumerate(sets):
+        if groups and groups[-1][0] == s_:
+            groups[-1][2] = i
+        else:
+            groups.append([s_, i, i])
 
     with plt.rc_context(
         {
@@ -1243,8 +1329,11 @@ def draw_bands_figure(path: Path, binary: list[dict]) -> Path | None:
         ax.set_ylim(0, share.max() * 1.30)
 
         for ax in axes:
-            # Between the last tail band and the first mid-range one.
-            ax.axvline(split - 0.5, color=EXTREME_COLOR, lw=0.7, ls=":")
+            for s_, first, last in groups:
+                if s_ in (ZERO, TOP):
+                    ax.axvspan(first - 0.5, last + 0.5, color="0.93", lw=0, zorder=0)
+            for _, first, _ in groups[1:]:
+                ax.axvline(first - 0.5, color=EXTREME_COLOR, lw=0.7, ls=":")
             ax.set_xticks(xs)
             ax.set_xticklabels([band_label(i) for i in range(nbands)], rotation=90)
             ax.set_xlabel(r"Ground-truth probability $q$ (\%)")
@@ -1252,16 +1341,17 @@ def draw_bands_figure(path: Path, binary: list[dict]) -> Path | None:
             ax.margins(x=0.02)
 
         # Named once, on the right panel: the left one's legend already
-        # occupies the space above the split.
-        axes[1].text(
-            split - 0.62,
-            share.max() * 1.22,
-            r"tail $\mid$ mid-range",
-            fontsize=5,
-            color=EXTREME_COLOR,
-            ha="right",
-            va="top",
-        )
+        # occupies the space above the bars.
+        for s_, first, last in groups:
+            axes[1].text(
+                (first + last) / 2,
+                share.max() * 1.22,
+                SET_WORDS[s_],
+                fontsize=5,
+                color=EXTREME_COLOR,
+                ha="center",
+                va="top",
+            )
         path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(path)
         plt.close(fig)
@@ -1643,6 +1733,25 @@ def horizon_lines(h: Headline, by_horizon: dict[str, object]) -> list[str]:
     return out
 
 
+def horizon_range_lines(by_horizon: dict[str, dict[str, object]]) -> list[str]:
+    r"""\MPDRhoHorizon{Min,Max}: the range of SET_HEADLINES' per-horizon rho."""
+    pre = MACRO_PREFIX
+    vals = [
+        adjusted(c.rho)
+        for h in HEADLINES
+        if h.macro in SET_HEADLINES
+        for c in by_horizon.get(h.figure, {}).values()
+    ]
+    if not vals:
+        return []
+    return [
+        "% The lowest and highest per-horizon rho over the two binary sets.",
+        f"\\newcommand{{\\{pre}RhoHorizonMin}}{{{min(vals):.2f}}}",
+        f"\\newcommand{{\\{pre}RhoHorizonMax}}{{{max(vals):.2f}}}",
+        "",
+    ]
+
+
 def predictor_lines(
     prefix: str,
     what: str,
@@ -1828,36 +1937,47 @@ def city_ci_lines(cis: dict[str, tuple[float, float]], ncities: int) -> list[str
 
 
 def band_lines(binary: list[dict]) -> list[str]:
-    r"""\MPDBand* : how the question set's ground truth is distributed.
+    r"""\MPDBand* and \MPDNExcluded* : how the binary set's q is distributed.
 
-    The share below the tail threshold and in the top band are what the
-    composition paragraph quotes; the per-horizon tail shares are what let it
-    state the direction the composition moves in as the window lengthens.
+    Each set's share of the questions, pooled and per horizon, the counts of
+    the two sets the paper leaves out, and the mid-range set's mean q.
     """
     pre = MACRO_PREFIX
-    counts, total = band_counts(binary)
+    counts, rows = band_counts(binary)
+    total = len(rows)
     if not total:
         return []
     import numpy as np
 
     grid = np.array(counts, dtype=float)
-    split = BAND_EDGES.index(TAIL_THRESHOLD)
-    tail = grid[:split].sum()
+    in_set = {
+        s: grid[[i for i in range(grid.shape[0]) if band_set(i) == s]]
+        for s in SET_MACROS
+    }
     lines = [
         "% The binary set's composition by ground-truth probability q, over",
         "% the questions one model is asked (every model is asked the same).",
-        f"\\newcommand{{\\{pre}BandNQuestions}}{{{int(total):,}}}",
-        f"\\newcommand{{\\{pre}BandTailShare}}{{{100.0 * tail / total:.1f}}}",
-        f"\\newcommand{{\\{pre}BandTopShare}}{{{100.0 * grid[-1].sum() / total:.1f}}}",
-        f"\\newcommand{{\\{pre}BandTailPct}}{{{100 * TAIL_THRESHOLD:g}}}",
+        f"% Sets: zero q = 0, tail 0 < q <= {TAIL_MAX:g}, mid-range",
+        f"% {TAIL_MAX:g} < q < {TOP_MIN:g}, top q >= {TOP_MIN:g}.",
+        f"\\newcommand{{\\{pre}BandNQuestions}}{{{total:,}}}",
     ]
-    # The tail's share within each horizon, shortest and longest: the two the
-    # article contrasts.
-    per_h = 100.0 * grid[:split].sum(axis=0) / grid.sum(axis=0)
-    for h, share in zip(HORIZONS, per_h):
+    for s, word in SET_MACROS.items():
         lines.append(
-            f"\\newcommand{{\\{pre}BandTailShare{HORIZON_WORDS[h]}}}{{{share:.1f}}}"
+            f"\\newcommand{{\\{pre}Band{word}Share}}"
+            f"{{{100.0 * in_set[s].sum() / total:.1f}}}"
         )
+        per_h = 100.0 * in_set[s].sum(axis=0) / grid.sum(axis=0)
+        for h, share in zip(HORIZONS, per_h):
+            lines.append(
+                f"\\newcommand{{\\{pre}Band{word}Share{HORIZON_WORDS[h]}}}"
+                f"{{{share:.1f}}}"
+            )
+    mid_q = [r["real_prob"] for r in rows if r["section"] == MID_RANGE]
+    lines += [
+        f"\\newcommand{{\\{pre}NExcludedZero}}{{{int(in_set[ZERO].sum()):,}}}",
+        f"\\newcommand{{\\{pre}NExcludedTop}}{{{int(in_set[TOP].sum()):,}}}",
+        f"\\newcommand{{\\{pre}MeanQBinary}}{{{sum(mid_q) / len(mid_q):.2f}}}",
+    ]
     return lines + [""]
 
 
@@ -2237,6 +2357,7 @@ def read_recheck(path: Path) -> list[dict] | None:
             r["has_block"] = int(r["has_block"])
             r["model_id"] = r.pop("model")
             rows.append(r)
+    assign_sets(rows, path)
     return rows
 
 
@@ -2937,6 +3058,13 @@ def batching_lines(
         lines += [
             nc(f"Rho{tag}Min", f"{min(rhos):.2f}"),
             nc(f"Rho{tag}Max", f"{max(rhos):.2f}"),
+        ]
+    middle = [boot[TAIL][c]["point"] for c in MIDDLE_CAPS if c in boot[TAIL]]
+    if middle:
+        word = cap_word(MIDDLE_CAPS[0]) + cap_word(MIDDLE_CAPS[-1])
+        lines += [
+            nc(f"Tail{word}Min", f"{min(middle):.3f}"),
+            nc(f"Tail{word}Max", f"{max(middle):.3f}"),
         ]
     c1, cN = (
         run_stat(runs, first["cap"], None, "cost_usd"),
@@ -4436,6 +4564,9 @@ def write_macros(
         "% reports and figures/extra/ show the raw negative rho instead.",
         "% The two CIs are 95% percentile-bootstrap intervals: CIModels",
         "% resamples the models, CIQuestions the questions with models fixed.",
+        f"% Binary sets: tail 0 < q <= {TAIL_MAX:g} (Tail, excess bits) and",
+        f"% mid-range {TAIL_MAX:g} < q < {TOP_MIN:g} (Binary, excess Brier); q = 0",
+        f"% and q >= {TOP_MIN:g} are in neither, only in the pooled AllBits/AllBrier.",
         "",
     ]
     missing = []
@@ -4450,6 +4581,7 @@ def write_macros(
             + horizon_lines(h, by_horizon.get(h.figure, {}))
             + [""]
         )
+    lines += horizon_range_lines(by_horizon)
     lines += parse_lines(rates)
     lines += cost_lines(totals, items)
     lines += band_lines(binary)
@@ -4599,7 +4731,7 @@ def figure_specs(binary: list[dict], continuous: list[dict]) -> list[dict]:
     specs = []
     binary_models = models_in_order(binary)
     for section_key, score in BINARY_FIGURES:
-        rows = [r for r in binary if r["section"] == section_key]
+        rows = [r for r in binary if section_key in (POOLED, r["section"])]
         if not rows:
             print(f"[skipped] eci_vs_{score.key}-{section_key}: no such rows")
             continue

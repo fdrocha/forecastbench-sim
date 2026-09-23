@@ -6,9 +6,9 @@ and the ground truth, scores every forecast with the reports' own scoring
 functions, and writes one row per (model, question) — the grain the scores are
 actually computed at, not a per-model mean:
 
-- binary_forecasts.csv: model, question, section (mid-range or tail, by the
-  question instance's ground-truth P(Yes)), horizon, the forecast, that p, and
-  the Brier, excess Brier and excess bits.
+- binary_forecasts.csv: model, question, section (the paper's question set,
+  by the instance's ground-truth P(Yes): see question_set), horizon, the
+  forecast, that p, and the Brier, excess Brier and excess bits.
 - continuous_forecasts.csv: model, question, city, metric, horizon, the raw
   CRPS and the excess CRPS. Both are unnormalized: the paper divides by the
   city's own scale, which is a join analyze_paper.py does against the file
@@ -114,15 +114,14 @@ from micropolis_world.scenarios import (
 )
 
 # Imported rather than reimplemented so the paper's scores are the reports'
-# scores: the same section rule, the same Brier/excess/bits, the same CRPS.
+# scores: the same Brier/excess/bits, the same CRPS. The question sets are
+# not the reports' (see question_set).
 sys.path.insert(0, str(Path(__file__).parent))
 from analyze_binary import (
     MID_RANGE,
     TAIL,
-    TAIL_THRESHOLD,
     TURNS_PER_YEAR,
     score_forecasts_binary,
-    section_of,
     write_csv,
 )
 from analyze_continuous import UNNORMALIZED_METRICS, forecast_questions, is_forecast
@@ -143,6 +142,24 @@ OUT_DIR = g.DATA_DIR / PAPER_SUBDIR
 
 def paper_dir() -> Path:
     return g.DATA_DIR / PAPER_SUBDIR
+
+
+# The paper's question sets, FreeCiv's definitions: an instance goes by its
+# ground-truth q to the tail (0 < q <= 5%) or the mid-range (5% < q < 95%),
+# and the two ends, zero (q = 0) and top (q >= 95%), are left out of both.
+# The reports keep analyze_binary's single q < 5% split.
+TAIL_MAX = 0.05
+TOP_MIN = 0.95
+ZERO, TOP = "zero", "top"
+
+
+def question_set(q: float) -> str:
+    """The paper's set for an instance with ground-truth probability q."""
+    if q == 0:
+        return ZERO
+    if q <= TAIL_MAX:
+        return TAIL
+    return MID_RANGE if q < TOP_MIN else TOP
 
 
 # The paper normalizes downstream, per city and metric, so nothing is divided
@@ -431,7 +448,7 @@ def binary_rows(cfg: Config) -> tuple[list[dict], list[dict]]:
     """One row per scored binary forecast, plus the per-model coverage rows.
 
     The section is decided per question *instance* by its ground-truth P(Yes),
-    the reports' rule, so a qid can be mid-range in one city and tail in
+    by question_set, so a qid can be mid-range in one city and tail in
     another — which is why it is a column here rather than something the
     plotting script could derive from the qid.
     """
@@ -455,7 +472,9 @@ def binary_rows(cfg: Config) -> tuple[list[dict], list[dict]]:
     print(f"            {len(corpus)} questions x {len(models)} models")
     check_no_suffix_collisions(models)
 
-    sections = {c["question_id"]: section_of(c, truths) for c in corpus}
+    sections = {
+        c["question_id"]: question_set(truths[c["question_id"]].p) for c in corpus
+    }
     scored = score_forecasts_binary(corpus, responses, models, truths)
     rows = [
         {
@@ -1018,7 +1037,7 @@ def recheck_rows(dirname: str) -> list[dict]:
                         f"_H{r['horizon']}_{r['question_id']}"
                     ),
                     "qid": r["question_id"],
-                    "section": TAIL if p < TAIL_THRESHOLD else MID_RANGE,
+                    "section": question_set(p),
                     "horizon": years(int(r["horizon"])),
                     "forecast": "" if r["forecast"] in ("", "nan") else r["forecast"],
                     "real_prob": r["real_prob"],

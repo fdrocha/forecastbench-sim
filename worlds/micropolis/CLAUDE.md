@@ -80,10 +80,16 @@ and the structural constraints (§5). Read it before touching resolution.
   wrong guess here is expensive: these outputs are cited in a paper, and a figure that
   looks right with the wrong slice behind it is worse than no figure.
 - **The paper's names for the two binary sections are "Binary" and "Tail".** "Binary" is
-  the mid-range questions (p >= 5%, code key `mid-range`), "Tail" the tail-probability
-  ones (p < 5%, key `tail`) — so the pair reads unambiguously, since "binary" covers both
+  the mid-range questions (5% < q < 95%, code key `mid-range`), "Tail" the tail-probability
+  ones (0 < q <= 5%, key `tail`) — so the pair reads unambiguously, since "binary" covers both
   literally. Use these in captions, panel labels, macro names and prose; keep the code's
   `mid-range`/`tail` keys as the data's own.
+- **The paper's sets are FreeCiv's, not the reports'.** `gather_paper_data.question_set`
+  assigns each instance by its ground-truth q to `tail`, `mid-range`, `zero` (q = 0) or
+  `top` (q >= 95%); the last two are in neither scored set and enter only the pooled
+  `\MPDRhoAll{Bits,Brier}` check. That is the `section` column of the paper's CSVs, and
+  `analyze_paper.py` recomputes it from `real_prob` and errors on a mismatch. The reports
+  (`analyze_binary.section_of`, `analysis-brier.md`) keep their single p < 5% split.
 - **Correlations in the paper are sign-adjusted; in the reports they are not.** The
   article's convention is ECI against *minus* the score, so a positive rho means more
   capable models forecast better. `analyze_paper.py` flips the sign for its stdout,
