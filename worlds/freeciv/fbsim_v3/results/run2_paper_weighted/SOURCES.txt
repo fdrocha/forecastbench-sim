@@ -1,0 +1,4 @@
+batched: results/run2b_2026-09-20/batched
+natcond: results/run2_2026-09-20/natcond
+built: 2026-10-02T17:22:00Z
+bank weights: sets/draw_v1/bank_weights.csv

@@ -8,14 +8,18 @@
 #     model_scores.csv, model_scores_with_slugs.csv.
 #   bash build_run2.sh run2_paper ../results/run2b_2026-09-20/batched ../results/run2_2026-09-20/natcond
 #   then: FBSIM_RUN=run2_paper FBSIM_PAPER_ROOT=<paper> python ../paper/<generator>.py
+#   BANK_WEIGHTS=<bank_weights.csv> weights every bank aggregate by inverse selection probability (draw/bank_weights_v1.py):
+#   BANK_WEIGHTS=../sets/draw_v1/bank_weights.csv bash build_run2.sh run2_paper_weighted ../results/run2b_2026-09-20/batched ../results/run2_2026-09-20/natcond
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; RUN="$HERE/../results/$1"; BATCHED="$2"; NATCOND="$3"; PY="${PYTHON:-python3}"
+WARGS=(); [ -n "${BANK_WEIGHTS:-}" ] && WARGS=(--bank-weights "$BANK_WEIGHTS")
 [ -d "$BATCHED" ] && [ -d "$NATCOND" ] || { echo "missing $BATCHED or $NATCOND"; exit 1; }
 mkdir -p "$RUN"
-"$PY" "$HERE/score_v2.py" "$BATCHED" "$NATCOND" --out "$RUN/scores_v1" --boot 1000 --seed 0
+"$PY" "$HERE/score_v2.py" "$BATCHED" "$NATCOND" --out "$RUN/scores_v1" --boot 1000 --seed 0 ${WARGS[@]+"${WARGS[@]}"}
 gzip -9 -f "$RUN/scores_v1/score_items.csv"
-"$PY" "$HERE/results_table_v2.py" "$BATCHED" "$NATCOND" --out "$RUN/results_v1" --natcond-cost-from "$HERE/../results/run1_2026-09-09/results_v1/freeciv_results_wide.csv"
+"$PY" "$HERE/results_table_v2.py" "$BATCHED" "$NATCOND" --out "$RUN/results_v1" ${WARGS[@]+"${WARGS[@]}"} --natcond-cost-from "$HERE/../results/run1_2026-09-09/results_v1/freeciv_results_wide.csv"
 "$PY" "$HERE/make_freeciv_aggregates.py" "$RUN/scores_v1/score_items.csv.gz" "$RUN"
 cp "$HERE/../results/run1_2026-09-09/model_scores.csv" "$HERE/../results/run1_2026-09-09/model_scores_with_slugs.csv" "$RUN/"
 printf 'batched: %s\nnatcond: %s\nbuilt: %s\n' "$BATCHED" "$NATCOND" "$(date -u +%FT%TZ)" > "$RUN/SOURCES.txt"
+[ -n "${BANK_WEIGHTS:-}" ] && printf 'bank weights: %s\n' "$BANK_WEIGHTS" >> "$RUN/SOURCES.txt"
 echo "built $RUN"

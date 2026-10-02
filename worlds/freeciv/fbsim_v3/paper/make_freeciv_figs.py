@@ -7,6 +7,8 @@ Sources (read-only):
   score_items.csv        per-item scores (46,176 rows: model x item x arm)
   freeciv_results_wide.csv  ECI per model (cross-checked against model_scores.csv)
   reliability_bands.csv  bank reliability bands (10 truth bands per model)
+Bank items carry the inverse-selection weight w of a weighted run (score_items column w); every bank mean, bootstrap
+and reference value below is weighted by it.  Other sets have w = 1, which leaves their numbers as before.
 Outputs: PDF and a per-figure JSON of every plotted number in figures/; data/freeciv/freeciv_summary.json.
 Inputs are read from data/freeciv/ (see _common.py). Moved from the retired paper/data/make_freeciv_figs_v13.py on 2026-09-19.
 """
@@ -97,6 +99,8 @@ SHORT = {
 
 # ---------------------------------------------------------------- data
 items = pd.read_csv(ITEMS, low_memory=False)
+if "w" not in items.columns:
+    items["w"] = 1.0
 wide = pd.read_csv(WIDE)
 eci = wide.set_index("model")["eci"]
 ms = pd.read_csv(MODEL_SCORES)
@@ -130,12 +134,23 @@ HORIZONS = {"continuous": [90, 120, 150, 180, 210], "tails": [90, 120, 150, 180,
 
 
 def per_model_matrix(setname, col):
-    """Return (item list, worlds per item, matrix models x items) of per-item scores."""
+    """Return (matrix models x items of per-item scores, worlds per item, horizons per item)."""
     sub = items[items.set == setname]
     piv = sub.pivot(index="model", columns="item", values=col).loc[models]
     worlds = sub.drop_duplicates("item").set_index("item")["world"].loc[piv.columns].values
     Ts = sub.drop_duplicates("item").set_index("item")["T"].loc[piv.columns].values
     return piv, worlds, Ts
+
+
+def item_weights(setname, columns):
+    """The weight of each item of a set, in the order of `columns` (1 unless the run is weighted)."""
+    return items[items.set == setname].drop_duplicates("item").set_index("item")["w"].loc[columns].values.astype(float)
+
+
+def wrow_mean(M, w):
+    """Per-row weighted mean of matrix M over its non-missing entries."""
+    ok = ~np.isnan(M)
+    return np.where(ok, M, 0) @ w / (ok @ w)
 
 
 def spearman_boot(x, y, n_boot=N_BOOT):
@@ -149,13 +164,14 @@ def spearman_boot(x, y, n_boot=N_BOOT):
     return float(rho), float(p), float(np.nanpercentile(reps, 2.5)), float(np.nanpercentile(reps, 97.5))
 
 
-def cluster_boot(piv, worlds, n_boot=N_BOOT):
+def cluster_boot(piv, worlds, wts, n_boot=N_BOOT):
     """Cluster bootstrap: resample the 8 anchor worlds with replacement, items nested; rho of
-    per-model mean score vs ECI. Also an iid item bootstrap for reference. Sign-adjusted rho."""
+    per-model (weighted) mean score vs ECI. Also an iid item bootstrap for reference. Sign-adjusted rho."""
     M = piv.values  # models x items
     uw = np.unique(worlds)
-    S = np.stack([np.nansum(M[:, worlds == w], axis=1) for w in uw], axis=1)
-    N = np.stack([np.sum(~np.isnan(M[:, worlds == w]), axis=1) for w in uw], axis=1)
+    ok = ~np.isnan(M)
+    S = np.stack([(np.where(ok, M, 0)[:, worlds == w] * wts[worlds == w]).sum(axis=1) for w in uw], axis=1)
+    N = np.stack([(ok[:, worlds == w] * wts[worlds == w]).sum(axis=1) for w in uw], axis=1)
     reps_c = np.empty(n_boot)
     for b in range(n_boot):
         cnt = np.bincount(RNG.integers(0, len(uw), len(uw)), minlength=len(uw))
@@ -165,7 +181,7 @@ def cluster_boot(piv, worlds, n_boot=N_BOOT):
     n_it = M.shape[1]
     for b in range(n_boot):
         idx = RNG.integers(0, n_it, n_it)
-        means = np.nanmean(M[:, idx], axis=1)
+        means = wrow_mean(M[:, idx], wts[idx])
         reps_i[b] = spearmanr(ECI, -means).statistic
     return dict(
         cluster_world=dict(ci95=[float(np.percentile(reps_c, 2.5)), float(np.percentile(reps_c, 97.5))],
@@ -277,14 +293,15 @@ cap = {}
 for ax, (key, spec) in zip(axes.ravel(), PANELS.items()):
     piv, worlds, Ts = per_model_matrix(spec["set"], spec["col"])
     assert piv.shape[1] == spec["n_items"], (key, piv.shape)
-    score = piv.mean(axis=1, skipna=True).values  # nanmean over items, as SCORES.md
+    wts = item_weights(spec["set"], piv.columns)
+    score = wrow_mean(piv.values, wts)  # nanmean over items (weighted for a weighted bank), as SCORES.md
     n_valid = piv.notna().sum(axis=1).values
     rho, p, lo, hi = spearman_boot(ECI, -score)
     if STATS and STATS.get(STATS_COL[key]):   # quote the table's numbers where they exist
         srow = STATS[STATS_COL[key]]
         assert abs(srow["rho"] - rho) < 0.005, (key, srow["rho"], rho)
         rho, p, lo, hi = srow["rho"], srow["p"], srow["ci_lo"], srow["ci_hi"]
-    boots = cluster_boot(piv, worlds)
+    boots = cluster_boot(piv, worlds, wts)
     order = np.argsort(score)
     required = list(order[:1]) + list(order[-1:])
     ax.scatter(ECI, score, s=14, color=GREEN, zorder=3, linewidths=0)
@@ -339,7 +356,8 @@ short_ylabels = {"continuous": "Excess nCRPS\n(lower is better)", "tails": "Exce
 for ax, (key, spec) in zip(axes, PANELS.items()):
     piv, worlds, Ts = per_model_matrix(spec["set"], spec["col"])
     hs = HORIZONS[key]
-    per_model = np.array([[np.nanmean(piv.values[:, Ts == h][i]) for h in hs] for i in range(len(models))])
+    wts = item_weights(spec["set"], piv.columns)
+    per_model = np.array([wrow_mean(piv.values[:, Ts == h], wts[Ts == h]) for h in hs]).T
     mean = per_model.mean(0)
     q25, q75 = np.percentile(per_model, 25, axis=0), np.percentile(per_model, 75, axis=0)
     ax.fill_between(hs, q25, q75, color=GREEN, alpha=0.18, linewidth=0, label="IQR over models")
@@ -347,7 +365,7 @@ for ax, (key, spec) in zip(axes, PANELS.items()):
     ref = None
     if key == "bank":
         u = uniq[uniq.set == "bank"]
-        ref = [float(np.mean((0.5 - u.q[u["T"] == h]) ** 2)) for h in hs]
+        ref = [float(np.average((0.5 - u.q[u["T"] == h]) ** 2, weights=u.w[u["T"] == h])) for h in hs]
         ref_label = "flat 0.5"
     elif key == "tails":
         u = uniq[uniq.set == "tails"]
@@ -387,11 +405,13 @@ assert rb.model.nunique() == 24 and rb.band.nunique() == 10
 bank = items[items.set == "bank"].copy()
 edges = np.round(np.linspace(0.05, 0.95, 11), 6)
 bank["band"] = pd.cut(bank.q, edges, labels=False, right=True, include_lowest=True)
-chk = bank.groupby(["model", "band"]).agg(q=("q", "mean"), p=("p", "mean"), n=("p", "size")).reset_index()
+chk = bank.groupby(["model", "band"]).apply(lambda g: pd.Series(dict(q=np.average(g.q, weights=g.w), p=np.average(g.p, weights=g.w), n=len(g))), include_groups=False).reset_index()
 m = rb.merge(chk, on=["model", "band"], suffixes=("", "_chk"))
 print("reliability cross-check max |dq|,|dp|:", (m.q - m.q_chk).abs().max(), (m.p - m.p_chk).abs().max(),
       "n equal:", (m.n == m.n_chk).all())
-pooled = rb.groupby("band")[["q", "p", "n"]].apply(lambda g: pd.Series(dict(q=np.average(g.q, weights=g.n), p=np.average(g.p, weights=g.n), n=int(g.n.sum())))).reset_index()
+if "wsum" not in rb.columns:
+    rb["wsum"] = rb.n.astype(float)
+pooled = rb.groupby("band")[["q", "p", "n", "wsum"]].apply(lambda g: pd.Series(dict(q=np.average(g.q, weights=g.wsum), p=np.average(g.p, weights=g.wsum), n=int(g.n.sum()), wsum=float(g.wsum.sum())))).reset_index()
 fig, ax = plt.subplots(figsize=(3.0, 3.0))
 fig.subplots_adjust(left=0.19, right=0.97, top=0.95, bottom=0.16)
 ax.plot([0, 1], [0, 1], color=GREY, ls="--", dashes=(4, 2), lw=0.8, zorder=1)
@@ -415,8 +435,9 @@ save(fig, "fig_freeciv_reliability", dict(
     per_model={mname: dict(q=g.sort_values("band").q.tolist(), p=g.sort_values("band").p.tolist(), n=g.sort_values("band").n.tolist()) for mname, g in rb.groupby("model")},
     provisional=PROV))
 summary["fig_freeciv_reliability"] = dict(band_edges_q=edges.tolist(), pooled=dict(q=pooled.q.tolist(), p=pooled.p.tolist(), n=pooled.n.tolist()),
-                                          per_model_bias_bank={m: float((bank.p - bank.q)[bank.model == m].mean()) for m in models},
-                                          per_model_bias_bank_note="item-level mean of (p - q) over the 750 bank items per model (not the unweighted mean over bands)")
+                                          pooled_wsum=pooled.wsum.tolist(),
+                                          per_model_bias_bank={m: float(np.average((bank.p - bank.q)[bank.model == m], weights=bank.w[bank.model == m])) for m in models},
+                                          per_model_bias_bank_note="item-level mean of (p - q) over the 750 bank items per model, weighted by w in a weighted run (not the mean over bands)")
 
 # ================================================================ Figure 4: natcond update (appendix)
 nc = items[items.set == "natcond"].copy()
@@ -498,8 +519,10 @@ print(f"natcond update: cells r={cell_r:.3f} slope={cell_slope:.3f}; all pairs r
 # ------------------------------------------------------------- reference constants for the text
 bank_u = uniq[uniq.set == "bank"]; tails_u = uniq[uniq.set == "tails"]
 summary["reference_forecasters"] = dict(
-    bank_flat_0p5_excess=float(np.mean((0.5 - bank_u.q) ** 2)),
-    bank_var_q=float(np.var(bank_u.q)),
+    bank_flat_0p5_excess=float(np.average((0.5 - bank_u.q) ** 2, weights=bank_u.w)),
+    bank_var_q=float(np.average((bank_u.q - np.average(bank_u.q, weights=bank_u.w)) ** 2, weights=bank_u.w)),
+    bank_mean_q=float(np.average(bank_u.q, weights=bank_u.w)),
+    bank_weighted=bool((bank_u.w != 1).any()),
     tails_flat_0p05_bits=float(np.mean(kl_bits(tails_u.q.values, 0.05))),
     tails_flat_0p5_bits=float(np.mean(kl_bits(tails_u.q.values, 0.5))),
     n_bank_items=int(len(bank_u)), n_tails_items=int(len(tails_u)),

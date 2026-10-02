@@ -12,6 +12,8 @@ the call's cost divided by the questions asked, `cost_share`).
   OUT_DIR/freeciv_results_long.csv       one row per model x set x family/block x horizon
   OUT_DIR/freeciv_results_binary.csv     Fabio's binary schema
   OUT_DIR/freeciv_results_continuous.csv Fabio's continuous schema
+
+--bank-weights CSV (draw/bank_weights_v1.py) weights every bank mean, recov included, by inverse selection probability.
 """
 import argparse, collections, csv, datetime, math, os, sys
 
@@ -28,6 +30,7 @@ ap.add_argument("--out", required=True)
 ap.add_argument("--models-file", default=os.path.join(HERE, "models_v2.csv"))
 ap.add_argument("--capability", default=os.path.join(HERE, "..", "results", "run1_2026-09-09", "model_scores.csv"))
 ap.add_argument("--impute-binary", default="0.5")
+ap.add_argument("--bank-weights", default="", help="bank_weights.csv: bank means weighted by inverse selection probability")
 ap.add_argument("--natcond-cost-from", default="", help="run-1 wide table: natural-conditional costs for models whose natcond rows carry no cost (reused run-1 forecasts)")
 a = ap.parse_args()
 out = a.out
@@ -37,6 +40,8 @@ impute = None if a.impute_binary == "none" else float(a.impute_binary)
 S, C, N = sv.load_sets()
 R = sv.load_results(a.results)
 rows = sv.score_items(R, S, C, N, impute=impute)
+if a.bank_weights:
+    sv.apply_weights(rows, sv.load_bank_weights(a.bank_weights))
 models_meta = {m["openrouter_id"]: m for m in csv.DictReader(open(a.models_file))}
 import pandas as pd
 run1 = pd.read_csv(a.natcond_cost_from).set_index("model") if a.natcond_cost_from else None
@@ -82,10 +87,18 @@ def mean(v):
     return float(np.mean(v)) if v else float("nan")
 
 
+def rmean(rs, key):
+    """Mean of r[key] over rows rs, weighted by r["w"] where the rows carry weights (the bank under --bank-weights)."""
+    if rs and "w" in rs[0] and rs[0]["set"] == "bank":
+        pairs = [(r[key], r["w"]) for r in rs if r.get(key) is not None and not (isinstance(r[key], float) and math.isnan(r[key]))]
+        return float(sum(x * w for x, w in pairs) / sum(w for _, w in pairs)) if pairs else float("nan")
+    return mean([r.get(key) for r in rs])
+
+
 def recov(rs):
     """Nick's share of recoverable Brier: 1 - excess(model) / excess(always 0.5)."""
-    ex = mean([r["excess_brier"] for r in rs])
-    base = mean([(0.5 - r["q"]) ** 2 for r in rs])
+    ex = rmean(rs, "excess_brier")
+    base = rmean([dict(r, base=(0.5 - r["q"]) ** 2) for r in rs], "base")
     return 1 - ex / base if base else float("nan")
 
 
@@ -104,8 +117,8 @@ for m in models:
             W[f"{key}_n_items"] = len(g)
             W[f"{key}_n_valid"] = sum(r["parsed"] for r in g)
             if s in ("bank", "tails", "mirrors"):
-                W[f"{key}_excess_brier"] = mean([r["excess_brier"] for r in g])
-                W[f"{key}_brier"] = mean([r["brier"] for r in g])
+                W[f"{key}_excess_brier"] = rmean(g, "excess_brier")
+                W[f"{key}_brier"] = rmean(g, "brier")
                 W[f"{key}_recov"] = recov(g)
                 if s == "tails":
                     W[f"{key}_excess_bits"] = mean([r["excess_bits"] for r in g])
@@ -124,7 +137,7 @@ for m in models:
                     continue
                 L = dict(model=m, eci=W["eci"], fb_overall=W["fb_overall"], question_type=s, group=sub, horizon=T, n_items=len(g), n_valid=sum(r["parsed"] for r in g))
                 if s in ("bank", "tails", "mirrors"):
-                    L.update(excess_brier=mean([r["excess_brier"] for r in g]), brier=mean([r["brier"] for r in g]), recov=recov(g), excess_bits=mean([r["excess_bits"] for r in g]))
+                    L.update(excess_brier=rmean(g, "excess_brier"), brier=rmean(g, "brier"), recov=recov(g), excess_bits=rmean(g, "excess_bits"))
                 elif s == "continuous":
                     L.update(ncrps_global=mean([r.get("ncrps_global") for r in g]), excess_ncrps_global=mean([r.get("excess_ncrps_global") for r in g]), crps=mean([r.get("crps5") for r in g]))
                 else:
@@ -172,7 +185,7 @@ with open(f"{out}/freeciv_results_binary.csv", "w", newline="") as f:
             for T in HZ[s] + ["all"]:
                 g = [r for r in rows if r["model"] == m and r["set"] == s and (T == "all" or r["T"] == T)]
                 if g:
-                    wr.writerow([m, qt, f"T{T}" if T != "all" else "all", len(g), sum(r["parsed"] for r in g), mean([r["brier"] for r in g]), mean([r["brier"] for r in g]), mean([r["excess_brier"] for r in g]), mean([r["excess_bits"] for r in g])])
+                    wr.writerow([m, qt, f"T{T}" if T != "all" else "all", len(g), sum(r["parsed"] for r in g), rmean(g, "brier"), rmean(g, "brier"), rmean(g, "excess_brier"), rmean(g, "excess_bits")])
 with open(f"{out}/freeciv_results_continuous.csv", "w", newline="") as f:
     wr = csv.writer(f)
     wr.writerow(["model", "metric", "horizon", "nforecasts", "nvalid", "CRPS", "nCRPS_global", "excess_nCRPS_global", "excess_CRPS_over_IQR"])

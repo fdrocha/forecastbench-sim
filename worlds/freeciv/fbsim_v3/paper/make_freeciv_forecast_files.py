@@ -15,6 +15,8 @@ Per-forecast files for FreeCiv in the shape of Micropolis's data/micropolis/bina
 
 Columns follow Micropolis's names where the meaning is the same (model, question_id, section, horizon, forecast,
 real_prob, excess_brier, excess_bits); expected_brier is (f-q)^2 + q(1-q), the Brier score expected over the replays.
+In a weighted run (score_items column w) the binary file adds `weight`: the question's inverse-selection weight on
+mid-range rows of either prompt, 1 elsewhere; the paper's mid-range means are means weighted by it.
 """
 import argparse, json
 from pathlib import Path
@@ -31,12 +33,13 @@ RES, SETS, OUT = Path(a.results), Path(a.sets), Path(a.out)
 OUT.mkdir(parents=True, exist_ok=True)
 
 si = pd.read_csv(RES / "scores_v1" / "score_items.csv.gz", low_memory=False)
+WEIGHTED = "w" in si.columns
 SECTION = {"bank": "mid-range", "tails": "tail", "mirrors": "mirror", "extra": "extra"}
 b = si[si.set.isin(SECTION)].copy()
 b["section"] = b.set.map(SECTION)
 b["prompt"] = np.where(b.set == "extra", "single", "grouped")
-bin_rows = b[["model", "item", "world", "family", "section", "prompt", "T", "p", "q", "expected_brier", "excess_brier", "excess_bits", "parsed"]].rename(
-    columns={"item": "question_id", "T": "horizon", "p": "forecast", "q": "real_prob"})
+bin_rows = b[["model", "item", "world", "family", "section", "prompt", "T", "p", "q", "expected_brier", "excess_brier", "excess_bits", "parsed"] + (["w"] if WEIGHTED else [])].rename(
+    columns={"item": "question_id", "T": "horizon", "p": "forecast", "q": "real_prob", "w": "weight"})
 
 # single-prompt turn-1 forecasts of the bank questions that anchor cells (p1 of the cell rows, one per model and question)
 nc = si[si.set == "natcond"].copy()
@@ -49,6 +52,8 @@ f, q = single.forecast, single.real_prob
 single["expected_brier"] = (f - q) ** 2 + q * (1 - q); single["excess_brier"] = (f - q) ** 2
 fc, qc = f.clip(0.001, 0.999), q
 single["excess_bits"] = np.where(qc > 0, qc * np.log2(qc / fc), 0) + np.where(qc < 1, (1 - qc) * np.log2((1 - qc) / (1 - fc)), 0)
+if WEIGHTED:
+    single["weight"] = single.question_id.map(b[b.set == "bank"].drop_duplicates("item").set_index("item")["w"])
 bin_rows = pd.concat([bin_rows, single[bin_rows.columns]], ignore_index=True)
 bin_rows = bin_rows.sort_values(["section", "prompt", "question_id", "model"]).reset_index(drop=True)
 bin_rows.to_csv(OUT / "freeciv_binary_forecasts.csv", index=False, float_format="%.6g")
@@ -75,7 +80,8 @@ w = pd.read_csv(RES / "results_v1" / "freeciv_results_wide.csv").set_index("mode
 g = bin_rows[bin_rows.prompt == "grouped"].groupby(["model", "section"])
 chk = {("mid-range", "bank_all_excess_brier", "excess_brier"), ("tail", "tails_all_excess_bits", "excess_bits"), ("mirror", "mirrors_all_excess_brier", "excess_brier")}
 for sec, col, val in chk:
-    mine = bin_rows[(bin_rows.prompt == "grouped") & (bin_rows.section == sec)].groupby("model")[val].mean().reindex(w.index)
+    sub = bin_rows[(bin_rows.prompt == "grouped") & (bin_rows.section == sec)]
+    mine = (sub.groupby("model").apply(lambda d: np.average(d[val], weights=d["weight"]), include_groups=False) if WEIGHTED else sub.groupby("model")[val].mean()).reindex(w.index)
     assert np.allclose(mine, w[col].astype(float), atol=1e-6), sec
 nat_chk = nat.groupby("model").excess_brier_turn2.mean().reindex(w.index); assert np.allclose(nat_chk, w["natcond_all_excess_t2"].astype(float), atol=1e-6)
 print("binary rows", len(bin_rows), bin_rows.groupby(["section", "prompt"]).question_id.nunique().to_dict())

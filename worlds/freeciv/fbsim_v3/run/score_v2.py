@@ -30,6 +30,9 @@ Rules
                                          excess_t2 = (p2 - p_given)^2 (headline), stay = (p1 - p_given)^2 (no-update baseline),
                                          gain = stay - excess_t2; nonews: excess_nonews = (p_nn - p)^2, drift = p_nn - p1;
                                          single: excess_single = (p_s - p_given)^2.  move = p2 - p1 vs target = p_given - p.
+Weights (--bank-weights CSV, from draw/bank_weights_v1.py): every row gets a column w, the bank item's inverse-selection
+weight or 1 for every other set; bank aggregates are then weighted means, with the item bootstrap resampling items and
+re-weighting. Without the option, w is absent and every mean is unweighted, as before.
 Missing / unparsed answers: binary p is imputed (default 0.5, `--impute-binary none` to drop instead); continuous and natcond
 rows are dropped and the parse rate is reported alongside every aggregate.
 """
@@ -114,6 +117,24 @@ def score_items(R, S, C, N, impute):
             rows.append(row)
     return rows
 
+def load_bank_weights(path):
+    """{item: w} from bank_weights.csv."""
+    return {r['item']: float(r['w']) for r in csv.DictReader(open(path))}
+
+def apply_weights(rows, W):
+    """Add w to every row: the bank weight for bank rows (every bank item must have one), 1 elsewhere."""
+    for r in rows:
+        r['w'] = W[r['item']] if r['set'] == 'bank' else 1.0
+    return rows
+
+def boot_wmean(v, w, rng, B):
+    """boot_mean with weights: the same draws of item indices, each draw's mean weighted."""
+    v, w = np.asarray(v, float), np.asarray(w, float)
+    if len(v) == 0: return (float('nan'),) * 3
+    if len(v) == 1: return float(v[0]), float(v[0]), float(v[0])
+    idx = rng.integers(0, len(v), size=(B, len(v))); means = (v[idx] * w[idx]).sum(axis=1) / w[idx].sum(axis=1)
+    return float((v * w).sum() / w.sum()), float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
+
 def boot_mean(v, rng, B):
     v = np.asarray(v, float)
     if len(v) == 0: return (float('nan'),) * 3
@@ -142,7 +163,12 @@ def summarise(rows, B, seed):
             rec = dict(model=m, set=s, group=gtype, value=gval, n=len(g), n_parsed=n_parsed, parse_rate=n_parsed / len(g) if g else float('nan'))
             for met in METRICS[s]:
                 v = [r[met] for r in g if met in r and r[met] is not None]
-                mean, lo, hi = boot_mean(v, rng, B); rec[met] = mean; rec[met + '_lo'] = lo; rec[met + '_hi'] = hi; rec[met + '_n'] = len(v)
+                if s == 'bank' and g and 'w' in g[0]:
+                    wv = [r['w'] for r in g if met in r and r[met] is not None]
+                    mean, lo, hi = boot_wmean(v, wv, rng, B); rec[met + '_wsum'] = float(sum(wv))
+                else:
+                    mean, lo, hi = boot_mean(v, rng, B)
+                rec[met] = mean; rec[met + '_lo'] = lo; rec[met + '_hi'] = hi; rec[met + '_n'] = len(v)
             if s == 'natcond':
                 mv = [(r['move'], r['target']) for r in g if 'move' in r]
                 if len(mv) >= 3:
@@ -192,10 +218,13 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument('results', nargs='+'); ap.add_argument('--out', required=True)
     ap.add_argument('--boot', type=int, default=1000); ap.add_argument('--seed', type=int, default=0)
     ap.add_argument('--impute-binary', default='0.5', help='probability substituted for an unparsed binary answer, or "none" to drop')
-    ap.add_argument('--sets-dir', default=SETS); a = ap.parse_args()
+    ap.add_argument('--sets-dir', default=SETS)
+    ap.add_argument('--bank-weights', default='', help='bank_weights.csv: weight the bank aggregates by inverse selection probability'); a = ap.parse_args()
     impute = None if a.impute_binary == 'none' else float(a.impute_binary)
     S, C, N = load_sets(a.sets_dir); R = load_results(a.results)
-    rows = score_items(R, S, C, N, impute); summary = summarise(rows, a.boot, a.seed)
+    rows = score_items(R, S, C, N, impute)
+    if a.bank_weights: apply_weights(rows, load_bank_weights(a.bank_weights))
+    summary = summarise(rows, a.boot, a.seed)
     os.makedirs(a.out, exist_ok=True)
     keys = sorted({k for r in rows for k in r}, key=lambda k: (k not in ('model', 'set', 'item', 'arm', 'world', 'family', 'T'), k))
     with open(f'{a.out}/score_items.csv', 'w', newline='') as f:

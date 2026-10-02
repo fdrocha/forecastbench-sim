@@ -63,9 +63,13 @@ MODELS_V2 = FBSIM_V3 / "run" / "models_v2.csv"            # run 2's (pins as in 
 MODELS_FILE = MODELS_V1 if RUN.startswith("run1") else MODELS_V2
 NORM_CONSTANTS = FBSIM_V3 / "sets" / "draw_v1" / "continuous_norm_constants.json"
 COMPOSITION = FBSIM_V3 / "sets" / "draw_v1" / "COMPOSITION.md"
+BANK_WEIGHTS = FBSIM_V3 / "sets" / "draw_v1" / "bank_weights.csv"   # inverse-selection weights (draw/bank_weights_v1.py)
 
 # The backing files copied into the paper's data/freeciv/ so that every number there traces to a file.
 BACKING_FILES = [WIDE, RESULTS_MD, SCORES_MD, FAMILY_HORIZON, RELIABILITY, MODEL_SCORES, MODELS_FILE, NORM_CONSTANTS, COMPOSITION]
+WEIGHTED = (RESULTS / "SOURCES.txt").exists() and "bank weights:" in (RESULTS / "SOURCES.txt").read_text()   # run built with BANK_WEIGHTS
+if WEIGHTED:
+    BACKING_FILES.append(BANK_WEIGHTS)
 
 SEED = 2026
 N_BOOT = 10_000
@@ -217,7 +221,18 @@ def load_wide():
 
 
 def load_items():
-    return pd.read_csv(SCORE_ITEMS, low_memory=False)
+    """Per-item rows; w is the bank weight of a weighted run and 1 everywhere else."""
+    items = pd.read_csv(SCORE_ITEMS, low_memory=False)
+    if "w" not in items.columns:
+        items["w"] = 1.0
+    return items
+
+
+def wmean(x, w):
+    """Mean of x weighted by w over the non-missing x."""
+    x, w = np.asarray(x, float), np.asarray(w, float)
+    ok = ~np.isnan(x)
+    return float((x[ok] * w[ok]).sum() / w[ok].sum()) if ok.any() else float("nan")
 
 
 def models_by_eci(fw):
