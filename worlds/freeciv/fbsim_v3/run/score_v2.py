@@ -30,9 +30,10 @@ Rules
                                          excess_t2 = (p2 - p_given)^2 (headline), stay = (p1 - p_given)^2 (no-update baseline),
                                          gain = stay - excess_t2; nonews: excess_nonews = (p_nn - p)^2, drift = p_nn - p1;
                                          single: excess_single = (p_s - p_given)^2.  move = p2 - p1 vs target = p_given - p.
-Weights (--bank-weights CSV, from draw/bank_weights_v1.py): every row gets a column w, the bank item's inverse-selection
-weight or 1 for every other set; bank aggregates are then weighted means, with the item bootstrap resampling items and
-re-weighting. Without the option, w is absent and every mean is unweighted, as before.
+Weights (--bank-weights / --tails-weights CSV, from draw/bank_weights_v1.py and draw/tails_weights_v1.py): every row
+gets a column w, the item's inverse-selection weight in a weighted set or 1 elsewhere; that set's aggregates are then
+weighted means, with the item bootstrap resampling items and re-weighting. Without the options, w is absent and every
+mean is unweighted, as before.
 Missing / unparsed answers: binary p is imputed (default 0.5, `--impute-binary none` to drop instead); continuous and natcond
 rows are dropped and the parse rate is reported alongside every aggregate.
 """
@@ -121,10 +122,13 @@ def load_bank_weights(path):
     """{item: w} from bank_weights.csv."""
     return {r['item']: float(r['w']) for r in csv.DictReader(open(path))}
 
+WEIGHTED_SETS = set()
+
 def apply_weights(rows, W):
-    """Add w to every row: the bank weight for bank rows (every bank item must have one), 1 elsewhere."""
+    """W: {set: {item: w}}. Add w to every row: the item's weight in a weighted set (every item must have one), 1 elsewhere."""
+    WEIGHTED_SETS.update(W)
     for r in rows:
-        r['w'] = W[r['item']] if r['set'] == 'bank' else 1.0
+        r['w'] = W[r['set']][r['item']] if r['set'] in W else 1.0
     return rows
 
 def boot_wmean(v, w, rng, B):
@@ -163,7 +167,7 @@ def summarise(rows, B, seed):
             rec = dict(model=m, set=s, group=gtype, value=gval, n=len(g), n_parsed=n_parsed, parse_rate=n_parsed / len(g) if g else float('nan'))
             for met in METRICS[s]:
                 v = [r[met] for r in g if met in r and r[met] is not None]
-                if s == 'bank' and g and 'w' in g[0]:
+                if s in WEIGHTED_SETS and g and 'w' in g[0]:
                     wv = [r['w'] for r in g if met in r and r[met] is not None]
                     mean, lo, hi = boot_wmean(v, wv, rng, B); rec[met + '_wsum'] = float(sum(wv))
                 else:
@@ -219,11 +223,13 @@ def main():
     ap.add_argument('--boot', type=int, default=1000); ap.add_argument('--seed', type=int, default=0)
     ap.add_argument('--impute-binary', default='0.5', help='probability substituted for an unparsed binary answer, or "none" to drop')
     ap.add_argument('--sets-dir', default=SETS)
-    ap.add_argument('--bank-weights', default='', help='bank_weights.csv: weight the bank aggregates by inverse selection probability'); a = ap.parse_args()
+    ap.add_argument('--bank-weights', default='', help='bank_weights.csv: weight the bank aggregates by inverse selection probability')
+    ap.add_argument('--tails-weights', default='', help='tails_weights.csv: the same for the tail set'); a = ap.parse_args()
     impute = None if a.impute_binary == 'none' else float(a.impute_binary)
     S, C, N = load_sets(a.sets_dir); R = load_results(a.results)
     rows = score_items(R, S, C, N, impute)
-    if a.bank_weights: apply_weights(rows, load_bank_weights(a.bank_weights))
+    W = {s: load_bank_weights(f) for s, f in (('bank', a.bank_weights), ('tails', a.tails_weights)) if f}
+    if W: apply_weights(rows, W)
     summary = summarise(rows, a.boot, a.seed)
     os.makedirs(a.out, exist_ok=True)
     keys = sorted({k for r in rows for k in r}, key=lambda k: (k not in ('model', 'set', 'item', 'arm', 'world', 'family', 'T'), k))

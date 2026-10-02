@@ -13,7 +13,8 @@ the call's cost divided by the questions asked, `cost_share`).
   OUT_DIR/freeciv_results_binary.csv     Fabio's binary schema
   OUT_DIR/freeciv_results_continuous.csv Fabio's continuous schema
 
---bank-weights CSV (draw/bank_weights_v1.py) weights every bank mean, recov included, by inverse selection probability.
+--bank-weights / --tails-weights CSV (draw/bank_weights_v1.py, tails_weights_v1.py) weight every mean of that set, recov
+included, by inverse selection probability.
 """
 import argparse, collections, csv, datetime, math, os, sys
 
@@ -31,6 +32,7 @@ ap.add_argument("--models-file", default=os.path.join(HERE, "models_v2.csv"))
 ap.add_argument("--capability", default=os.path.join(HERE, "..", "results", "run1_2026-09-09", "model_scores.csv"))
 ap.add_argument("--impute-binary", default="0.5")
 ap.add_argument("--bank-weights", default="", help="bank_weights.csv: bank means weighted by inverse selection probability")
+ap.add_argument("--tails-weights", default="", help="tails_weights.csv: tail means weighted by inverse selection probability")
 ap.add_argument("--natcond-cost-from", default="", help="run-1 wide table: natural-conditional costs for models whose natcond rows carry no cost (reused run-1 forecasts)")
 a = ap.parse_args()
 out = a.out
@@ -40,8 +42,9 @@ impute = None if a.impute_binary == "none" else float(a.impute_binary)
 S, C, N = sv.load_sets()
 R = sv.load_results(a.results)
 rows = sv.score_items(R, S, C, N, impute=impute)
-if a.bank_weights:
-    sv.apply_weights(rows, sv.load_bank_weights(a.bank_weights))
+WTS = {s: sv.load_bank_weights(f) for s, f in (("bank", a.bank_weights), ("tails", a.tails_weights)) if f}
+if WTS:
+    sv.apply_weights(rows, WTS)
 models_meta = {m["openrouter_id"]: m for m in csv.DictReader(open(a.models_file))}
 import pandas as pd
 run1 = pd.read_csv(a.natcond_cost_from).set_index("model") if a.natcond_cost_from else None
@@ -88,8 +91,8 @@ def mean(v):
 
 
 def rmean(rs, key):
-    """Mean of r[key] over rows rs, weighted by r["w"] where the rows carry weights (the bank under --bank-weights)."""
-    if rs and "w" in rs[0] and rs[0]["set"] == "bank":
+    """Mean of r[key] over rows rs, weighted by r["w"] for a weighted set (--bank-weights, --tails-weights)."""
+    if rs and "w" in rs[0] and rs[0]["set"] in sv.WEIGHTED_SETS:
         pairs = [(r[key], r["w"]) for r in rs if r.get(key) is not None and not (isinstance(r[key], float) and math.isnan(r[key]))]
         return float(sum(x * w for x, w in pairs) / sum(w for _, w in pairs)) if pairs else float("nan")
     return mean([r.get(key) for r in rs])
@@ -121,8 +124,8 @@ for m in models:
                 W[f"{key}_brier"] = rmean(g, "brier")
                 W[f"{key}_recov"] = recov(g)
                 if s == "tails":
-                    W[f"{key}_excess_bits"] = mean([r["excess_bits"] for r in g])
-                    W[f"{key}_logloss_bits"] = mean([r["logloss_bits"] for r in g])
+                    W[f"{key}_excess_bits"] = rmean(g, "excess_bits")
+                    W[f"{key}_logloss_bits"] = rmean(g, "logloss_bits")
             elif s == "continuous":
                 for met in ("ncrps_global", "excess_ncrps_global", "excess_crps_norm", "crps5", "cov50", "cov90"):
                     W[f"{key}_{met}"] = mean([r.get(met) for r in g])

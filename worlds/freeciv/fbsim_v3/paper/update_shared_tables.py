@@ -22,7 +22,7 @@ rerun at 50 questions per prompt).  --check recomputes and reports differences w
 Sources (data/freeciv/): freeciv_results_wide.csv (headline scores, calls, cost), freeciv_results_table.md
 (calls and cost per model as the run log printed them), models_v1.csv (reasoning setting, provider pin),
 score_items.csv.gz (per-item rows for the cluster bootstrap over the eight anchor games), model_scores.csv.
-In a weighted run the bank's cluster bootstrap uses weighted sums and weight totals per model and game.
+In a weighted run the cluster bootstrap of a weighted set (bank, tails) uses weighted sums and weight totals per model and game.
 The FreeCiv statistics reproduce the retired data/compute_validation_stats.py (same seed, same resample
 count, same bootstrap order).
 """
@@ -36,7 +36,7 @@ import pandas as pd
 from scipy.stats import spearmanr
 
 from _common import (BANK_WEIGHTS, DATA, MODELS_FILE, N_BOOT, RUN, PAPER_DATA, REPO, RESULTS_MD, SCORE_ITEMS, SEED, TABLES,
-                     WEIGHTED, WIDE, display_name, load_capability, load_items, load_wide, tex, rel)
+                     TAILS_WEIGHTED, TAILS_WEIGHTS, WEIGHTED, WIDE, display_name, load_capability, load_items, load_wide, tex, rel)
 
 FINAL = "--final" in sys.argv[1:]
 CHECK = "--check" in sys.argv[1:]
@@ -349,8 +349,9 @@ def main():
                                f"numpy default_rng({SEED}) re-seeded per row and axis",
                cluster_bootstrap="resample the 8 anchor worlds with replacement, recompute every model's mean score from "
                                  "score_items over the items of the drawn worlds (with multiplicity), then Spearman rho"
-                                 + ("; bank means weighted by the inverse-selection weights" if WEIGHTED else ""),
+                                 + ("; bank" + (" and tail" if TAILS_WEIGHTED else "") + " means weighted by the inverse-selection weights" if WEIGHTED else ""),
                bank_weights=rel(BANK_WEIGHTS) if WEIGHTED else None,
+               tails_weights=rel(TAILS_WEIGHTS) if TAILS_WEIGHTED else None,
                eci_vs_fb_spearman=spearman_stats(both.eci.values, both.fb.values, rng),
                rows=rows,
                run=dict(models=24, total_calls=int(w["total_calls"].sum()), total_cost_usd=float(w["total_cost_usd"].sum()),

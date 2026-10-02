@@ -64,12 +64,17 @@ MODELS_FILE = MODELS_V1 if RUN.startswith("run1") else MODELS_V2
 NORM_CONSTANTS = FBSIM_V3 / "sets" / "draw_v1" / "continuous_norm_constants.json"
 COMPOSITION = FBSIM_V3 / "sets" / "draw_v1" / "COMPOSITION.md"
 BANK_WEIGHTS = FBSIM_V3 / "sets" / "draw_v1" / "bank_weights.csv"   # inverse-selection weights (draw/bank_weights_v1.py)
+TAILS_WEIGHTS = FBSIM_V3 / "sets" / "draw_v1" / "tails_weights.csv"  # the same for the tail set (draw/tails_weights_v1.py)
 
 # The backing files copied into the paper's data/freeciv/ so that every number there traces to a file.
 BACKING_FILES = [WIDE, RESULTS_MD, SCORES_MD, FAMILY_HORIZON, RELIABILITY, MODEL_SCORES, MODELS_FILE, NORM_CONSTANTS, COMPOSITION]
-WEIGHTED = (RESULTS / "SOURCES.txt").exists() and "bank weights:" in (RESULTS / "SOURCES.txt").read_text()   # run built with BANK_WEIGHTS
+_SOURCES = (RESULTS / "SOURCES.txt").read_text() if (RESULTS / "SOURCES.txt").exists() else ""
+WEIGHTED = "bank weights:" in _SOURCES          # run built with BANK_WEIGHTS
+TAILS_WEIGHTED = "tails weights:" in _SOURCES   # run built with TAILS_WEIGHTS
 if WEIGHTED:
     BACKING_FILES.append(BANK_WEIGHTS)
+if TAILS_WEIGHTED:
+    BACKING_FILES.append(TAILS_WEIGHTS)
 
 SEED = 2026
 N_BOOT = 10_000

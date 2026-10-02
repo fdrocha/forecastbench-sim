@@ -7,8 +7,8 @@ Sources (read-only):
   score_items.csv        per-item scores (46,176 rows: model x item x arm)
   freeciv_results_wide.csv  ECI per model (cross-checked against model_scores.csv)
   reliability_bands.csv  bank reliability bands (10 truth bands per model)
-Bank items carry the inverse-selection weight w of a weighted run (score_items column w); every bank mean, bootstrap
-and reference value below is weighted by it.  Other sets have w = 1, which leaves their numbers as before.
+Bank and tail items carry the inverse-selection weight w of a weighted run (score_items column w); every mean,
+bootstrap and reference value over them below is weighted by it.  Other sets have w = 1, which leaves their numbers as before.
 Outputs: PDF and a per-figure JSON of every plotted number in figures/; data/freeciv/freeciv_summary.json.
 Inputs are read from data/freeciv/ (see _common.py). Moved from the retired paper/data/make_freeciv_figs_v13.py on 2026-09-19.
 """
@@ -369,7 +369,7 @@ for ax, (key, spec) in zip(axes, PANELS.items()):
         ref_label = "flat 0.5"
     elif key == "tails":
         u = uniq[uniq.set == "tails"]
-        ref = [float(np.mean(kl_bits(u.q[u["T"] == h].values, 0.05))) for h in hs]
+        ref = [float(np.average(kl_bits(u.q[u["T"] == h].values, 0.05), weights=u.w[u["T"] == h])) for h in hs]
         ref_label = "flat 0.05"
     elif key == "natcond":
         piv_s, _, Ts_s = per_model_matrix("natcond", "stay")
@@ -523,8 +523,10 @@ summary["reference_forecasters"] = dict(
     bank_var_q=float(np.average((bank_u.q - np.average(bank_u.q, weights=bank_u.w)) ** 2, weights=bank_u.w)),
     bank_mean_q=float(np.average(bank_u.q, weights=bank_u.w)),
     bank_weighted=bool((bank_u.w != 1).any()),
-    tails_flat_0p05_bits=float(np.mean(kl_bits(tails_u.q.values, 0.05))),
-    tails_flat_0p5_bits=float(np.mean(kl_bits(tails_u.q.values, 0.5))),
+    tails_flat_0p05_bits=float(np.average(kl_bits(tails_u.q.values, 0.05), weights=tails_u.w)),
+    tails_flat_0p5_bits=float(np.average(kl_bits(tails_u.q.values, 0.5), weights=tails_u.w)),
+    tails_mean_q=float(np.average(tails_u.q, weights=tails_u.w)),
+    tails_weighted=bool((tails_u.w != 1).any()),
     n_bank_items=int(len(bank_u)), n_tails_items=int(len(tails_u)),
 )
 with open(DATADIR / "freeciv_summary.json", "w") as f:

@@ -123,6 +123,7 @@ N = dict(
     combinations=int(len(pd.read_csv(BANK_WEIGHTS).drop_duplicates(["band", "T", "family"]))) if WEIGHTED else None, max_weight_ratio=float(uq.w.max() / uq.w.median()),
     weight_share_by_band={str(k_): float(v) for k_, v in (uq.groupby(pd.cut(uq.q, [0.05, 0.23, 0.41, 0.59, 0.77, 0.95]), observed=False).w.sum() / uq.w.sum()).items()},
 )
+assert N["eci"]["ci"][0] < 0 < N["eci"]["ci"][1], "sections 2 and 7 count the mid-range interval as including zero"
 (DATA / "freeciv_midrange_numbers.json").write_text(json.dumps(N, indent=1, default=float))
 
 

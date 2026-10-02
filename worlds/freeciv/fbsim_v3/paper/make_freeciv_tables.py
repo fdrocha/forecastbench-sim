@@ -26,7 +26,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from _common import (DATA, REPO, RUN, SCORES_MD, SCORE_ITEMS, TABLES, WEIGHTED, WIDE, fmt, load_capability, load_items,
+from _common import (DATA, REPO, RUN, SCORES_MD, SCORE_ITEMS, TABLES, TAILS_WEIGHTED, WEIGHTED, WIDE, fmt, load_capability, load_items,
                      load_wide, models_by_eci, name, parse_md_tables, spearman_signed, write_tabular, rel)
 
 TABLES.mkdir(parents=True, exist_ok=True)
@@ -66,7 +66,8 @@ write_tabular(TABLES / "freeciv_models.tex", "lrrrrrrrrr",
               rows, comment=("FreeCiv per model (provisional, one question per prompt). Source: " if RUN.startswith("run1") else "FreeCiv per model (run 2: batched at up to 50 binary / 20 continuous questions per prompt; natural conditionals one per prompt). Source: ") + " freeciv_results_wide.csv, columns "
                             "bank_all_excess_brier, tails_all_excess_bits, continuous_all_ncrps_global, continuous_all_excess_ncrps_global, "
                             "natcond_all_excess_t2, natcond_all_gain, *_all_n_valid / *_all_n_items over the five scored sets, total_cost_usd."
-                            + (" Mid-range: mean weighted by inverse selection probability (bank_weights.csv)." if WEIGHTED else ""))
+                            + (" Mid-range: mean weighted by inverse selection probability (bank_weights.csv)." if WEIGHTED else "")
+                            + (" Tails: mean weighted the same way (tails_weights.csv)." if TAILS_WEIGHTED else ""))
 NUMBERS["freeciv"] = {"per_model": f_rec, "n_models": 24, "total_cost_usd": float(fw["total_cost_usd"].sum()),
                       "parsed_share_range": [min(r["parsed_share"] for r in f_rec.values()), max(r["parsed_share"] for r in f_rec.values())],
                       "gain_positive_models": int(sum(r["natcond_gain"] > 0 for r in f_rec.values())),
@@ -145,7 +146,8 @@ write_tabular(TABLES / "freeciv_horizon_binary.tex", "lrrrrrrrrrrr",
                " & & 90 & 120 & 150 & 180 & 210 & 90 & 120 & 150 & 180 & 210"],
               rows, comment="FreeCiv mid-range set (150 questions per horizon) and tails (60 per horizon) by resolution turn. Source: "
                             "freeciv_results_wide.csv, columns bank_{T}_excess_brier and tails_{T}_excess_bits; cross-checked against SCORES.md."
-                            + (" Mid-range: means weighted by inverse selection probability (bank_weights.csv)." if WEIGHTED else ""))
+                            + (" Mid-range: means weighted by inverse selection probability (bank_weights.csv)." if WEIGHTED else "")
+                            + (" Tails: weighted the same way (tails_weights.csv)." if TAILS_WEIGHTED else ""))
 write_tabular(TABLES / "freeciv_horizon_cont.tex", "lrrrrrrrrrr",
               ["Model & ECI & \\multicolumn{5}{c}{Continuous nCRPS, by horizon (turn)} & \\multicolumn{4}{c}{Natural-conditional excess Brier}",
                "\\cmidrule(lr){3-7}\\cmidrule(lr){8-11}",

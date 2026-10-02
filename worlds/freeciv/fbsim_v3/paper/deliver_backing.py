@@ -10,7 +10,7 @@ stay in this repository (worlds/freeciv/fbsim_v3/).
 """
 import shutil
 
-from _common import BACKING_FILES, DATA, MODELS_V1, MODELS_V2, RUN, WEIGHTED, rel
+from _common import BACKING_FILES, DATA, MODELS_V1, MODELS_V2, RUN, TAILS_WEIGHTED, WEIGHTED, rel
 
 for stale in (MODELS_V1, MODELS_V2):
     if stale not in BACKING_FILES and (DATA / stale.name).exists():
@@ -25,9 +25,10 @@ for src in BACKING_FILES:
     shutil.copy2(src, dst)
     print(f"copied     {rel(src)} -> {rel(dst)}")
 
-WEIGHT_COL = "; mid-range rows carry the question's inverse-selection weight" if WEIGHTED else ""
+WEIGHT_COL = ("; mid-range" + (" and tail" if TAILS_WEIGHTED else "") + " rows carry the question's inverse-selection weight") if WEIGHTED else ""
 WEIGHT_ROW = ("| `bank_weights.csv` | per mid-range item: stratum (band, horizon, family), candidate and selected counts, and the "
               "inverse-selection weight behind every mid-range mean |\n") if WEIGHTED else ""
+WEIGHT_ROW += ("| `tails_weights.csv` | the same for the tail set, by horizon and family (the tail draw has no bands) |\n") if TAILS_WEIGHTED else ""
 README = f"""# FreeCiv: files behind the paper's numbers
 
 Copied from `worlds/freeciv/fbsim_v3/results/{RUN}/` of the `forecastbench-sim` repository

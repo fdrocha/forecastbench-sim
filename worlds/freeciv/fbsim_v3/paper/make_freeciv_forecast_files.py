@@ -16,7 +16,7 @@ Per-forecast files for FreeCiv in the shape of Micropolis's data/micropolis/bina
 Columns follow Micropolis's names where the meaning is the same (model, question_id, section, horizon, forecast,
 real_prob, excess_brier, excess_bits); expected_brier is (f-q)^2 + q(1-q), the Brier score expected over the replays.
 In a weighted run (score_items column w) the binary file adds `weight`: the question's inverse-selection weight on
-mid-range rows of either prompt, 1 elsewhere; the paper's mid-range means are means weighted by it.
+mid-range rows of either prompt and on tail rows, 1 elsewhere; the paper's mid-range and tail means are weighted by it.
 """
 import argparse, json
 from pathlib import Path
@@ -81,7 +81,7 @@ g = bin_rows[bin_rows.prompt == "grouped"].groupby(["model", "section"])
 chk = {("mid-range", "bank_all_excess_brier", "excess_brier"), ("tail", "tails_all_excess_bits", "excess_bits"), ("mirror", "mirrors_all_excess_brier", "excess_brier")}
 for sec, col, val in chk:
     sub = bin_rows[(bin_rows.prompt == "grouped") & (bin_rows.section == sec)]
-    mine = (sub.groupby("model").apply(lambda d: np.average(d[val], weights=d["weight"]), include_groups=False) if WEIGHTED else sub.groupby("model")[val].mean()).reindex(w.index)
+    mine = (sub.groupby("model").apply(lambda d: np.average(d[val], weights=d["weight"]), include_groups=False) if WEIGHTED else sub.groupby("model")[val].mean()).reindex(w.index)   # weight = 1 on unweighted sets
     assert np.allclose(mine, w[col].astype(float), atol=1e-6), sec
 nat_chk = nat.groupby("model").excess_brier_turn2.mean().reindex(w.index); assert np.allclose(nat_chk, w["natcond_all_excess_t2"].astype(float), atol=1e-6)
 print("binary rows", len(bin_rows), bin_rows.groupby(["section", "prompt"]).question_id.nunique().to_dict())
