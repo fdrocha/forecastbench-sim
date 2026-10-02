@@ -32,3 +32,6 @@ reports/
 
 .env
 .worktrees/
+
+.worktreeinclude
+CLAUDE.local.md
