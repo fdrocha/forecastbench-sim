@@ -6,7 +6,7 @@ if fc_args['debug.logging_path'] is not None:
     logging_dir = os.path.expanduser(fc_args['debug.logging_path'])
 else:
     logging_dir = os.path.normpath(os.path.join(os.path.dirname(
-        os.path.realpath(__file__)), '..', '..', '..', 'logs'))
+        os.path.realpath(__file__)), '..', '..', 'logs'))
 
 LOGGING_CONFIG = {
     'version': 1,
