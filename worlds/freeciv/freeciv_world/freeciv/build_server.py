@@ -19,20 +19,20 @@ import subprocess
 from freeciv_world.configs import fc_web_args, fc_args
 
 # Change this to 'fciv-net' if you are using fciv-net
-docker_image_name = 'freeciv-web'
+docker_image_name = "freeciv-web"
 
 
 def run_bash_command(cmd):
-    subprocess.call(cmd, shell=True, executable='/bin/bash')
+    subprocess.call(cmd, shell=True, executable="/bin/bash")
 
 
-def check_container_exists(service_name=fc_args['service']):
+def check_container_exists(service_name=fc_args["service"]):
     try:
         result = subprocess.run(
-            ['docker', 'ps', '--format={{.Names}}'],
+            ["docker", "ps", "--format={{.Names}}"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
         )
 
         if service_name in result.stdout.split("\n"):
@@ -44,7 +44,7 @@ def check_container_exists(service_name=fc_args['service']):
         return False
 
 
-def download_freeciv_web_image(image_name=f'freeciv_world/{fc_web_args["image"]}'):
+def download_freeciv_web_image(image_name=f"civrealm/{fc_web_args['image']}"):
     # pull image
     pull_command = f"docker pull {image_name}"
     subprocess.run(pull_command, shell=True, check=True)
@@ -56,7 +56,7 @@ def download_freeciv_web_image(image_name=f'freeciv_world/{fc_web_args["image"]}
     return
 
 
-def stop_freeciv_web_service(service_name=fc_args['service']):
+def stop_freeciv_web_service(service_name=fc_args["service"]):
     if check_container_exists(service_name):
         print(f"Stop service container: {service_name}")
         stop_service_command = f"docker stop {service_name}"
@@ -64,17 +64,17 @@ def stop_freeciv_web_service(service_name=fc_args['service']):
     return
 
 
-def start_freeciv_web_service(image_name=f'freeciv/{fc_web_args["image"]}'):
+def start_freeciv_web_service(image_name=f"freeciv/{fc_web_args['image']}"):
     client = docker.from_env()
 
     # start container
     try:
         container = client.containers.run(
-            f'{image_name}',
+            f"{image_name}",
             "sleep infinity",
             user="docker",
-            name=fc_args['service'],
-            ports=fc_web_args['port_map'],
+            name=fc_args["service"],
+            ports=fc_web_args["port_map"],
             detach=True,
             auto_remove=True,
         )
@@ -86,7 +86,9 @@ def start_freeciv_web_service(image_name=f'freeciv/{fc_web_args["image"]}'):
     return
 
 
-def build_freeciv_web_service(service_name=fc_args['service'], image_name=f'freeciv_world/{fc_web_args["image"]}'):
+def build_freeciv_web_service(
+    service_name=fc_args["service"], image_name=f"freeciv_world/{fc_web_args['image']}"
+):
     stop_freeciv_web_service(service_name)
     download_freeciv_web_image(image_name)
     start_freeciv_web_service(image_name)
@@ -95,10 +97,14 @@ def build_freeciv_web_service(service_name=fc_args['service'], image_name=f'free
 
 def build_docker_img():
     client = docker.from_env()
-    print("Start building freeciv-web server. Take some coffee and relax. Takes up to 20minutes")
-    cli = docker.APIClient(base_url='unix://var/run/docker.sock')
-    for line in cli.build(path="https://github.com/freeciv/freeciv-web.git#develop", tag="freeciv-web"):
-        if not "Downloading" in line.decode('utf-8'):
+    print(
+        "Start building freeciv-web server. Take some coffee and relax. Takes up to 20minutes"
+    )
+    cli = docker.APIClient(base_url="unix://var/run/docker.sock")
+    for line in cli.build(
+        path="https://github.com/freeciv/freeciv-web.git#develop", tag="freeciv-web"
+    ):
+        if not "Downloading" in line.decode("utf-8"):
             print(line)
 
 
@@ -107,69 +113,83 @@ def update_docker_image():
     To debug, use `docker exec -it freeciv-web bash` to enter the docker container.
     """
 
-    print('Updating docker image...')
+    print("Updating docker image...")
     freeciv_dir = os.path.dirname(__file__)
-    modified_code_dir = os.path.join(
-        freeciv_dir, 'misc', 'modified_server_code')
+    modified_code_dir = os.path.join(freeciv_dir, "misc", "modified_server_code")
 
     # Add more ports for multiplayer mode to enable parallel training and testing.
     run_bash_command(
-        f'docker exec -t {docker_image_name} sh -c "rm /docker/publite2/*longturn*"')
+        f'docker exec -t {docker_image_name} sh -c "rm /docker/publite2/*longturn*"'
+    )
 
     # Customize the civ2civ3 ruleset to allow building settlers with population cost 1
     run_bash_command(
-        f'docker cp {modified_code_dir}/units.ruleset {docker_image_name}:/home/docker/freeciv/share/freeciv/civ2civ3/units.ruleset')
+        f"docker cp {modified_code_dir}/units.ruleset {docker_image_name}:/home/docker/freeciv/share/freeciv/civ2civ3/units.ruleset"
+    )
 
     # Add more ports for multiplayer mode to enable parallel training and testing.
     # Replace the `settings.ini` and `publite2.py` file in `/docker/publite2/`
     run_bash_command(
-        f'docker cp {modified_code_dir}/settings.ini {docker_image_name}:/docker/publite2/settings.ini')
+        f"docker cp {modified_code_dir}/settings.ini {docker_image_name}:/docker/publite2/settings.ini"
+    )
     run_bash_command(
-        f'docker cp {modified_code_dir}/publite2.py {docker_image_name}:/docker/publite2/publite2.py')
+        f"docker cp {modified_code_dir}/publite2.py {docker_image_name}:/docker/publite2/publite2.py"
+    )
 
     # Set the command level of client to hack to allow running all commands for debugging
     # Replace the `pubscript_multiplayer.serv` and `pubscript_singleplayer.serv` file in `/docker/publite2/`
     run_bash_command(
-        f'docker cp {modified_code_dir}/pubscript_singleplayer.serv {docker_image_name}:/docker/publite2/pubscript_singleplayer.serv')
+        f"docker cp {modified_code_dir}/pubscript_singleplayer.serv {docker_image_name}:/docker/publite2/pubscript_singleplayer.serv"
+    )
     run_bash_command(
-        f'docker cp {modified_code_dir}/pubscript_multiplayer.serv {docker_image_name}:/docker/publite2/pubscript_multiplayer.serv')
+        f"docker cp {modified_code_dir}/pubscript_multiplayer.serv {docker_image_name}:/docker/publite2/pubscript_multiplayer.serv"
+    )
 
     # # Custom freeciv-web to save game files for debugging
     # Replace the `DeleteSaveGame.java` and `ListSaveGames` file in `freeciv-web/src/main/java/org/freeciv/servlet`:
     run_bash_command(
-        f'docker cp {modified_code_dir}/DeleteSaveGame.java {docker_image_name}:/docker/freeciv-web/src/main/java/org/freeciv/servlet/DeleteSaveGame.java')
+        f"docker cp {modified_code_dir}/DeleteSaveGame.java {docker_image_name}:/docker/freeciv-web/src/main/java/org/freeciv/servlet/DeleteSaveGame.java"
+    )
     run_bash_command(
-        f'docker cp {modified_code_dir}/ListSaveGames.java {docker_image_name}:/docker/freeciv-web/src/main/java/org/freeciv/servlet/ListSaveGames.java')
+        f"docker cp {modified_code_dir}/ListSaveGames.java {docker_image_name}:/docker/freeciv-web/src/main/java/org/freeciv/servlet/ListSaveGames.java"
+    )
 
     # Customize the civ2civ3 ruleset to allow building settlers with population cost 1
     run_bash_command(
-        f'docker cp {modified_code_dir}/units.ruleset {docker_image_name}:/home/docker/freeciv/share/freeciv/civ2civ3/units.ruleset')
+        f"docker cp {modified_code_dir}/units.ruleset {docker_image_name}:/home/docker/freeciv/share/freeciv/civ2civ3/units.ruleset"
+    )
 
     # Rebuild the web server
     run_bash_command(
-        f'docker exec -it {docker_image_name} bash -c "cd /docker/freeciv-web/; source build.sh"')
+        f'docker exec -it {docker_image_name} bash -c "cd /docker/freeciv-web/; source build.sh"'
+    )
 
     # Commit the modified docker image
-    run_bash_command(
-        f'docker commit {docker_image_name} freeciv/{docker_image_name}')
+    run_bash_command(f"docker commit {docker_image_name} freeciv/{docker_image_name}")
 
 
 def update_javascript_for_clean_screenshot():
-    print('Updating docker image...')
+    print("Updating docker image...")
     freeciv_dir = os.path.dirname(__file__)
     modified_code_dir = os.path.join(
-        freeciv_dir, 'misc', 'modified_javascript_for_screenshot')
+        freeciv_dir, "misc", "modified_javascript_for_screenshot"
+    )
 
     # Copy modified javascript to docker image
     run_bash_command(
-        f'docker cp {modified_code_dir}/javascript {docker_image_name}:/docker/freeciv-web/src/main/webapp/')
+        f"docker cp {modified_code_dir}/javascript {docker_image_name}:/docker/freeciv-web/src/main/webapp/"
+    )
 
     # Rebuild the web server
     run_bash_command(
-        f'docker exec -it {docker_image_name} bash -c "cd /docker/freeciv-web/; source build.sh"')
+        f'docker exec -it {docker_image_name} bash -c "cd /docker/freeciv-web/; source build.sh"'
+    )
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download a Freeciv web image.")
-    parser.add_argument('image_name', type=str, help="The name of the image to download")
+    parser.add_argument(
+        "image_name", type=str, help="The name of the image to download"
+    )
     args = parser.parse_args()
     download_freeciv_web_image(args.image_name)
