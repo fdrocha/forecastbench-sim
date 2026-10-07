@@ -43,6 +43,7 @@ micropolis_world/knowledge_eval/prompt_preamble.txt
 micropolis_world/knowledge_eval/runner.py
 micropolis_world/knowledge_eval/scoring.py
 micropolis_world/knowledge_eval/statements.py
+tests/test_analyze_prompts.py
 tests/test_baseline_skill.py
 tests/test_binary_batching.py
 tests/test_binary_correlations.py
@@ -51,14 +52,19 @@ tests/test_binary_scores_csv.py
 tests/test_calibration_bins.py
 tests/test_continuous_batching.py
 tests/test_continuous_tables.py
+tests/test_data_dir.py
 tests/test_determinism_check.py
+tests/test_excess_crps.py
 tests/test_ground_truth.py
 tests/test_knowledge_scoring.py
+tests/test_knowledge_split.py
 tests/test_messages.py
+tests/test_metric_ranges.py
 tests/test_model_ids.py
 tests/test_model_scores.py
 tests/test_normalization.py
 tests/test_openrouter_build.py
+tests/test_paper_sets.py
 tests/test_plot_repeats.py
 tests/test_prompting.py
 tests/test_report.py
