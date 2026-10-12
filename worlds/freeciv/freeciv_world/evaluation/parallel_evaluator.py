@@ -511,7 +511,8 @@ async def query_model_async(
         for attempt in range(max_retries):
             try:
                 # Native async call with no explicit max_tokens cap.
-                api_call = model.get_response_async(prompt, temperature=0.0)
+                # No temperature: provider-default sampling (benchmark protocol).
+                api_call = model.get_response_async(prompt)
 
                 # Apply timeout if specified
                 if timeout:
@@ -640,7 +641,8 @@ async def query_model_batch_async(
         for attempt in range(max_retries):
             try:
                 # Native async call with no explicit max_tokens cap.
-                api_call = model.get_response_async(prompt, temperature=0.0)
+                # No temperature: provider-default sampling (benchmark protocol).
+                api_call = model.get_response_async(prompt)
 
                 # Apply timeout if specified
                 if timeout:
@@ -749,7 +751,8 @@ async def query_model_continuous_batch_async(
         for attempt in range(max_retries):
             try:
                 # Native async call with no explicit max_tokens cap.
-                api_call = model.get_response_async(prompt, temperature=0.0)
+                # No temperature: provider-default sampling (benchmark protocol).
+                api_call = model.get_response_async(prompt)
 
                 # Apply timeout if specified
                 if timeout:

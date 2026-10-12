@@ -90,10 +90,12 @@ def main(seed: int, max_turns: int = 50, num_ai_players: int = 5, quiet: bool = 
     # Also seed Python's random module for nation selection (used in civ_controller.py)
     random.seed(seed)
 
-    # Load game support - continue from a previous savegame
+    # Load game support - continue from a previous savegame.
+    # NOTE: no take_player. Load auto-reattaches this connection to the player
+    # whose username matches, and the player keeps the AI flag stored in the
+    # savegame (the /take+/aitoggle dance wiped the AI's research goal).
     if load_game:
         fc_args['debug.load_game'] = load_game
-        fc_args['debug.take_player'] = run_id  # Take control of our player
         fc_args['begin_turn_timeout'] = 60  # Increase timeout for loaded games
 
     def log(msg):
@@ -165,10 +167,10 @@ def main(seed: int, max_turns: int = 50, num_ai_players: int = 5, quiet: bool = 
         # DO NOT toggle them - that would turn OFF their AI!
         log(f"All {num_ai_players - 1} aifill players are AI-controlled by default")
     else:
-        # When loading, toggle player back to AI control
-        log(f"Toggling {fc_args['username']} back to Freeciv AI control...")
-        env.unwrapped.civ_controller.ws_client.send_message(f"/aitoggle {fc_args['username']}")
-        time.sleep(0.5)
+        # When loading, the player auto-reattaches with its AI flag intact.
+        # DO NOT /aitoggle here - the player is already AI, toggling would
+        # flip it to human control and wipe its AI plans.
+        log(f"Loaded game: {fc_args['username']} stays under Freeciv AI control")
 
     done = False
     step = 0
@@ -203,8 +205,13 @@ def main(seed: int, max_turns: int = 50, num_ai_players: int = 5, quiet: bool = 
 
     env.close()
 
-    # Download and persist all savegames from Docker container
-    recording_dir = Path(__file__).parent.parent / 'logs' / 'recordings' / run_id
+    # Download and persist all savegames from Docker container.
+    # The recording root comes from logging_config (single source of truth,
+    # honoring debug.logging_path) so savegames land in the SAME directory
+    # tree as the observation states — a split root here is what silently
+    # made serialization savegame-blind (dark worlds).
+    from freeciv_world.configs.logging_config import logging_dir
+    recording_dir = Path(logging_dir) / 'recordings' / run_id
     recording_dir.mkdir(parents=True, exist_ok=True)
     downloaded, skipped, failed = download_all_savegames_from_docker(run_id, str(recording_dir))
     log(f"Downloaded {downloaded} savegames (skipped {skipped} existing, {failed} failed)")

@@ -52,7 +52,9 @@ import shutil
 import subprocess
 import tempfile
 import time
+import os
 import random
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -171,8 +173,12 @@ class ForkManager:
             modifications: List of modifications to apply
                           Each modification is a dict with 'type' and type-specific params:
                           - {"type": "gold", "player_id": 0, "value": 5000}
+                          - {"type": "gold_add", "player_id": 0, "value": 500}
                           - {"type": "government", "player_id": 0, "value": "Republic"}
                           - {"type": "tech", "player_id": 0, "tech_id": 23}
+                          - {"type": "rng_seed", "value": 5001}
+                          If no rng_seed mod is given, the fork's saved RNG
+                          state is cleared so the engine reseeds freshly.
             fork_name: Unique name for this fork
 
         Returns:
@@ -204,6 +210,41 @@ class ForkManager:
         self.forks.append(fork)
         return fork
 
+    @staticmethod
+    def _apply_mods(modifier: SavegameModifier, modifications: List[dict]) -> None:
+        """Apply a list of modification dicts to a SavegameModifier.
+
+        This is THE single mod-application path (used by both
+        _apply_modifications and run_fork). It is strict: an unknown
+        modification type raises instead of being silently dropped —
+        a silently-dropped `rng_seed` mod is how fork ensembles previously
+        collapsed to a point mass.
+
+        Raises:
+            ValueError: On an unknown modification type.
+        """
+        for mod in modifications:
+            mod_type = mod.get("type")
+
+            if mod_type == "gold":
+                modifier.set_player_gold(mod["player_id"], mod["value"])
+            elif mod_type == "gold_add":
+                modifier.add_player_gold(mod["player_id"], mod["value"])
+            elif mod_type == "government":
+                modifier.set_player_government(mod["player_id"], mod["value"])
+            elif mod_type == "tech":
+                modifier.grant_player_tech(mod["player_id"], mod["tech_id"])
+            elif mod_type == "rng_seed":
+                modifier.set_rng_from_seed(mod["value"])
+            else:
+                raise ValueError(f"Unknown modification type: {mod_type}")
+
+        # Default per-fork reseed: unless the caller pinned the RNG with an
+        # explicit rng_seed mod, clear the saved [random] table (and zero the
+        # recorded gameseed) so the engine draws a fresh seed on load.
+        if not any(mod.get("type") == "rng_seed" for mod in modifications):
+            modifier.clear_rng_state()
+
     def _apply_modifications(
         self,
         savegame_path: str,
@@ -221,18 +262,7 @@ class ForkManager:
             Path to modified savegame
         """
         modifier = SavegameModifier(savegame_path)
-
-        for mod in modifications:
-            mod_type = mod.get("type")
-
-            if mod_type == "gold":
-                modifier.set_player_gold(mod["player_id"], mod["value"])
-            elif mod_type == "government":
-                modifier.set_player_government(mod["player_id"], mod["value"])
-            elif mod_type == "tech":
-                modifier.grant_player_tech(mod["player_id"], mod["tech_id"])
-            else:
-                raise ValueError(f"Unknown modification type: {mod_type}")
+        self._apply_mods(modifier, modifications)
 
         # Save to output path
         modifier.save(output_path)
@@ -342,19 +372,15 @@ class ForkManager:
                 )
                 temp_savegame = Path(temp_dir) / modified_name
 
-                # Apply modifications (always rename player0 to match fork username)
+                # Apply modifications. Renaming player0 (name= AND username=/
+                # ranked_username=) to the fork username makes the server
+                # auto-reattach our connection on /load with player0 kept
+                # under AI control — no /take, no /aitoggle. The old
+                # rename+/take+double-/aitoggle dance wiped player0's AI
+                # research goal (goal_name=A_UNSET).
                 modifier = SavegameModifier(fork.base_savegame_path)
                 modifier.set_player_name(0, fork.username)
-                for mod in fork.modifications:
-                    mod_type = mod.get("type")
-                    if mod_type == "gold":
-                        modifier.set_player_gold(mod["player_id"], mod["value"])
-                    elif mod_type == "gold_add":
-                        modifier.add_player_gold(mod["player_id"], mod["value"])
-                    elif mod_type == "government":
-                        modifier.set_player_government(mod["player_id"], mod["value"])
-                    elif mod_type == "tech":
-                        modifier.grant_player_tech(mod["player_id"], mod["tech_id"])
+                self._apply_mods(modifier, fork.modifications)
                 modifier.save(str(temp_savegame))
 
                 # Clean up Docker and upload
@@ -367,16 +393,17 @@ class ForkManager:
                 # Configure fc_args for this fork - reset all relevant state
                 fc_args["username"] = fork.username
                 fc_args["debug.load_game"] = savegame_load_name
-                fc_args["debug.take_player"] = fork.username  # Take control of our player
                 fc_args["debug.record_action_and_observation"] = True
                 fc_args["max_turns"] = end_turn
 
                 # Seed random for consistency
                 random.seed(self.base_seed)
 
-                # Get a port for this fork - clear all Ports state first
-                Ports.clear()
-                Ports._cache = {}
+                # Get a port for this fork. Release only OUR stale claims
+                # (e.g. from a crashed previous run of this fork lane);
+                # Ports.clear() here used to wipe every concurrent lane's
+                # claims, causing port collisions at high concurrency.
+                Ports.release_user_claims(fork.username)
                 port = Ports.get()
                 fc_args["client_port"] = port
                 print(f"Reset with port: {port}")
@@ -390,11 +417,8 @@ class ForkManager:
                 # Preserve all autosaves
                 env.unwrapped.civ_controller.delete_save = False
 
-                # Toggle player to AI control
-                env.unwrapped.civ_controller.ws_client.send_message(
-                    f"/aitoggle {fork.username}"
-                )
-                time.sleep(0.5)
+                # NOTE: no /aitoggle here. Load auto-reattaches our connection
+                # to player0, which keeps its AI flag from the savegame.
 
                 # Run game loop
                 done = False
@@ -405,6 +429,34 @@ class ForkManager:
                     observations, reward, terminated, truncated, info = env.step(action)
                     final_turn = info.get("turn", final_turn)
                     done = terminated or truncated
+
+                # fbsim v3 (2026-09-02): if the observer's player was eliminated before
+                # end_turn the env terminates, but the server keeps advancing the
+                # remaining AI players and autosaving every turn. Wait for the server
+                # to reach end_turn so the per-turn savegames (the only truth we use)
+                # cover the whole horizon instead of truncating the future.
+                if final_turn < end_turn and os.environ.get("FBSIM_WAIT_SERVER_END") == "1":
+                    import glob as _glob
+                    sg_dir = os.path.join("/var/lib/tomcat10/webapps/data/savegames", fork.username)
+                    wait_s = int(os.environ.get("FBSIM_WAIT_SERVER_END_S", "1200"))
+                    deadline = time.time() + wait_s
+                    print(f"Observer terminated at turn {final_turn} < {end_turn}; waiting up to {wait_s}s for server saves to reach T{end_turn}")
+                    last = -1
+                    while time.time() < deadline:
+                        saves = _glob.glob(os.path.join(sg_dir, f"{fork.username}_T*"))
+                        turns = []
+                        for sv in saves:
+                            m = re.search(r"_T(\d+)_", os.path.basename(sv))
+                            if m:
+                                turns.append(int(m.group(1)))
+                        cur = max(turns) if turns else -1
+                        if cur != last:
+                            print(f"  server savegames reach T{cur}", flush=True)
+                            last = cur
+                        if cur >= end_turn:
+                            final_turn = cur
+                            break
+                        time.sleep(10)
 
                 # Extract final player states
                 player_states = self._extract_player_states(env)

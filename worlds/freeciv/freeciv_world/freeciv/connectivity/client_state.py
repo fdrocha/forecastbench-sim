@@ -93,6 +93,10 @@ class ClientState(CivPropController):
         # Use this to determine whether a packet 115 is the first one and then decide whether the client is a follower
         self.first_conn_info_received = False
 
+        # /set commands sent but not yet acknowledged by the server
+        # ({setting_name: full_command}). See _send_set / ack_setting_from_message.
+        self.pending_settings = {}
+
     def register_all_handlers(self):
         self.register_handler(0, "handle_processing_started")
         self.register_handler(1, "handle_processing_finished")
@@ -115,21 +119,64 @@ class ClientState(CivPropController):
     def get_follower_property(self):
         return self.follower
 
+    # ------------------------------------------------------------------
+    # Acknowledged /set: every setting sent through _send_set is tracked
+    # until the server's E_SETTING reply confirms it. Unacked settings are
+    # reported loudly at game start (warn_unacked_settings) — silently
+    # dropped settings previously went unnoticed for whole campaigns.
+    # ------------------------------------------------------------------
+
+    def _send_set(self, name, value):
+        """Send `/set name value` and track it until the server acks it."""
+        command = f"/set {name} {value}"
+        self.pending_settings[str(name)] = command
+        self.ws_client.send_message(command)
+
+    def ack_setting_from_message(self, message):
+        """Mark a pending /set as acknowledged based on a server E_SETTING message.
+
+        Server replies look like: `Option: aifill has been set to 5.` (or
+        "... is already set to ..." when unchanged). Any E_SETTING message
+        naming a pending setting counts as its ack.
+        """
+        if not self.pending_settings or not message:
+            return
+        for name in list(self.pending_settings):
+            if name in message:
+                del self.pending_settings[name]
+
+    def warn_unacked_settings(self):
+        """Log an error for every /set the server never acknowledged."""
+        for name, command in self.pending_settings.items():
+            fc_logger.error(
+                f"Server never acknowledged setting '{name}' (sent: {command!r}). "
+                f"The game may be running with an unintended value.")
+        return list(self.pending_settings)
+
     def init_game_setting(self):
+        # When a load/fork is in progress the game state (map, seeds, players,
+        # settings) comes from the savegame. Blasting new-game settings here
+        # (mapseed/gameseed/aifill + the whole multiplayer burst) raced the
+        # async /load and perturbed loaded games. Suppress all of it.
+        if fc_args['debug.load_game'] != '':
+            fc_logger.info(
+                'init_game_setting: load in progress '
+                f"({fc_args['debug.load_game']!r}) - suppressing new-game "
+                'setting blasts (seeds/aifill/multiplayer burst).')
+            return
+
         if fc_args['debug.randomly_generate_seeds']:
             random.seed(os.getpid()+int(time.time()) % 100000)
             mapseed = random.randint(0, 999999)
             gameseed = random.randint(0, 999999)
-            self.ws_client.send_message(f"/set mapseed {mapseed}")
-            self.ws_client.send_message(f"/set gameseed {gameseed}")
+            self._send_set("mapseed", mapseed)
+            self._send_set("gameseed", gameseed)
         else:
             # Set map seed. The same seed leads to the same map.
             if 'debug.mapseed' in fc_args:
-                self.ws_client.send_message(
-                    f'/set mapseed {fc_args["debug.mapseed"]}')
+                self._send_set("mapseed", fc_args["debug.mapseed"])
             if 'debug.gameseed' in fc_args:
-                self.ws_client.send_message(
-                    f'/set gameseed {fc_args["debug.gameseed"]}')
+                self._send_set("gameseed", fc_args["debug.gameseed"])
 
         if self.multiplayer_game:
             self.set_multiplayer_game()
@@ -219,19 +266,19 @@ class ClientState(CivPropController):
 
     def set_hotseat_game(self):
         # set player to 2. Based on HACKING file
-        self.ws_client.send_message("/set aifill 2")
+        self._send_set("aifill", 2)
         # based on https://github.com/freeciv/freeciv-web/blob/4de320067bef09da046d8b1e07b3e018a866493b/freeciv-web/src/main/webapp/javascript/hotseat.js
-        self.ws_client.send_message("/set phasemode player")
-        self.ws_client.send_message("/set minp 2")
-        self.ws_client.send_message(f"/set endvictory {fc_args['endvictory']}")
-        self.ws_client.send_message(f"/set advisor {fc_args['advisor']}")
-        self.ws_client.send_message(f"/set victories {fc_args['victories']}")
-        self.ws_client.send_message("/set ec_chat=enabled")
-        self.ws_client.send_message("/set ec_info=enabled")
-        self.ws_client.send_message("/set ec_max_size=20000")
-        self.ws_client.send_message("/set ec_turns=32768")
+        self._send_set("phasemode", "player")
+        self._send_set("minp", 2)
+        self._send_set("endvictory", fc_args['endvictory'])
+        self._send_set("advisor", fc_args['advisor'])
+        self._send_set("victories", fc_args['victories'])
+        self._send_set("ec_chat", "enabled")
+        self._send_set("ec_info", "enabled")
+        self._send_set("ec_max_size", 20000)
+        self._send_set("ec_turns", 32768)
 
-        self.ws_client.send_message("/set autotoggle disabled")
+        self._send_set("autotoggle", "disabled")
         # add another agent under our control
         self.ws_client.send_message(f"/create {self.user_name}2")
         self.ws_client.send_message(f"/ai {self.user_name}2")
@@ -244,45 +291,45 @@ class ClientState(CivPropController):
         # Set AI player to 0. Based on HACKING file
         self.ws_client.send_message(f"/rulesetdir {fc_args['ruleset']}")
         # Set AI difficulty to hard before aifill creates AI players
-        self.ws_client.send_message("/set skilllevel hard")
+        self._send_set("skilllevel", "hard")
         time.sleep(0.5)
-        self.ws_client.send_message(f"/set aifill {fc_args['aifill']}")
+        self._send_set("aifill", fc_args['aifill'])
         time.sleep(0.5)
         # Set all AI-filled players to hard difficulty
         self.ws_client.send_message("/hard")
         time.sleep(0.2)
-        # Try to gain admin access first, then disable fog of war
-        self.ws_client.send_message("/cmdlevel hack")
-        # Disable fog of war to get complete world data for reports
-        self.ws_client.send_message("/set fogofwar 0")
-        # Try alternative: reveal the map
-        self.ws_client.send_message("/revealmap")
-        self.ws_client.send_message(f"/set endvictory {fc_args['endvictory']}")
-        self.ws_client.send_message(f"/set advisor {fc_args['advisor']}")
-        self.ws_client.send_message(f"/set victories {fc_args['victories']}")
+        # NOTE: three dead commands removed here (they silently failed for
+        # entire campaigns): `/cmdlevel hack` (requires admin access we do not
+        # have), `/set fogofwar 0` (invalid bool literal — fogofwar stayed
+        # TRUE in every recorded [settings] block), and `/revealmap` (not a
+        # 3.x server command). Complete world data comes from per-turn
+        # savegame parsing, not from disabling fog of war.
+        self._send_set("endvictory", fc_args['endvictory'])
+        self._send_set("advisor", fc_args['advisor'])
+        self._send_set("victories", fc_args['victories'])
         # Based on https://github.com/freeciv/freeciv-web/blob/de87e9c62dc4f274d95b5c298372d3ce8d6d57c7/publite2/pubscript_multiplayer.serv
-        self.ws_client.send_message("/set topology \"\"")
-        self.ws_client.send_message("/set wrap WRAPX")
+        self._send_set("topology", "\"\"")
+        self._send_set("wrap", "WRAPX")
         # Set mode as turn-by-turn. Not allow players to play simultaneously.
-        self.ws_client.send_message("/set phasemode player")
-        self.ws_client.send_message("/set nationset all")
-        self.ws_client.send_message(f"/set maxplayers {fc_args['maxplayers']}")
+        self._send_set("phasemode", "player")
+        self._send_set("nationset", "all")
+        self._send_set("maxplayers", fc_args['maxplayers'])
         # This setting allows human to take the control of the agent in the middle of the game
-        self.ws_client.send_message(f"/set allowtake {fc_args['allowtake']}")
-        self.ws_client.send_message(f"/set autotoggle {fc_args['autotoggle']}")
-        self.ws_client.send_message("/set timeout 0")
-        self.ws_client.send_message("/set netwait 15")
-        # self.ws_client.send_message("/set nettimeout 120")
-        self.ws_client.send_message("/set pingtime 30")
-        self.ws_client.send_message("/set pingtimeout 720")
-        self.ws_client.send_message("/set threaded_save enabled")
-        self.ws_client.send_message("/set scorelog enabled")
-        self.ws_client.send_message("/set size 4")
-        self.ws_client.send_message("/set landm 50")
+        self._send_set("allowtake", fc_args['allowtake'])
+        self._send_set("autotoggle", fc_args['autotoggle'])
+        self._send_set("timeout", 0)
+        self._send_set("netwait", 15)
+        # self._send_set("nettimeout", 120)
+        self._send_set("pingtime", 30)
+        self._send_set("pingtimeout", 720)
+        self._send_set("threaded_save", "enabled")
+        self._send_set("scorelog", "enabled")
+        self._send_set("size", 4)
+        self._send_set("landm", 50)
         # use /set minp 1 will allow single agent to play
-        self.ws_client.send_message(f"/set minp {fc_args['minp']}")
+        self._send_set("minp", fc_args['minp'])
         # FRACTAL to make players on one continent, FAIR to make players on islands with the same geography
-        self.ws_client.send_message("/set generator FRACTAL")
+        self._send_set("generator", "FRACTAL")
         # self.ws_client.send_message("/metaconnection persistent")
         self.ws_client.send_message(
             f"/metamessage Multiplayer Game hosted by {self.username} in port {self.ws_client.client_port}")
@@ -432,6 +479,9 @@ class ClientState(CivPropController):
             self.ws_client.send_message("/surrender ")
 
     def pregame_start_game(self):
+        # Report any /set the server never acknowledged before we commit to
+        # starting the game with (possibly) unintended settings.
+        self.warn_unacked_settings()
         test_packet = {"pid": packet_player_ready, "is_ready": True,
                        "player_no": self.player_num()}
         self.ws_client.send_request(test_packet)

@@ -4,11 +4,72 @@ This module extracts complete game state from Freeciv .sav files,
 which contain data for ALL players without fog-of-war limitations.
 """
 
+import io
+import logging
+import lzma
 import re
 import requests
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import subprocess
+
+logger = logging.getLogger('freeciv_world.savegame_parser')
+
+# ---------------------------------------------------------------------------
+# Savegame coverage tracking (see FBSIM_REQUIRE_SAVEGAME_COVERAGE)
+#
+# Serialization silently degrading to the embassy-gated player view (because
+# per-turn savegames were missing or unparseable) is what produced the "dark
+# world" corpus. Every savegame extraction attempt is recorded here, keyed by
+# recording_dir, so the serializer can stamp a `savegame_coverage` fraction
+# into its metadata and hard-fail when coverage is incomplete.
+# ---------------------------------------------------------------------------
+
+# {recording_dir: {turn: 'parsed' | 'missing' | 'failed'}}
+_savegame_coverage: Dict[str, Dict[int, str]] = {}
+
+
+def reset_savegame_coverage(recording_dir: str) -> None:
+    """Clear tracked savegame-extraction outcomes for a recording directory."""
+    _savegame_coverage[str(recording_dir)] = {}
+
+
+def note_savegame_status(recording_dir: str, turn: int, status: str) -> None:
+    """Record the outcome of a savegame extraction attempt for one turn.
+
+    A turn that ever parsed successfully stays 'parsed' (repeat calls for the
+    same turn are common during serialization).
+    """
+    log = _savegame_coverage.setdefault(str(recording_dir), {})
+    if log.get(turn) != 'parsed':
+        log[turn] = status
+
+
+def compute_savegame_coverage(recording_dir: str, expected_turns: List[int]) -> Dict[str, object]:
+    """Compute the fraction of expected turns whose savegame parsed.
+
+    Args:
+        recording_dir: Recording directory the serialization ran over
+        expected_turns: Turns the serialization covered (state turns)
+
+    Returns:
+        Dict with keys: coverage (float 0..1), expected (int), parsed (int),
+        missing_turns (list), failed_turns (list). Turns never attempted are
+        counted as missing.
+    """
+    log = _savegame_coverage.get(str(recording_dir), {})
+    expected = sorted(set(expected_turns))
+    parsed = [t for t in expected if log.get(t) == 'parsed']
+    failed = [t for t in expected if log.get(t) == 'failed']
+    missing = [t for t in expected if log.get(t) not in ('parsed', 'failed')]
+    coverage = (len(parsed) / len(expected)) if expected else 0.0
+    return {
+        'coverage': coverage,
+        'expected': len(expected),
+        'parsed': len(parsed),
+        'missing_turns': missing,
+        'failed_turns': failed,
+    }
 
 
 def list_server_savegames(username: str, host: str = 'localhost', port: int = 8080) -> List[str]:
@@ -124,23 +185,49 @@ def decompress_savegame_content(savegame_content: bytes, filename: str) -> str:
         Decompressed savegame content as string
     """
     if filename.endswith('.zst'):
-        # Use zstd to decompress
-        result = subprocess.run(
-            ['zstd', '-d', '-c'],
-            input=savegame_content,
-            capture_output=True,
-            check=True
-        )
-        return result.stdout.decode('utf-8')
+        # Use the zstd binary when available, falling back to the pure-python
+        # `zstandard` package. The fallback is load-bearing: pods without the
+        # zstd binary previously made every .sav.zst unparseable, silently
+        # degrading serialization to the embassy-gated player view.
+        try:
+            result = subprocess.run(
+                ['zstd', '-d', '-c'],
+                input=savegame_content,
+                capture_output=True,
+                check=True
+            )
+            return result.stdout.decode('utf-8')
+        except (FileNotFoundError, OSError, subprocess.CalledProcessError) as e:
+            logger.warning(
+                f"zstd binary decompression unavailable/failed for {filename} "
+                f"({e!r}); falling back to python zstandard")
+            try:
+                import zstandard
+            except ImportError as import_err:
+                raise RuntimeError(
+                    f"Cannot decompress {filename}: zstd binary failed ({e!r}) "
+                    f"and the python 'zstandard' package is not installed"
+                ) from import_err
+            # stream_reader handles frames without a content-size header
+            # (zstd CLI default), which one-shot decompress() rejects.
+            dctx = zstandard.ZstdDecompressor()
+            with dctx.stream_reader(io.BytesIO(savegame_content)) as reader:
+                return reader.read().decode('utf-8')
     elif filename.endswith('.xz'):
-        # Use xz to decompress
-        result = subprocess.run(
-            ['xz', '-d', '-c'],
-            input=savegame_content,
-            capture_output=True,
-            check=True
-        )
-        return result.stdout.decode('utf-8')
+        # Use the xz binary when available, falling back to stdlib lzma.
+        try:
+            result = subprocess.run(
+                ['xz', '-d', '-c'],
+                input=savegame_content,
+                capture_output=True,
+                check=True
+            )
+            return result.stdout.decode('utf-8')
+        except (FileNotFoundError, OSError, subprocess.CalledProcessError) as e:
+            logger.warning(
+                f"xz binary decompression unavailable/failed for {filename} "
+                f"({e!r}); falling back to python lzma")
+            return lzma.decompress(savegame_content).decode('utf-8')
     else:
         # Uncompressed
         return savegame_content.decode('utf-8')
@@ -867,6 +954,280 @@ def parse_tile_ownership(savegame_content: str) -> Dict[int, int]:
     return tile_counts
 
 
+
+# ---------------------------------------------------------------------------
+# Omniscient per-player state (cities / units / alive / government)
+#
+# The recorder is a FreeCiv client attached to player 0, so every per-player
+# metric derived from client state files is fog-of-war limited for players
+# 1..N (cities/units the observer never saw are simply absent). The savegame
+# is the server's complete view; the parsers below read it so the serializer
+# can override the client-view metrics with ground truth.
+# ---------------------------------------------------------------------------
+
+def _split_csv_row(line: str) -> List[str]:
+    """Split one savegame table row on commas, honouring double quotes.
+
+    Quoted fields are returned without their quotes; ``"a,b"`` stays one field.
+    """
+    values: List[str] = []
+    current: List[str] = []
+    in_quotes = False
+    for char in line:
+        if char == '"':
+            in_quotes = not in_quotes
+        elif char == ',' and not in_quotes:
+            values.append(''.join(current))
+            current = []
+        else:
+            current.append(char)
+    values.append(''.join(current))
+    return values
+
+
+def _iter_player_sections(savegame_content: str):
+    """Yield (player_id, section_text) for every ``[playerN]`` section.
+
+    A section runs from its header to the next ``[...]`` section header at the
+    start of a line (normally the matching ``[scoreN]``).
+    """
+    headers = list(re.finditer(r'^\[player(\d+)\]', savegame_content, re.MULTILINE))
+    for i, match in enumerate(headers):
+        start = match.end()
+        nxt = re.compile(r'^\[', re.MULTILINE).search(savegame_content, start)
+        end = nxt.start() if nxt else len(savegame_content)
+        yield int(match.group(1)), savegame_content[start:end]
+
+
+def _section_scalar(section: str, key: str) -> Optional[str]:
+    """Return the raw value of ``key=value`` in a section (quotes stripped)."""
+    match = re.search(r'^' + re.escape(key) + r'=(.*)$', section, re.MULTILINE)
+    if not match:
+        return None
+    return match.group(1).strip().strip('"')
+
+
+def _parse_table(section: str, table_name: str) -> List[Dict[str, str]]:
+    """Parse a freeciv savegame table ``name={"col",...\nrow\nrow\n}``.
+
+    Returns one dict per row keyed by column name. Missing tables (e.g. the
+    ``c=`` table of a player with ncities=0) yield an empty list.
+    """
+    header_match = re.search(r'^' + re.escape(table_name) + r'=\{(.*)$', section, re.MULTILINE)
+    if not header_match:
+        return []
+    columns = _split_csv_row(header_match.group(1).rstrip('}'))
+    rows: List[Dict[str, str]] = []
+    pos = header_match.end()
+    while True:
+        nl = section.find('\n', pos)
+        if nl == -1:
+            break
+        line = section[pos:nl]
+        pos = nl + 1
+        if line.startswith('}'):
+            break
+        if not line.strip():
+            continue
+        values = _split_csv_row(line)
+        if len(values) < len(columns):
+            # Defensive: a wrapped/odd row; keep what we can align.
+            values += [''] * (len(columns) - len(values))
+        rows.append(dict(zip(columns, values)))
+    return rows
+
+
+def _to_int(value: Optional[str], default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_player_cities(savegame_content: str) -> Dict[int, List[Dict[str, object]]]:
+    """Parse every player's city table from the savegame.
+
+    Returns ``{player_id: [{'name', 'size', 'x', 'y', 'id', 'improvements'}]}``.
+    Players present in the savegame but without cities map to ``[]``.
+    ``improvements`` is the raw 0/1 string indexed like ``[savefile]
+    improvement_vector``.
+    """
+    cities: Dict[int, List[Dict[str, object]]] = {}
+    for pid, section in _iter_player_sections(savegame_content):
+        rows = _parse_table(section, 'c')
+        cities[pid] = [{
+            'name': row.get('name', ''),
+            'size': _to_int(row.get('size')),
+            'x': _to_int(row.get('x')),
+            'y': _to_int(row.get('y')),
+            'id': _to_int(row.get('id')),
+            'improvements': row.get('improvements', ''),
+        } for row in rows]
+    return cities
+
+
+def parse_player_units(savegame_content: str) -> Dict[int, List[Dict[str, object]]]:
+    """Parse every player's unit table from the savegame.
+
+    Returns ``{player_id: [{'id', 'type', 'x', 'y', 'hp', 'veteran',
+    'homecity'}]}``; ``type`` is the ruleset unit type name
+    (``type_by_name``). Players without units map to ``[]``.
+
+    NOTE: the savegame carries no attack strengths and the recording's
+    ruleset.json has no unit types, so the military split is done by unit
+    type name against a per-ruleset table (``ZERO_ATTACK_UNIT_TYPES``); see
+    ``military_unit_count``.
+    """
+    units: Dict[int, List[Dict[str, object]]] = {}
+    for pid, section in _iter_player_sections(savegame_content):
+        rows = _parse_table(section, 'u')
+        units[pid] = [{
+            'id': _to_int(row.get('id')),
+            'type': row.get('type_by_name', ''),
+            'x': _to_int(row.get('x')),
+            'y': _to_int(row.get('y')),
+            'hp': _to_int(row.get('hp')),
+            'veteran': _to_int(row.get('veteran')),
+            'homecity': _to_int(row.get('homecity')),
+        } for row in rows]
+    return units
+
+
+# Unit types the classic/civ2civ3 rulesets flag "NonMil" (freeciv's
+# is_military_unit() is the negation; [scoreN].units counts the rest).
+CIVILIAN_UNIT_TYPES = frozenset({
+    'Settlers', 'Migrants', 'Workers', 'Engineers', 'Explorer', 'Caravan',
+    'Freight', 'Diplomat', 'Spy', 'Leader', 'Barbarian Leader',
+})
+
+# Unit types with attack_strength == 0 in the classic/civ2civ3 rulesets: the
+# NonMil types plus the pure transports. The client-side metric
+# (``military_units_count`` = units with ``type_attack_strength > 0``) excludes
+# these, whereas freeciv's [scoreN].units still counts Galleon/Transport/AWACS
+# as military (verified on rng5001: player 0 T155 client 27 vs score.units 28,
+# the difference being one Galleon).
+ZERO_ATTACK_UNIT_TYPES = CIVILIAN_UNIT_TYPES | frozenset({'Galleon', 'Transport', 'AWACS'})
+
+# Rulesets whose unit-type names the table above is known to cover.
+MILITARY_TYPE_RULESETS = frozenset({'classic', 'civ2civ3'})
+
+
+def parse_rulesetdir(savegame_content: str) -> str:
+    """Return ``[game] rulesetdir`` (e.g. ``"classic"``), or ``''``."""
+    match = re.search(r'^rulesetdir="?([^"\n]*)"?$', savegame_content, re.MULTILINE)
+    return match.group(1).strip() if match else ''
+
+
+def count_military_units_by_type(unit_list: List[Dict[str, object]]) -> int:
+    """Count units whose type has attack strength > 0 (client definition)."""
+    return sum(1 for u in unit_list if (u.get('type') or '') not in ZERO_ATTACK_UNIT_TYPES)
+
+
+def military_unit_count(unit_list: List[Dict[str, object]],
+                        score_row: Optional[Dict[str, int]],
+                        is_barbarian: bool,
+                        rulesetdir: str) -> int:
+    """Military unit count for one player, matching the client metric.
+
+    Definition used (documented for the serializer):
+      * rulesetdir in ``MILITARY_TYPE_RULESETS``: count units from the unit
+        table whose type is not in ``ZERO_ATTACK_UNIT_TYPES`` -- identical to
+        the client's ``type_attack_strength > 0`` (exact for player 0 on
+        rng5001 across all 152 turns).
+      * otherwise: ``[scoreN].units`` for scored players (freeciv score.c's
+        is_military_unit count, which additionally counts zero-attack
+        transports), falling back to the type table for unscored
+        (barbarian) players whose [scoreN] rows are all zero.
+    """
+    if rulesetdir in MILITARY_TYPE_RULESETS:
+        return count_military_units_by_type(unit_list)
+    score_units = (score_row or {}).get('units')
+    if not is_barbarian and isinstance(score_units, int):
+        return score_units
+    return count_military_units_by_type(unit_list)
+
+
+def parse_player_alive(savegame_content: str) -> Dict[int, bool]:
+    """Parse ``is_alive`` for every ``[playerN]`` section."""
+    alive: Dict[int, bool] = {}
+    for pid, section in _iter_player_sections(savegame_content):
+        raw = _section_scalar(section, 'is_alive')
+        alive[pid] = (raw or '').upper() == 'TRUE'
+    return alive
+
+
+def parse_player_governments(savegame_content: str) -> Dict[int, str]:
+    """Parse ``government_name`` for every ``[playerN]`` section."""
+    governments: Dict[int, str] = {}
+    for pid, section in _iter_player_sections(savegame_content):
+        governments[pid] = _section_scalar(section, 'government_name') or ''
+    return governments
+
+
+def parse_player_barbarian_types(savegame_content: str) -> Dict[int, str]:
+    """Parse ``ai.barb_type`` per player ("None" for regular civilisations).
+
+    Barbarian/pirate players are never scored by the server (all ``[scoreN]``
+    fields stay 0), so callers must not cross-check their city counts
+    against ``score.cities``.
+    """
+    barb: Dict[int, str] = {}
+    for pid, section in _iter_player_sections(savegame_content):
+        barb[pid] = _section_scalar(section, 'ai.barb_type') or 'None'
+    return barb
+
+
+def parse_player_declared_counts(savegame_content: str) -> Dict[int, Dict[str, int]]:
+    """Parse the ``ncities`` / ``nunits`` scalars declared in each player section."""
+    counts: Dict[int, Dict[str, int]] = {}
+    for pid, section in _iter_player_sections(savegame_content):
+        counts[pid] = {
+            'ncities': _to_int(_section_scalar(section, 'ncities')),
+            'nunits': _to_int(_section_scalar(section, 'nunits')),
+        }
+    return counts
+
+
+def parse_improvement_vector(savegame_content: str) -> List[str]:
+    """Parse ``[savefile] improvement_vector`` (name per improvements-bit index)."""
+    match = re.search(r'^improvement_vector=(.*?)(?=^\w+=|^\[)', savegame_content,
+                      re.MULTILINE | re.DOTALL)
+    if not match:
+        return []
+    return [v for v in _split_csv_row(match.group(1).replace('\n', '')) if v]
+
+
+def count_wonders_from_savegame(cities: Dict[int, List[Dict[str, object]]],
+                                improvement_vector: List[str],
+                                ruleset: Optional[Dict]) -> Optional[Dict[int, int]]:
+    """Count wonders (great + small, matching the client-side definition) per
+    player from the savegame city tables.
+
+    Requires the ruleset's ``improvements`` (for genus) and the savefile's
+    ``improvement_vector`` (bit index -> improvement name). Returns None when
+    either is unavailable so the caller can keep the client-view value.
+    """
+    if not improvement_vector or not ruleset or 'improvements' not in ruleset:
+        return None
+    wonder_names = set()
+    for impr in ruleset['improvements'].values():
+        genus = impr.get('genus', 2)
+        soundtag = impr.get('soundtag', '') or ''
+        if genus in (0, 1) or soundtag.startswith('w'):
+            wonder_names.add(impr.get('name'))
+    if not wonder_names:
+        return None
+    wonder_bits = [i for i, name in enumerate(improvement_vector) if name in wonder_names]
+    result: Dict[int, int] = {}
+    for pid, city_list in cities.items():
+        count = 0
+        for city in city_list:
+            bits = city.get('improvements', '') or ''
+            count += sum(1 for i in wonder_bits if i < len(bits) and bits[i] == '1')
+        result[pid] = count
+    return result
+
+
 def parse_player_states_for_conditional(savegame_content: str) -> Dict[int, dict]:
     """Parse player states in the format expected by conditional fork evaluation.
 
@@ -1099,11 +1460,13 @@ def extract_complete_data_from_savegame(username: str, turn: int, host: str = 'l
     # Find savegame in local recordings directory
     savegame_name = find_local_savegame_for_turn(username, turn, recording_dir)
     if not savegame_name:
+        note_savegame_status(recording_dir, turn, 'missing')
         return None
 
     # Load from local directory
     result = load_local_savegame(savegame_name, recording_dir)
     if not result:
+        note_savegame_status(recording_dir, turn, 'missing')
         return None
 
     savegame_bytes, actual_filename = result
@@ -1125,6 +1488,18 @@ def extract_complete_data_from_savegame(username: str, turn: int, host: str = 'l
         scores = parse_player_scores(content)
         player_states = parse_player_states_for_conditional(content)
 
+        # Omniscient per-player state (overrides the fog-of-war client view)
+        cities = parse_player_cities(content)
+        units = parse_player_units(content)
+        alive = parse_player_alive(content)
+        governments = parse_player_governments(content)
+        barbarian = parse_player_barbarian_types(content)
+        declared_counts = parse_player_declared_counts(content)
+        tile_ownership = parse_tile_ownership(content)
+        improvement_vector = parse_improvement_vector(content)
+        rulesetdir = parse_rulesetdir(content)
+
+        note_savegame_status(recording_dir, turn, 'parsed')
         return {
             'production': production,
             'science': science,
@@ -1135,12 +1510,28 @@ def extract_complete_data_from_savegame(username: str, turn: int, host: str = 'l
             'gold': gold,
             'scores': scores,
             'player_states': player_states,  # For conditional fork comparison
+            'cities': cities,                # {pid: [{name,size,x,y,id,improvements}]}
+            'units': units,                  # {pid: [{id,type,x,y,hp,veteran,homecity}]}
+            'alive': alive,                  # {pid: bool}
+            'governments': governments,      # {pid: government_name}
+            'barbarian': barbarian,          # {pid: ai.barb_type} ("None" = real civ)
+            'declared_counts': declared_counts,  # {pid: {ncities, nunits}}
+            'tile_ownership': tile_ownership,    # {pid: owned tile count}
+            'improvement_vector': improvement_vector,  # bit index -> improvement name
+            'rulesetdir': rulesetdir,            # e.g. "classic" (military type table)
         }
 
     except Exception as e:
-        print(f"Error parsing savegame {actual_filename}: {e}")
-        import traceback
-        traceback.print_exc()
+        # NEVER swallow this silently: a failed parse means serialization
+        # degrades to the embassy-gated player view (frozen civs, no wonders,
+        # empty diplomacy). Log loudly and record the failure so the
+        # savegame_coverage stamp (and FBSIM_REQUIRE_SAVEGAME_COVERAGE) see it.
+        note_savegame_status(recording_dir, turn, 'failed')
+        logger.error(
+            f"Savegame parse FAILED for turn {turn} ({actual_filename}): {e!r}. "
+            f"Extraction will degrade to the embassy-gated player view for this turn.",
+            exc_info=True)
+        print(f"ERROR: savegame parse failed for turn {turn} ({actual_filename}): {e!r}")
         return None
 
 
@@ -1157,16 +1548,41 @@ def extract_username_from_config(config) -> str:
     Args:
         config: ReportConfig instance with recording_dir attribute
 
+    Resolution order:
+      1. an explicit ``savegame_username`` (or ``username``) attribute on
+         the config (e.g. a corpus dir like .../forks/rng5001 whose savegames
+         are named seed1000forkrng5001_T60_*.sav.zst)
+      2. the path component after ``recordings`` in ``recording_dir``
+      3. the common ``<username>_T<turn>_`` prefix of the files actually
+         present in ``<recording_dir>/savegames``
+      4. the legacy default ``'myagent2'``
+
     Returns:
         Username string (defaults to 'myagent2' if not found)
     """
+    for attr in ('savegame_username', 'username'):
+        explicit = getattr(config, attr, None)
+        if isinstance(explicit, str) and explicit:
+            return explicit
+
     username = 'myagent2'  # default
-    if hasattr(config, 'recording_dir'):
-        parts = config.recording_dir.rstrip('/').split('/')
+    recording_dir = getattr(config, 'recording_dir', None)
+    if recording_dir:
+        parts = str(recording_dir).rstrip('/').split('/')
         if 'recordings' in parts:
             idx = parts.index('recordings')
             if idx + 1 < len(parts):
-                username = parts[idx + 1]
+                return parts[idx + 1]
+        # Infer from the savegame filenames themselves
+        savegames_dir = Path(recording_dir) / 'savegames'
+        if savegames_dir.is_dir():
+            prefixes = set()
+            for path in savegames_dir.iterdir():
+                match = re.match(r'^(.+?)_T\d+_', path.name)
+                if match:
+                    prefixes.add(match.group(1))
+            if len(prefixes) == 1:
+                return prefixes.pop()
     return username
 
 

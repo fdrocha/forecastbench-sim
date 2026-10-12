@@ -4,13 +4,28 @@ This module extracts all world report data from state files and savegames,
 organizing it into a flat, metric-based structure.
 """
 
+import os
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from collections import defaultdict
 
 from ..utils import metrics
 from ..utils.event_detector import EventDetector
-from ..utils.savegame_parser import get_savegame_data_for_report
+from ..utils.savegame_parser import (
+    get_savegame_data_for_report,
+    reset_savegame_coverage,
+    compute_savegame_coverage,
+    count_wonders_from_savegame,
+    military_unit_count,
+)
+
+# Marker stamped into metadata["truth_source"] when the per-player metrics were
+# overridden from the omniscient server savegame (vs the fog-of-war client view)
+TRUTH_SOURCE_SAVEGAME = "savegame"
+SAVEGAME_TRUTH_SERIES = [
+    "scores", "treasury", "cities_count", "population", "territory_size",
+    "units_count", "military_units_count", "wonders_count", "is_alive", "government",
+]
 
 # Diplomatic state constants (from player_const.py)
 DS_ARMISTICE = 0
@@ -75,7 +90,15 @@ class MetricsCollector:
 
     def __init__(self):
         """Initialize metrics collector"""
-        pass
+        # Provenance of per-player metrics; filled by collect_time_series and
+        # stamped into metadata["truth_source"] by collect_all.
+        self.truth_source: Dict[str, Any] = {
+            "source": None,
+            "turns_total": 0,
+            "turns_overridden": 0,
+            "turns_without_savegame": [],
+            "cities_crosscheck_mismatches": [],
+        }
 
     def collect_all(
         self,
@@ -99,6 +122,11 @@ class MetricsCollector:
         sorted_turns = sorted(states.keys())
         max_turn = max(sorted_turns)
 
+        # Start a fresh savegame-coverage log for this serialization
+        recording_dir = getattr(config, 'recording_dir', None)
+        if recording_dir:
+            reset_savegame_coverage(recording_dir)
+
         print("  Collecting metadata...")
         metadata = self.collect_metadata(states, config)
 
@@ -118,7 +146,7 @@ class MetricsCollector:
         print("  Collecting snapshots...")
         # Collect snapshots at multiple turns, not just max_turn
         snapshot_turns = select_snapshot_turns(max_turn, max_snapshots=5)
-        snapshots = self.collect_snapshots(states, snapshot_turns)
+        snapshots = self.collect_snapshots(states, snapshot_turns, config)
 
         print("  Collecting territory snapshots...")
         # Actually capture territory data at selected turns
@@ -130,6 +158,37 @@ class MetricsCollector:
         # Note: collect_diplomacy_from_states is buggy - state['dipl'] only contains
         # the controlled player's relationships, not all pairwise diplomatic states.
         diplomacy = self.collect_diplomacy(states, config, civilizations)
+
+        # Stamp savegame coverage into the serialization metadata. A turn
+        # counts as covered only if its savegame was found AND parsed; missing
+        # or failed turns silently degrade extraction to the embassy-gated
+        # player view, which is exactly the dark-world failure mode.
+        # Provenance of the per-player metrics: "savegame" means cities/units/
+        # population/territory/treasury/scores were overridden from the
+        # omniscient server savegame for every turn that had one (see
+        # collect_time_series). Downstream gates key off this marker.
+        metadata["truth_source"] = dict(self.truth_source)
+
+        if recording_dir:
+            cov = compute_savegame_coverage(recording_dir, sorted_turns)
+            metadata["savegame_coverage"] = cov["coverage"]
+            metadata["savegame_turns_expected"] = cov["expected"]
+            metadata["savegame_turns_parsed"] = cov["parsed"]
+            metadata["savegame_turns_missing"] = cov["missing_turns"]
+            metadata["savegame_turns_failed"] = cov["failed_turns"]
+            if cov["coverage"] < 1.0:
+                msg = (
+                    f"savegame_coverage={cov['coverage']:.4f} "
+                    f"({cov['parsed']}/{cov['expected']} turns parsed; "
+                    f"missing={cov['missing_turns'][:10]}"
+                    f"{'...' if len(cov['missing_turns']) > 10 else ''}, "
+                    f"failed={cov['failed_turns'][:10]}"
+                    f"{'...' if len(cov['failed_turns']) > 10 else ''}) "
+                    f"for recording_dir={recording_dir}")
+                print(f"  WARNING: incomplete savegame coverage: {msg}")
+                if os.environ.get("FBSIM_REQUIRE_SAVEGAME_COVERAGE") == "1":
+                    raise RuntimeError(
+                        f"FBSIM_REQUIRE_SAVEGAME_COVERAGE=1 and {msg}")
 
         return {
             "metadata": metadata,
@@ -306,7 +365,26 @@ class MetricsCollector:
             "cities_count": {},
             "units_count": {},
             "military_units_count": {},
-            "wonders_count": {}
+            "wonders_count": {},
+            "is_alive": {},     # bool per player per turn (savegame is_alive)
+            "government": {},   # government name per player per turn
+        }
+
+        # Provenance bookkeeping for the savegame override (stamped into
+        # metadata["truth_source"] by collect_all).
+        ruleset = data_loader.ruleset if data_loader is not None else None
+        self.truth_source = {
+            "source": TRUTH_SOURCE_SAVEGAME,
+            "series": SAVEGAME_TRUTH_SERIES,
+            "military_units_source": (
+                "savegame unit table, types with attack > 0 (classic/civ2civ3 "
+                "table; matches the client type_attack_strength > 0 metric); "
+                "[scoreN].units for unknown rulesets"),
+            "wonders_source": "client",  # flips to savegame+ruleset when possible
+            "turns_total": len(sorted_turns),
+            "turns_overridden": 0,
+            "turns_without_savegame": [],
+            "cities_crosscheck_mismatches": [],
         }
 
         # Collect data for each turn
@@ -330,7 +408,10 @@ class MetricsCollector:
                 if not isinstance(player_info, dict):
                     continue
 
-                # Basic player metrics
+                # Basic player metrics (client view; overridden from the
+                # savegame below whenever one exists for this turn)
+                time_series["is_alive"][turn][pid] = bool(player_info.get('is_alive', True))
+                time_series["government"][turn][pid] = player_info.get('government_name') or ''
                 time_series["treasury"][turn][pid] = metrics.get_player_gold(state, pid)
                 time_series["science"][turn][pid] = metrics.get_player_science_production(state, pid)
                 time_series["culture"][turn][pid] = player_info.get('culture', 0)
@@ -375,8 +456,10 @@ class MetricsCollector:
                     state, pid, data_loader.ruleset if data_loader else None
                 )
 
-            # Try to override with complete savegame data (production/science only)
+            # Try to override with complete savegame data
             savegame_data = get_savegame_data_for_report(config, turn)
+            if savegame_data is None:
+                self.truth_source["turns_without_savegame"].append(turn)
             if savegame_data:
                 # Override production data
                 if 'production' in savegame_data:
@@ -392,8 +475,126 @@ class MetricsCollector:
                         if player_id in player_ids:
                             time_series["science"][turn][player_id] = sci['science_per_turn']
 
+                # Override the fog-of-war per-player metrics with the server's
+                # omniscient view (cities/units/population/territory/treasury/
+                # scores/alive/government/wonders).
+                if self._override_with_savegame_truth(
+                        time_series, turn, savegame_data, player_ids, ruleset,
+                        tech_discoveries_by_player):
+                    self.truth_source["turns_overridden"] += 1
+
         # Note: techs_known is already monotonic by construction (cumulative event count)
         return time_series
+
+    def _override_with_savegame_truth(
+        self,
+        time_series: Dict[str, Dict[int, Dict[int, Any]]],
+        turn: int,
+        savegame_data: Dict[str, Any],
+        player_ids: List[int],
+        ruleset: Optional[Dict],
+        tech_discoveries_by_player: Dict[int, List[int]],
+    ) -> bool:
+        """Replace the client-view per-player metrics for one turn with the
+        savegame's omniscient values.
+
+        The recorder is a client attached to player 0, so for players 1..N the
+        client-derived cities/units/population/territory are the subset the
+        observer happened to see, scores are -1 without an embassy and
+        treasury is 0 when unknown. The savegame has the complete state.
+
+        Definitions (kept identical to the client-side metrics):
+          cities_count          len(city table). Cross-checked vs score.cities
+                                and WARNED on mismatch only: the server
+                                computes [scoreN] before the turn-change city
+                                founding/capture that the save then reflects,
+                                so ~0.5% of cells differ by one (rng5001: 6 of
+                                ~900); the city table is the value the client
+                                also sees for player 0.
+          population            sum of city sizes
+          units_count           len(unit table)
+          military_units_count  savegame_parser.military_unit_count: unit types
+                                with attack > 0 (client definition) for
+                                classic/civ2civ3, else [scoreN].units
+          territory_size        owned tiles from the [map] owner rows
+          treasury              gold
+          scores                [scoreN].total
+          wonders_count         great+small wonders from city improvement bits
+                                (needs ruleset improvements + improvement_vector)
+          is_alive / government from the [playerN] section
+
+        Returns True if the savegame carried per-player state to apply.
+        """
+        cities = savegame_data.get('cities') or {}
+        units = savegame_data.get('units') or {}
+        scores = savegame_data.get('scores') or {}
+        gold = savegame_data.get('gold') or {}
+        alive = savegame_data.get('alive') or {}
+        governments = savegame_data.get('governments') or {}
+        barbarian = savegame_data.get('barbarian') or {}
+        tile_ownership = savegame_data.get('tile_ownership') or {}
+        rulesetdir = savegame_data.get('rulesetdir') or ''
+
+        present = set(cities) | set(scores) | set(alive)
+        if not present:
+            return False
+
+        wonders = count_wonders_from_savegame(
+            cities, savegame_data.get('improvement_vector') or [], ruleset)
+        if wonders is not None:
+            self.truth_source["wonders_source"] = "savegame city improvements + ruleset genus"
+
+        # Every player present in the savegame gets a row, including ones the
+        # client never listed (civilizations is built from the client view);
+        # the gate re-checks every savegame player, so skipping any would fail it.
+        for pid in sorted(present):
+            score_row = scores.get(pid) or {}
+            is_barbarian = barbarian.get(pid, 'None') != 'None'
+
+            if pid in scores:
+                time_series["scores"][turn][pid] = score_row.get('total', 0)
+            if pid in gold:
+                time_series["treasury"][turn][pid] = gold[pid]
+
+            if pid in cities:
+                city_list = cities[pid]
+                n_cities = len(city_list)
+                time_series["cities_count"][turn][pid] = n_cities
+                time_series["population"][turn][pid] = sum(int(c.get('size', 0)) for c in city_list)
+                score_cities = score_row.get('cities')
+                # Barbarians are never scored (all [scoreN] fields stay 0)
+                if (not is_barbarian and isinstance(score_cities, int)
+                        and score_cities != n_cities):
+                    self.truth_source["cities_crosscheck_mismatches"].append(
+                        {"turn": turn, "player_id": pid,
+                         "city_table": n_cities, "score_cities": score_cities})
+                    print(f"  WARNING: turn {turn} player {pid}: city table has "
+                          f"{n_cities} cities but [score{pid}].cities={score_cities}")
+
+            if pid in units:
+                unit_list = units[pid]
+                time_series["units_count"][turn][pid] = len(unit_list)
+                time_series["military_units_count"][turn][pid] = military_unit_count(
+                    unit_list, score_row, is_barbarian, rulesetdir)
+
+            if pid in cities or pid in tile_ownership:
+                time_series["territory_size"][turn][pid] = int(tile_ownership.get(pid, 0))
+
+            if wonders is not None and pid in wonders:
+                time_series["wonders_count"][turn][pid] = wonders[pid]
+
+            if pid in alive:
+                time_series["is_alive"][turn][pid] = bool(alive[pid])
+            if pid in governments:
+                time_series["government"][turn][pid] = governments[pid]
+
+            # A player the client never listed this turn still needs the
+            # event-derived tech count so the row is complete.
+            if pid not in time_series["techs_known"][turn]:
+                time_series["techs_known"][turn][pid] = sum(
+                    1 for t in tech_discoveries_by_player.get(pid, []) if t <= turn)
+
+        return True
 
     def collect_events(
         self,
@@ -511,15 +712,20 @@ class MetricsCollector:
     def collect_snapshots(
         self,
         states: Dict[int, Dict],
-        target_turns: List[int]
+        target_turns: List[int],
+        config: Any = None,
     ) -> Dict[int, Dict[str, Any]]:
         """Collect snapshot data for specific turns
 
         Collects scores, rankings, and counts at multiple turns for resolution.
+        When ``config`` is given and a savegame exists for the turn, scores,
+        rankings and the city/unit counts are taken from the savegame
+        (omniscient) instead of the client's fog-of-war view.
 
         Args:
             states: Dict mapping turn numbers to game states
             target_turns: List of turns to collect snapshots for
+            config: Optional ReportConfig (recording_dir) for savegame access
 
         Returns:
             Dict mapping turn to snapshot data
@@ -585,7 +791,7 @@ class MetricsCollector:
                 c.get('size', 0) for c in cities.values() if isinstance(c, dict)
             )
 
-            snapshots[target_turn] = {
+            snapshot = {
                 "scores": scores,
                 "rankings": rankings,
                 "cities_count": cities_count,
@@ -599,7 +805,51 @@ class MetricsCollector:
                 }
             }
 
+            # Override with the omniscient savegame view when available
+            savegame_data = get_savegame_data_for_report(config, target_turn) if config is not None else None
+            if savegame_data:
+                self._override_snapshot_with_savegame(snapshot, savegame_data)
+
+            snapshots[target_turn] = snapshot
+
         return snapshots
+
+    @staticmethod
+    def _override_snapshot_with_savegame(snapshot: Dict[str, Any], savegame_data: Dict[str, Any]) -> None:
+        """Replace a snapshot's scores/rankings/counts with savegame values."""
+        sg_cities = savegame_data.get('cities') or {}
+        sg_units = savegame_data.get('units') or {}
+        sg_scores = savegame_data.get('scores') or {}
+        barbarian = savegame_data.get('barbarian') or {}
+        rulesetdir = savegame_data.get('rulesetdir') or ''
+        present = set(sg_cities) | set(sg_scores)
+        if not present:
+            return
+
+        for pid in sorted(present):
+            score_row = sg_scores.get(pid) or {}
+            is_barbarian = barbarian.get(pid, 'None') != 'None'
+            if pid in sg_scores:
+                snapshot["scores"][pid] = score_row.get('total', 0)
+            if pid in sg_cities:
+                snapshot["cities_count"][pid] = len(sg_cities[pid])
+            if pid in sg_units:
+                snapshot["units_count"][pid] = len(sg_units[pid])
+                snapshot["military_units_count"][pid] = military_unit_count(
+                    sg_units[pid], score_row, is_barbarian, rulesetdir)
+
+        snapshot["rankings"] = [
+            {"rank": rank, "player_id": pid, "score": score}
+            for rank, (pid, score) in enumerate(
+                sorted(snapshot["scores"].items(), key=lambda x: x[1], reverse=True), 1)
+        ]
+        snapshot["world_totals"] = {
+            "total_cities": sum(len(c) for c in sg_cities.values()),
+            "total_units": sum(len(u) for u in sg_units.values()),
+            "total_military_units": sum(snapshot["military_units_count"].get(pid, 0) for pid in present),
+            "total_population": sum(int(c.get('size', 0)) for cl in sg_cities.values() for c in cl),
+        }
+        snapshot["truth_source"] = TRUTH_SOURCE_SAVEGAME
 
     def collect_territory_snapshots(
         self,
