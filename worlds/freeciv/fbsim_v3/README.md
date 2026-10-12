@@ -43,3 +43,20 @@ Nick's `build_metadata.py` edit theirs, so the three compose in any order. `--fi
 
 Needs pandas, numpy, scipy and matplotlib. The API key for elicitation is read from
 `OPENROUTER_API_KEY` or a `.env` outside this repository; nothing under this folder holds a credential.
+
+## Added 12 October 2026
+
+- `fleet/pod_bundle/` — what `bringup.sh` rsyncs to every pod: `fork_one.sh` (the per-fork runner that `on_pod/worker.sh`
+  and `rerun_list.sh` call), `pod_setup.sh`, the gate scripts (`bench/`), the `fbsim-core` package, the pod `pyproject.toml`
+  and `uv.lock`, and `freeciv_world_as_run.patch`, the diff between the tracked `worlds/freeciv` package and the copy that ran
+  on the pods (the observer-death and server-wait changes in `fork_manager.py`, savegame parsing, report fixes). Apply it with
+  `git apply worlds/freeciv/fbsim_v3/fleet/pod_bundle/freeciv_world_as_run.patch` before rebuilding a bundle. The pod
+  virtualenv is not committed; `pod_setup.sh` recreates it. Without this folder the replay fleet cannot be reproduced from the
+  repo; nothing in `draw/` or `run/` depends on it.
+- `run/selection_fractions.py` — per-stratum selection fractions r = n_selected / n_pool over the generator's full binary pool
+  (23,241 items), strata = probability band × horizon × family plus tail and mirror; 1/r is the importance weight (Fabio's
+  correction). Output committed as `sets/draw_v1/selection_fractions_bank_tails_mirrors.json`; the per-model reweighted
+  excess Brier as `results/run1_2026-09-09/results_v1/freeciv_binary_reweighted.csv`. Re-running it needs the generator pools
+  (`bank_v1/<world>.pkl`, not committed; in the corpus archive).
+- `run/elicit_logprob.py`, `run/analyze_logprob.py` — the 2 October token-probability vs verbalized comparison (7 models that
+  return logprobs through OpenRouter, 200 bank + 60 tail items); findings in `run/ELICITATION.md`.

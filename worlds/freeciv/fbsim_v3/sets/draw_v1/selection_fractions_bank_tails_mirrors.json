@@ -1,0 +1,2692 @@
+{
+ "(0, 90, 'NW2_diplo')": {
+  "n_pool": 7,
+  "n_selected": 2,
+  "r": 0.2857142857142857
+ },
+ "(0, 90, 'W5_tech_lead')": {
+  "n_pool": 8,
+  "n_selected": 2,
+  "r": 0.25
+ },
+ "(0, 90, 'NB1_threshold')": {
+  "n_pool": 65,
+  "n_selected": 2,
+  "r": 0.03076923076923077
+ },
+ "(0, 90, 'S4_gov_change_count')": {
+  "n_pool": 8,
+  "n_selected": 2,
+  "r": 0.25
+ },
+ "(0, 90, 'EX_tech_discovered')": {
+  "n_pool": 176,
+  "n_selected": 2,
+  "r": 0.011363636363636364
+ },
+ "(0, 90, 'W1_wonder_race')": {
+  "n_pool": 10,
+  "n_selected": 2,
+  "r": 0.2
+ },
+ "(0, 90, 'NW5_wonder')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(0, 90, 'W6_peace_at')": {
+  "n_pool": 11,
+  "n_selected": 2,
+  "r": 0.18181818181818182
+ },
+ "(0, 90, 'EX_comparative')": {
+  "n_pool": 125,
+  "n_selected": 2,
+  "r": 0.016
+ },
+ "(0, 90, 'NB1_value_threshold')": {
+  "n_pool": 454,
+  "n_selected": 2,
+  "r": 0.004405286343612335
+ },
+ "(0, 90, 'W2_directed_conquest')": {
+  "n_pool": 17,
+  "n_selected": 2,
+  "r": 0.11764705882352941
+ },
+ "(0, 90, 'NW1_war_at')": {
+  "n_pool": 11,
+  "n_selected": 1,
+  "r": 0.09090909090909091
+ },
+ "(0, 90, 'W3_capture_k')": {
+  "n_pool": 43,
+  "n_selected": 1,
+  "r": 0.023255813953488372
+ },
+ "(0, 90, 'NB6_event')": {
+  "n_pool": 3,
+  "n_selected": 1,
+  "r": 0.3333333333333333
+ },
+ "(0, 90, 'S6_city_founding')": {
+  "n_pool": 4,
+  "n_selected": 1,
+  "r": 0.25
+ },
+ "(0, 90, 'NB4_drawdown')": {
+  "n_pool": 35,
+  "n_selected": 1,
+  "r": 0.02857142857142857
+ },
+ "(0, 90, 'EX_government_at')": {
+  "n_pool": 20,
+  "n_selected": 1,
+  "r": 0.05
+ },
+ "(0, 90, 'W4_lose_k')": {
+  "n_pool": 49,
+  "n_selected": 1,
+  "r": 0.02040816326530612
+ },
+ "(0, 90, 'S5_civ_wonders')": {
+  "n_pool": 10,
+  "n_selected": 1,
+  "r": 0.1
+ },
+ "(0, 120, 'W5_tech_lead')": {
+  "n_pool": 14,
+  "n_selected": 2,
+  "r": 0.14285714285714285
+ },
+ "(0, 120, 'W2_directed_conquest')": {
+  "n_pool": 18,
+  "n_selected": 2,
+  "r": 0.1111111111111111
+ },
+ "(0, 120, 'EX_comparative')": {
+  "n_pool": 93,
+  "n_selected": 2,
+  "r": 0.021505376344086023
+ },
+ "(0, 120, 'NW5_wonder')": {
+  "n_pool": 16,
+  "n_selected": 2,
+  "r": 0.125
+ },
+ "(0, 120, 'NB1_value_threshold')": {
+  "n_pool": 451,
+  "n_selected": 2,
+  "r": 0.004434589800443459
+ },
+ "(0, 120, 'EX_government_at')": {
+  "n_pool": 37,
+  "n_selected": 2,
+  "r": 0.05405405405405406
+ },
+ "(0, 120, 'NW1_war_at')": {
+  "n_pool": 4,
+  "n_selected": 2,
+  "r": 0.5
+ },
+ "(0, 120, 'NEW_civil_war')": {
+  "n_pool": 13,
+  "n_selected": 2,
+  "r": 0.15384615384615385
+ },
+ "(0, 120, 'EX_tech_discovered')": {
+  "n_pool": 194,
+  "n_selected": 2,
+  "r": 0.010309278350515464
+ },
+ "(0, 120, 'S5_civ_wonders')": {
+  "n_pool": 21,
+  "n_selected": 2,
+  "r": 0.09523809523809523
+ },
+ "(0, 120, 'W3_capture_k')": {
+  "n_pool": 18,
+  "n_selected": 2,
+  "r": 0.1111111111111111
+ },
+ "(0, 120, 'S6_city_founding')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(0, 120, 'S4_gov_change_count')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "(0, 120, 'W4_lose_k')": {
+  "n_pool": 7,
+  "n_selected": 1,
+  "r": 0.14285714285714285
+ },
+ "(0, 120, 'NB4_drawdown')": {
+  "n_pool": 100,
+  "n_selected": 1,
+  "r": 0.01
+ },
+ "(0, 120, 'NW2_diplo')": {
+  "n_pool": 16,
+  "n_selected": 1,
+  "r": 0.0625
+ },
+ "(0, 120, 'W1_wonder_race')": {
+  "n_pool": 26,
+  "n_selected": 1,
+  "r": 0.038461538461538464
+ },
+ "(0, 120, 'NB1_threshold')": {
+  "n_pool": 61,
+  "n_selected": 1,
+  "r": 0.01639344262295082
+ },
+ "(0, 120, 'W6_peace_at')": {
+  "n_pool": 11,
+  "n_selected": 1,
+  "r": 0.09090909090909091
+ },
+ "(0, 150, 'NB1_threshold')": {
+  "n_pool": 59,
+  "n_selected": 2,
+  "r": 0.03389830508474576
+ },
+ "(0, 150, 'NB1_value_threshold')": {
+  "n_pool": 384,
+  "n_selected": 2,
+  "r": 0.005208333333333333
+ },
+ "(0, 150, 'S4_gov_change_count')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(0, 150, 'EX_tech_discovered')": {
+  "n_pool": 110,
+  "n_selected": 2,
+  "r": 0.01818181818181818
+ },
+ "(0, 150, 'S5_civ_wonders')": {
+  "n_pool": 25,
+  "n_selected": 2,
+  "r": 0.08
+ },
+ "(0, 150, 'W1_wonder_race')": {
+  "n_pool": 36,
+  "n_selected": 2,
+  "r": 0.05555555555555555
+ },
+ "(0, 150, 'EX_comparative')": {
+  "n_pool": 54,
+  "n_selected": 2,
+  "r": 0.037037037037037035
+ },
+ "(0, 150, 'NW5_wonder')": {
+  "n_pool": 25,
+  "n_selected": 2,
+  "r": 0.08
+ },
+ "(0, 150, 'NEW_civil_war')": {
+  "n_pool": 22,
+  "n_selected": 2,
+  "r": 0.09090909090909091
+ },
+ "(0, 150, 'EX_government_at')": {
+  "n_pool": 8,
+  "n_selected": 2,
+  "r": 0.25
+ },
+ "(0, 150, 'W6_peace_at')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(0, 150, 'W5_tech_lead')": {
+  "n_pool": 8,
+  "n_selected": 2,
+  "r": 0.25
+ },
+ "(0, 150, 'NW1_war_at')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(0, 150, 'NB4_drawdown')": {
+  "n_pool": 104,
+  "n_selected": 2,
+  "r": 0.019230769230769232
+ },
+ "(0, 150, 'W2_directed_conquest')": {
+  "n_pool": 11,
+  "n_selected": 2,
+  "r": 0.18181818181818182
+ },
+ "(0, 150, 'NW2_diplo')": {
+  "n_pool": 12,
+  "n_selected": 1,
+  "r": 0.08333333333333333
+ },
+ "(0, 180, 'NEW_civil_war')": {
+  "n_pool": 28,
+  "n_selected": 2,
+  "r": 0.07142857142857142
+ },
+ "(0, 180, 'S5_civ_wonders')": {
+  "n_pool": 27,
+  "n_selected": 2,
+  "r": 0.07407407407407407
+ },
+ "(0, 180, 'NW2_diplo')": {
+  "n_pool": 12,
+  "n_selected": 2,
+  "r": 0.16666666666666666
+ },
+ "(0, 180, 'NW5_wonder')": {
+  "n_pool": 26,
+  "n_selected": 2,
+  "r": 0.07692307692307693
+ },
+ "(0, 180, 'NW1_war_at')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(0, 180, 'NB4_drawdown')": {
+  "n_pool": 101,
+  "n_selected": 2,
+  "r": 0.019801980198019802
+ },
+ "(0, 180, 'W5_tech_lead')": {
+  "n_pool": 12,
+  "n_selected": 2,
+  "r": 0.16666666666666666
+ },
+ "(0, 180, 'EX_comparative')": {
+  "n_pool": 23,
+  "n_selected": 2,
+  "r": 0.08695652173913043
+ },
+ "(0, 180, 'W1_wonder_race')": {
+  "n_pool": 50,
+  "n_selected": 2,
+  "r": 0.04
+ },
+ "(0, 180, 'S4_gov_change_count')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(0, 180, 'NB1_value_threshold')": {
+  "n_pool": 357,
+  "n_selected": 2,
+  "r": 0.0056022408963585435
+ },
+ "(0, 180, 'EX_government_at')": {
+  "n_pool": 13,
+  "n_selected": 2,
+  "r": 0.15384615384615385
+ },
+ "(0, 180, 'EX_tech_discovered')": {
+  "n_pool": 123,
+  "n_selected": 2,
+  "r": 0.016260162601626018
+ },
+ "(0, 180, 'W2_directed_conquest')": {
+  "n_pool": 16,
+  "n_selected": 2,
+  "r": 0.125
+ },
+ "(0, 180, 'NB1_threshold')": {
+  "n_pool": 61,
+  "n_selected": 2,
+  "r": 0.03278688524590164
+ },
+ "(0, 210, 'NW2_diplo')": {
+  "n_pool": 14,
+  "n_selected": 3,
+  "r": 0.21428571428571427
+ },
+ "(0, 210, 'W5_tech_lead')": {
+  "n_pool": 6,
+  "n_selected": 2,
+  "r": 0.3333333333333333
+ },
+ "(0, 210, 'NB4_drawdown')": {
+  "n_pool": 92,
+  "n_selected": 2,
+  "r": 0.021739130434782608
+ },
+ "(0, 210, 'W6_peace_at')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(0, 210, 'EX_tech_discovered')": {
+  "n_pool": 141,
+  "n_selected": 2,
+  "r": 0.014184397163120567
+ },
+ "(0, 210, 'W1_wonder_race')": {
+  "n_pool": 50,
+  "n_selected": 2,
+  "r": 0.04
+ },
+ "(0, 210, 'NB1_value_threshold')": {
+  "n_pool": 338,
+  "n_selected": 2,
+  "r": 0.005917159763313609
+ },
+ "(0, 210, 'NW1_war_at')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(0, 210, 'EX_comparative')": {
+  "n_pool": 21,
+  "n_selected": 2,
+  "r": 0.09523809523809523
+ },
+ "(0, 210, 'EX_government_at')": {
+  "n_pool": 34,
+  "n_selected": 2,
+  "r": 0.058823529411764705
+ },
+ "(0, 210, 'NEW_civil_war')": {
+  "n_pool": 26,
+  "n_selected": 2,
+  "r": 0.07692307692307693
+ },
+ "(0, 210, 'NB1_threshold')": {
+  "n_pool": 57,
+  "n_selected": 2,
+  "r": 0.03508771929824561
+ },
+ "(0, 210, 'S5_civ_wonders')": {
+  "n_pool": 28,
+  "n_selected": 2,
+  "r": 0.07142857142857142
+ },
+ "(0, 210, 'W2_directed_conquest')": {
+  "n_pool": 16,
+  "n_selected": 2,
+  "r": 0.125
+ },
+ "(0, 210, 'NW5_wonder')": {
+  "n_pool": 29,
+  "n_selected": 2,
+  "r": 0.06896551724137931
+ },
+ "(1, 90, 'NB6_event')": {
+  "n_pool": 4,
+  "n_selected": 2,
+  "r": 0.5
+ },
+ "(1, 90, 'W3_capture_k')": {
+  "n_pool": 20,
+  "n_selected": 2,
+  "r": 0.1
+ },
+ "(1, 90, 'NB1_value_threshold')": {
+  "n_pool": 232,
+  "n_selected": 2,
+  "r": 0.008620689655172414
+ },
+ "(1, 90, 'EX_tech_discovered')": {
+  "n_pool": 99,
+  "n_selected": 2,
+  "r": 0.020202020202020204
+ },
+ "(1, 90, 'EX_government_at')": {
+  "n_pool": 5,
+  "n_selected": 2,
+  "r": 0.4
+ },
+ "(1, 90, 'S5_civ_wonders')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(1, 90, 'W4_lose_k')": {
+  "n_pool": 33,
+  "n_selected": 2,
+  "r": 0.06060606060606061
+ },
+ "(1, 90, 'W1_wonder_race')": {
+  "n_pool": 5,
+  "n_selected": 2,
+  "r": 0.4
+ },
+ "(1, 90, 'W2_directed_conquest')": {
+  "n_pool": 8,
+  "n_selected": 2,
+  "r": 0.25
+ },
+ "(1, 90, 'NW5_wonder')": {
+  "n_pool": 4,
+  "n_selected": 2,
+  "r": 0.5
+ },
+ "(1, 90, 'S4_gov_change_count')": {
+  "n_pool": 9,
+  "n_selected": 2,
+  "r": 0.2222222222222222
+ },
+ "(1, 90, 'EX_comparative')": {
+  "n_pool": 52,
+  "n_selected": 1,
+  "r": 0.019230769230769232
+ },
+ "(1, 90, 'NW2_diplo')": {
+  "n_pool": 5,
+  "n_selected": 1,
+  "r": 0.2
+ },
+ "(1, 90, 'S6_city_founding')": {
+  "n_pool": 4,
+  "n_selected": 1,
+  "r": 0.25
+ },
+ "(1, 90, 'W6_peace_at')": {
+  "n_pool": 3,
+  "n_selected": 1,
+  "r": 0.3333333333333333
+ },
+ "(1, 90, 'W5_tech_lead')": {
+  "n_pool": 4,
+  "n_selected": 1,
+  "r": 0.25
+ },
+ "(1, 90, 'NB4_drawdown')": {
+  "n_pool": 7,
+  "n_selected": 1,
+  "r": 0.14285714285714285
+ },
+ "(1, 90, 'NW1_war_at')": {
+  "n_pool": 7,
+  "n_selected": 1,
+  "r": 0.14285714285714285
+ },
+ "(1, 90, 'NB1_threshold')": {
+  "n_pool": 30,
+  "n_selected": 1,
+  "r": 0.03333333333333333
+ },
+ "(1, 120, 'W1_wonder_race')": {
+  "n_pool": 6,
+  "n_selected": 2,
+  "r": 0.3333333333333333
+ },
+ "(1, 120, 'NB1_threshold')": {
+  "n_pool": 37,
+  "n_selected": 2,
+  "r": 0.05405405405405406
+ },
+ "(1, 120, 'W3_capture_k')": {
+  "n_pool": 17,
+  "n_selected": 2,
+  "r": 0.11764705882352941
+ },
+ "(1, 120, 'NB1_value_threshold')": {
+  "n_pool": 228,
+  "n_selected": 2,
+  "r": 0.008771929824561403
+ },
+ "(1, 120, 'S6_city_founding')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(1, 120, 'EX_government_at')": {
+  "n_pool": 33,
+  "n_selected": 2,
+  "r": 0.06060606060606061
+ },
+ "(1, 120, 'W5_tech_lead')": {
+  "n_pool": 4,
+  "n_selected": 2,
+  "r": 0.5
+ },
+ "(1, 120, 'NW1_war_at')": {
+  "n_pool": 5,
+  "n_selected": 2,
+  "r": 0.4
+ },
+ "(1, 120, 'NB4_drawdown')": {
+  "n_pool": 14,
+  "n_selected": 2,
+  "r": 0.14285714285714285
+ },
+ "(1, 120, 'EX_comparative')": {
+  "n_pool": 121,
+  "n_selected": 2,
+  "r": 0.01652892561983471
+ },
+ "(1, 120, 'W4_lose_k')": {
+  "n_pool": 12,
+  "n_selected": 2,
+  "r": 0.16666666666666666
+ },
+ "(1, 120, 'W6_peace_at')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(1, 120, 'S4_gov_change_count')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "(1, 120, 'NW5_wonder')": {
+  "n_pool": 4,
+  "n_selected": 2,
+  "r": 0.5
+ },
+ "(1, 120, 'S5_civ_wonders')": {
+  "n_pool": 10,
+  "n_selected": 1,
+  "r": 0.1
+ },
+ "(1, 120, 'W2_directed_conquest')": {
+  "n_pool": 25,
+  "n_selected": 1,
+  "r": 0.04
+ },
+ "(1, 120, 'EX_tech_discovered')": {
+  "n_pool": 61,
+  "n_selected": 1,
+  "r": 0.01639344262295082
+ },
+ "(1, 120, 'NW2_diplo')": {
+  "n_pool": 13,
+  "n_selected": 1,
+  "r": 0.07692307692307693
+ },
+ "(1, 150, 'NW1_war_at')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(1, 150, 'EX_tech_discovered')": {
+  "n_pool": 116,
+  "n_selected": 2,
+  "r": 0.017241379310344827
+ },
+ "(1, 150, 'W3_capture_k')": {
+  "n_pool": 7,
+  "n_selected": 2,
+  "r": 0.2857142857142857
+ },
+ "(1, 150, 'W5_tech_lead')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(1, 150, 'NB4_drawdown')": {
+  "n_pool": 22,
+  "n_selected": 2,
+  "r": 0.09090909090909091
+ },
+ "(1, 150, 'W4_lose_k')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(1, 150, 'EX_comparative')": {
+  "n_pool": 101,
+  "n_selected": 2,
+  "r": 0.019801980198019802
+ },
+ "(1, 150, 'S5_civ_wonders')": {
+  "n_pool": 9,
+  "n_selected": 2,
+  "r": 0.2222222222222222
+ },
+ "(1, 150, 'NEW_civil_war')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(1, 150, 'NB1_value_threshold')": {
+  "n_pool": 198,
+  "n_selected": 2,
+  "r": 0.010101010101010102
+ },
+ "(1, 150, 'NB1_threshold')": {
+  "n_pool": 32,
+  "n_selected": 2,
+  "r": 0.0625
+ },
+ "(1, 150, 'NW2_diplo')": {
+  "n_pool": 10,
+  "n_selected": 2,
+  "r": 0.2
+ },
+ "(1, 150, 'NW5_wonder')": {
+  "n_pool": 13,
+  "n_selected": 2,
+  "r": 0.15384615384615385
+ },
+ "(1, 150, 'W2_directed_conquest')": {
+  "n_pool": 13,
+  "n_selected": 2,
+  "r": 0.15384615384615385
+ },
+ "(1, 150, 'W1_wonder_race')": {
+  "n_pool": 6,
+  "n_selected": 1,
+  "r": 0.16666666666666666
+ },
+ "(1, 150, 'EX_government_at')": {
+  "n_pool": 15,
+  "n_selected": 1,
+  "r": 0.06666666666666667
+ },
+ "(1, 150, 'S6_city_founding')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(1, 180, 'NB1_value_threshold')": {
+  "n_pool": 186,
+  "n_selected": 3,
+  "r": 0.016129032258064516
+ },
+ "(1, 180, 'NB4_drawdown')": {
+  "n_pool": 35,
+  "n_selected": 3,
+  "r": 0.08571428571428572
+ },
+ "(1, 180, 'S6_city_founding')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(1, 180, 'EX_comparative')": {
+  "n_pool": 105,
+  "n_selected": 2,
+  "r": 0.01904761904761905
+ },
+ "(1, 180, 'W2_directed_conquest')": {
+  "n_pool": 7,
+  "n_selected": 2,
+  "r": 0.2857142857142857
+ },
+ "(1, 180, 'NW1_war_at')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(1, 180, 'S5_civ_wonders')": {
+  "n_pool": 13,
+  "n_selected": 2,
+  "r": 0.15384615384615385
+ },
+ "(1, 180, 'EX_government_at')": {
+  "n_pool": 12,
+  "n_selected": 2,
+  "r": 0.16666666666666666
+ },
+ "(1, 180, 'W1_wonder_race')": {
+  "n_pool": 6,
+  "n_selected": 2,
+  "r": 0.3333333333333333
+ },
+ "(1, 180, 'NEW_civil_war')": {
+  "n_pool": 6,
+  "n_selected": 2,
+  "r": 0.3333333333333333
+ },
+ "(1, 180, 'W5_tech_lead')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(1, 180, 'NW5_wonder')": {
+  "n_pool": 15,
+  "n_selected": 2,
+  "r": 0.13333333333333333
+ },
+ "(1, 180, 'NW2_diplo')": {
+  "n_pool": 10,
+  "n_selected": 2,
+  "r": 0.2
+ },
+ "(1, 180, 'EX_tech_discovered')": {
+  "n_pool": 69,
+  "n_selected": 2,
+  "r": 0.028985507246376812
+ },
+ "(1, 180, 'NB1_threshold')": {
+  "n_pool": 30,
+  "n_selected": 2,
+  "r": 0.06666666666666667
+ },
+ "(1, 210, 'NW5_wonder')": {
+  "n_pool": 18,
+  "n_selected": 2,
+  "r": 0.1111111111111111
+ },
+ "(1, 210, 'EX_government_at')": {
+  "n_pool": 17,
+  "n_selected": 2,
+  "r": 0.11764705882352941
+ },
+ "(1, 210, 'S5_civ_wonders')": {
+  "n_pool": 15,
+  "n_selected": 2,
+  "r": 0.13333333333333333
+ },
+ "(1, 210, 'W1_wonder_race')": {
+  "n_pool": 9,
+  "n_selected": 2,
+  "r": 0.2222222222222222
+ },
+ "(1, 210, 'W5_tech_lead')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(1, 210, 'EX_comparative')": {
+  "n_pool": 91,
+  "n_selected": 2,
+  "r": 0.02197802197802198
+ },
+ "(1, 210, 'NB4_drawdown')": {
+  "n_pool": 35,
+  "n_selected": 2,
+  "r": 0.05714285714285714
+ },
+ "(1, 210, 'S4_gov_change_count')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(1, 210, 'NB1_value_threshold')": {
+  "n_pool": 174,
+  "n_selected": 2,
+  "r": 0.011494252873563218
+ },
+ "(1, 210, 'NEW_civil_war')": {
+  "n_pool": 7,
+  "n_selected": 2,
+  "r": 0.2857142857142857
+ },
+ "(1, 210, 'NB1_threshold')": {
+  "n_pool": 29,
+  "n_selected": 2,
+  "r": 0.06896551724137931
+ },
+ "(1, 210, 'NW2_diplo')": {
+  "n_pool": 9,
+  "n_selected": 2,
+  "r": 0.2222222222222222
+ },
+ "(1, 210, 'S6_city_founding')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(1, 210, 'W2_directed_conquest')": {
+  "n_pool": 6,
+  "n_selected": 2,
+  "r": 0.3333333333333333
+ },
+ "(1, 210, 'NW1_war_at')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(1, 210, 'EX_tech_discovered')": {
+  "n_pool": 71,
+  "n_selected": 2,
+  "r": 0.028169014084507043
+ },
+ "(2, 90, 'S4_gov_change_count')": {
+  "n_pool": 7,
+  "n_selected": 2,
+  "r": 0.2857142857142857
+ },
+ "(2, 90, 'W3_capture_k')": {
+  "n_pool": 10,
+  "n_selected": 2,
+  "r": 0.2
+ },
+ "(2, 90, 'W4_lose_k')": {
+  "n_pool": 21,
+  "n_selected": 2,
+  "r": 0.09523809523809523
+ },
+ "(2, 90, 'NB1_value_threshold')": {
+  "n_pool": 218,
+  "n_selected": 2,
+  "r": 0.009174311926605505
+ },
+ "(2, 90, 'EX_comparative')": {
+  "n_pool": 44,
+  "n_selected": 2,
+  "r": 0.045454545454545456
+ },
+ "(2, 90, 'S6_city_founding')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(2, 90, 'NB1_threshold')": {
+  "n_pool": 28,
+  "n_selected": 2,
+  "r": 0.07142857142857142
+ },
+ "(2, 90, 'EX_tech_discovered')": {
+  "n_pool": 98,
+  "n_selected": 2,
+  "r": 0.02040816326530612
+ },
+ "(2, 90, 'S5_civ_wonders')": {
+  "n_pool": 5,
+  "n_selected": 2,
+  "r": 0.4
+ },
+ "(2, 90, 'NB6_event')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(2, 90, 'NW1_war_at')": {
+  "n_pool": 9,
+  "n_selected": 2,
+  "r": 0.2222222222222222
+ },
+ "(2, 90, 'NW2_diplo')": {
+  "n_pool": 4,
+  "n_selected": 1,
+  "r": 0.25
+ },
+ "(2, 90, 'S3_wars_at_T')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(2, 90, 'W5_tech_lead')": {
+  "n_pool": 4,
+  "n_selected": 1,
+  "r": 0.25
+ },
+ "(2, 90, 'EX_government_at')": {
+  "n_pool": 5,
+  "n_selected": 1,
+  "r": 0.2
+ },
+ "(2, 90, 'NB4_drawdown')": {
+  "n_pool": 3,
+  "n_selected": 1,
+  "r": 0.3333333333333333
+ },
+ "(2, 90, 'W2_directed_conquest')": {
+  "n_pool": 5,
+  "n_selected": 1,
+  "r": 0.2
+ },
+ "(2, 90, 'W1_wonder_race')": {
+  "n_pool": 5,
+  "n_selected": 1,
+  "r": 0.2
+ },
+ "(2, 90, 'NW5_wonder')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "(2, 90, 'W6_peace_at')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "(2, 120, 'S6_city_founding')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(2, 120, 'NW2_diplo')": {
+  "n_pool": 6,
+  "n_selected": 2,
+  "r": 0.3333333333333333
+ },
+ "(2, 120, 'NW5_wonder')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(2, 120, 'S5_civ_wonders')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(2, 120, 'W4_lose_k')": {
+  "n_pool": 17,
+  "n_selected": 2,
+  "r": 0.11764705882352941
+ },
+ "(2, 120, 'NB4_drawdown')": {
+  "n_pool": 8,
+  "n_selected": 2,
+  "r": 0.25
+ },
+ "(2, 120, 'W2_directed_conquest')": {
+  "n_pool": 12,
+  "n_selected": 2,
+  "r": 0.16666666666666666
+ },
+ "(2, 120, 'NW1_war_at')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(2, 120, 'W5_tech_lead')": {
+  "n_pool": 4,
+  "n_selected": 2,
+  "r": 0.5
+ },
+ "(2, 120, 'EX_comparative')": {
+  "n_pool": 133,
+  "n_selected": 2,
+  "r": 0.015037593984962405
+ },
+ "(2, 120, 'NB1_threshold')": {
+  "n_pool": 26,
+  "n_selected": 2,
+  "r": 0.07692307692307693
+ },
+ "(2, 120, 'S4_gov_change_count')": {
+  "n_pool": 4,
+  "n_selected": 2,
+  "r": 0.5
+ },
+ "(2, 120, 'EX_tech_discovered')": {
+  "n_pool": 98,
+  "n_selected": 2,
+  "r": 0.02040816326530612
+ },
+ "(2, 120, 'EX_government_at')": {
+  "n_pool": 26,
+  "n_selected": 2,
+  "r": 0.07692307692307693
+ },
+ "(2, 120, 'W1_wonder_race')": {
+  "n_pool": 8,
+  "n_selected": 1,
+  "r": 0.125
+ },
+ "(2, 120, 'NB1_value_threshold')": {
+  "n_pool": 223,
+  "n_selected": 1,
+  "r": 0.004484304932735426
+ },
+ "(2, 120, 'W3_capture_k')": {
+  "n_pool": 26,
+  "n_selected": 1,
+  "r": 0.038461538461538464
+ },
+ "(2, 150, 'W2_directed_conquest')": {
+  "n_pool": 14,
+  "n_selected": 3,
+  "r": 0.21428571428571427
+ },
+ "(2, 150, 'S6_city_founding')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(2, 150, 'NW1_war_at')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(2, 150, 'S4_gov_change_count')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(2, 150, 'W3_capture_k')": {
+  "n_pool": 13,
+  "n_selected": 3,
+  "r": 0.23076923076923078
+ },
+ "(2, 150, 'EX_government_at')": {
+  "n_pool": 19,
+  "n_selected": 2,
+  "r": 0.10526315789473684
+ },
+ "(2, 150, 'NB4_drawdown')": {
+  "n_pool": 13,
+  "n_selected": 2,
+  "r": 0.15384615384615385
+ },
+ "(2, 150, 'EX_comparative')": {
+  "n_pool": 130,
+  "n_selected": 2,
+  "r": 0.015384615384615385
+ },
+ "(2, 150, 'W1_wonder_race')": {
+  "n_pool": 6,
+  "n_selected": 2,
+  "r": 0.3333333333333333
+ },
+ "(2, 150, 'NB1_value_threshold')": {
+  "n_pool": 198,
+  "n_selected": 2,
+  "r": 0.010101010101010102
+ },
+ "(2, 150, 'EX_tech_discovered')": {
+  "n_pool": 77,
+  "n_selected": 2,
+  "r": 0.025974025974025976
+ },
+ "(2, 150, 'W4_lose_k')": {
+  "n_pool": 7,
+  "n_selected": 2,
+  "r": 0.2857142857142857
+ },
+ "(2, 150, 'NW2_diplo')": {
+  "n_pool": 3,
+  "n_selected": 1,
+  "r": 0.3333333333333333
+ },
+ "(2, 150, 'S5_civ_wonders')": {
+  "n_pool": 6,
+  "n_selected": 2,
+  "r": 0.3333333333333333
+ },
+ "(2, 150, 'NB1_threshold')": {
+  "n_pool": 21,
+  "n_selected": 2,
+  "r": 0.09523809523809523
+ },
+ "(2, 180, 'NW5_wonder')": {
+  "n_pool": 10,
+  "n_selected": 2,
+  "r": 0.2
+ },
+ "(2, 180, 'S6_city_founding')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(2, 180, 'EX_comparative')": {
+  "n_pool": 154,
+  "n_selected": 3,
+  "r": 0.01948051948051948
+ },
+ "(2, 180, 'S5_civ_wonders')": {
+  "n_pool": 8,
+  "n_selected": 2,
+  "r": 0.25
+ },
+ "(2, 180, 'W3_capture_k')": {
+  "n_pool": 7,
+  "n_selected": 2,
+  "r": 0.2857142857142857
+ },
+ "(2, 180, 'NB1_threshold')": {
+  "n_pool": 17,
+  "n_selected": 2,
+  "r": 0.11764705882352941
+ },
+ "(2, 180, 'W2_directed_conquest')": {
+  "n_pool": 15,
+  "n_selected": 2,
+  "r": 0.13333333333333333
+ },
+ "(2, 180, 'W4_lose_k')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(2, 180, 'NB1_value_threshold')": {
+  "n_pool": 186,
+  "n_selected": 2,
+  "r": 0.010752688172043012
+ },
+ "(2, 180, 'EX_government_at')": {
+  "n_pool": 25,
+  "n_selected": 2,
+  "r": 0.08
+ },
+ "(2, 180, 'NEW_civil_war')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(2, 180, 'NW2_diplo')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(2, 180, 'W1_wonder_race')": {
+  "n_pool": 4,
+  "n_selected": 2,
+  "r": 0.5
+ },
+ "(2, 180, 'EX_tech_discovered')": {
+  "n_pool": 62,
+  "n_selected": 2,
+  "r": 0.03225806451612903
+ },
+ "(2, 180, 'NB4_drawdown')": {
+  "n_pool": 15,
+  "n_selected": 2,
+  "r": 0.13333333333333333
+ },
+ "(2, 180, 'NW1_war_at')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(2, 210, 'W3_capture_k')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(2, 210, 'W1_wonder_race')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(2, 210, 'W2_directed_conquest')": {
+  "n_pool": 13,
+  "n_selected": 2,
+  "r": 0.15384615384615385
+ },
+ "(2, 210, 'S6_city_founding')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(2, 210, 'NW5_wonder')": {
+  "n_pool": 8,
+  "n_selected": 2,
+  "r": 0.25
+ },
+ "(2, 210, 'S4_gov_change_count')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(2, 210, 'NW1_war_at')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(2, 210, 'S5_civ_wonders')": {
+  "n_pool": 6,
+  "n_selected": 2,
+  "r": 0.3333333333333333
+ },
+ "(2, 210, 'EX_tech_discovered')": {
+  "n_pool": 71,
+  "n_selected": 2,
+  "r": 0.028169014084507043
+ },
+ "(2, 210, 'NW2_diplo')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(2, 210, 'EX_government_at')": {
+  "n_pool": 17,
+  "n_selected": 2,
+  "r": 0.11764705882352941
+ },
+ "(2, 210, 'NB4_drawdown')": {
+  "n_pool": 20,
+  "n_selected": 2,
+  "r": 0.1
+ },
+ "(2, 210, 'EX_comparative')": {
+  "n_pool": 144,
+  "n_selected": 2,
+  "r": 0.013888888888888888
+ },
+ "(2, 210, 'NEW_civil_war')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(2, 210, 'NB1_threshold')": {
+  "n_pool": 19,
+  "n_selected": 2,
+  "r": 0.10526315789473684
+ },
+ "(2, 210, 'NB1_value_threshold')": {
+  "n_pool": 174,
+  "n_selected": 1,
+  "r": 0.005747126436781609
+ },
+ "(3, 90, 'W3_capture_k')": {
+  "n_pool": 9,
+  "n_selected": 2,
+  "r": 0.2222222222222222
+ },
+ "(3, 90, 'NB1_threshold')": {
+  "n_pool": 22,
+  "n_selected": 2,
+  "r": 0.09090909090909091
+ },
+ "(3, 90, 'EX_comparative')": {
+  "n_pool": 49,
+  "n_selected": 2,
+  "r": 0.04081632653061224
+ },
+ "(3, 90, 'W4_lose_k')": {
+  "n_pool": 13,
+  "n_selected": 2,
+  "r": 0.15384615384615385
+ },
+ "(3, 90, 'W6_peace_at')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(3, 90, 'NB1_value_threshold')": {
+  "n_pool": 171,
+  "n_selected": 2,
+  "r": 0.011695906432748537
+ },
+ "(3, 90, 'W5_tech_lead')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(3, 90, 'W2_directed_conquest')": {
+  "n_pool": 5,
+  "n_selected": 2,
+  "r": 0.4
+ },
+ "(3, 90, 'NW2_diplo')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(3, 90, 'S5_civ_wonders')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(3, 90, 'EX_tech_discovered')": {
+  "n_pool": 87,
+  "n_selected": 2,
+  "r": 0.022988505747126436
+ },
+ "(3, 90, 'S4_gov_change_count')": {
+  "n_pool": 5,
+  "n_selected": 2,
+  "r": 0.4
+ },
+ "(3, 90, 'EX_government_at')": {
+  "n_pool": 7,
+  "n_selected": 2,
+  "r": 0.2857142857142857
+ },
+ "(3, 90, 'S6_city_founding')": {
+  "n_pool": 3,
+  "n_selected": 1,
+  "r": 0.3333333333333333
+ },
+ "(3, 90, 'NW1_war_at')": {
+  "n_pool": 6,
+  "n_selected": 1,
+  "r": 0.16666666666666666
+ },
+ "(3, 90, 'NB4_drawdown')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(3, 90, 'W1_wonder_race')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "(3, 120, 'EX_tech_discovered')": {
+  "n_pool": 127,
+  "n_selected": 2,
+  "r": 0.015748031496062992
+ },
+ "(3, 120, 'NW1_war_at')": {
+  "n_pool": 11,
+  "n_selected": 2,
+  "r": 0.18181818181818182
+ },
+ "(3, 120, 'EX_government_at')": {
+  "n_pool": 8,
+  "n_selected": 2,
+  "r": 0.25
+ },
+ "(3, 120, 'W3_capture_k')": {
+  "n_pool": 23,
+  "n_selected": 2,
+  "r": 0.08695652173913043
+ },
+ "(3, 120, 'NB1_threshold')": {
+  "n_pool": 21,
+  "n_selected": 2,
+  "r": 0.09523809523809523
+ },
+ "(3, 120, 'S4_gov_change_count')": {
+  "n_pool": 5,
+  "n_selected": 2,
+  "r": 0.4
+ },
+ "(3, 120, 'NW2_diplo')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(3, 120, 'NW5_wonder')": {
+  "n_pool": 4,
+  "n_selected": 2,
+  "r": 0.5
+ },
+ "(3, 120, 'S6_city_founding')": {
+  "n_pool": 4,
+  "n_selected": 2,
+  "r": 0.5
+ },
+ "(3, 120, 'EX_comparative')": {
+  "n_pool": 115,
+  "n_selected": 2,
+  "r": 0.017391304347826087
+ },
+ "(3, 120, 'W2_directed_conquest')": {
+  "n_pool": 12,
+  "n_selected": 2,
+  "r": 0.16666666666666666
+ },
+ "(3, 120, 'NB1_value_threshold')": {
+  "n_pool": 183,
+  "n_selected": 2,
+  "r": 0.01092896174863388
+ },
+ "(3, 120, 'W4_lose_k')": {
+  "n_pool": 29,
+  "n_selected": 2,
+  "r": 0.06896551724137931
+ },
+ "(3, 120, 'NB4_drawdown')": {
+  "n_pool": 4,
+  "n_selected": 2,
+  "r": 0.5
+ },
+ "(3, 120, 'S5_civ_wonders')": {
+  "n_pool": 5,
+  "n_selected": 1,
+  "r": 0.2
+ },
+ "(3, 120, 'W1_wonder_race')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "(3, 150, 'NB4_drawdown')": {
+  "n_pool": 5,
+  "n_selected": 3,
+  "r": 0.6
+ },
+ "(3, 150, 'S5_civ_wonders')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(3, 150, 'NW2_diplo')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(3, 150, 'NB1_threshold')": {
+  "n_pool": 19,
+  "n_selected": 3,
+  "r": 0.15789473684210525
+ },
+ "(3, 150, 'NB1_value_threshold')": {
+  "n_pool": 163,
+  "n_selected": 3,
+  "r": 0.018404907975460124
+ },
+ "(3, 150, 'EX_government_at')": {
+  "n_pool": 11,
+  "n_selected": 2,
+  "r": 0.18181818181818182
+ },
+ "(3, 150, 'NW1_war_at')": {
+  "n_pool": 4,
+  "n_selected": 2,
+  "r": 0.5
+ },
+ "(3, 150, 'S6_city_founding')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(3, 150, 'W2_directed_conquest')": {
+  "n_pool": 6,
+  "n_selected": 2,
+  "r": 0.3333333333333333
+ },
+ "(3, 150, 'W3_capture_k')": {
+  "n_pool": 17,
+  "n_selected": 2,
+  "r": 0.11764705882352941
+ },
+ "(3, 150, 'EX_comparative')": {
+  "n_pool": 96,
+  "n_selected": 2,
+  "r": 0.020833333333333332
+ },
+ "(3, 150, 'EX_tech_discovered')": {
+  "n_pool": 77,
+  "n_selected": 2,
+  "r": 0.025974025974025976
+ },
+ "(3, 150, 'W4_lose_k')": {
+  "n_pool": 11,
+  "n_selected": 2,
+  "r": 0.18181818181818182
+ },
+ "(3, 150, 'NW5_wonder')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "(3, 180, 'NW5_wonder')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "(3, 180, 'EX_comparative')": {
+  "n_pool": 97,
+  "n_selected": 3,
+  "r": 0.030927835051546393
+ },
+ "(3, 180, 'NB1_threshold')": {
+  "n_pool": 17,
+  "n_selected": 2,
+  "r": 0.11764705882352941
+ },
+ "(3, 180, 'NB4_drawdown')": {
+  "n_pool": 11,
+  "n_selected": 2,
+  "r": 0.18181818181818182
+ },
+ "(3, 180, 'EX_tech_discovered')": {
+  "n_pool": 127,
+  "n_selected": 2,
+  "r": 0.015748031496062992
+ },
+ "(3, 180, 'NW2_diplo')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(3, 180, 'S4_gov_change_count')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(3, 180, 'W1_wonder_race')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(3, 180, 'NW1_war_at')": {
+  "n_pool": 6,
+  "n_selected": 2,
+  "r": 0.3333333333333333
+ },
+ "(3, 180, 'EX_government_at')": {
+  "n_pool": 8,
+  "n_selected": 2,
+  "r": 0.25
+ },
+ "(3, 180, 'W2_directed_conquest')": {
+  "n_pool": 6,
+  "n_selected": 2,
+  "r": 0.3333333333333333
+ },
+ "(3, 180, 'S5_civ_wonders')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(3, 180, 'NB1_value_threshold')": {
+  "n_pool": 162,
+  "n_selected": 2,
+  "r": 0.012345679012345678
+ },
+ "(3, 180, 'S6_city_founding')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(3, 180, 'W4_lose_k')": {
+  "n_pool": 7,
+  "n_selected": 2,
+  "r": 0.2857142857142857
+ },
+ "(3, 180, 'W3_capture_k')": {
+  "n_pool": 11,
+  "n_selected": 2,
+  "r": 0.18181818181818182
+ },
+ "(3, 210, 'NW1_war_at')": {
+  "n_pool": 5,
+  "n_selected": 3,
+  "r": 0.6
+ },
+ "(3, 210, 'EX_tech_discovered')": {
+  "n_pool": 72,
+  "n_selected": 3,
+  "r": 0.041666666666666664
+ },
+ "(3, 210, 'NB1_value_threshold')": {
+  "n_pool": 159,
+  "n_selected": 2,
+  "r": 0.012578616352201259
+ },
+ "(3, 210, 'S5_civ_wonders')": {
+  "n_pool": 7,
+  "n_selected": 2,
+  "r": 0.2857142857142857
+ },
+ "(3, 210, 'EX_government_at')": {
+  "n_pool": 9,
+  "n_selected": 2,
+  "r": 0.2222222222222222
+ },
+ "(3, 210, 'NB1_threshold')": {
+  "n_pool": 18,
+  "n_selected": 2,
+  "r": 0.1111111111111111
+ },
+ "(3, 210, 'W2_directed_conquest')": {
+  "n_pool": 6,
+  "n_selected": 2,
+  "r": 0.3333333333333333
+ },
+ "(3, 210, 'NW5_wonder')": {
+  "n_pool": 8,
+  "n_selected": 2,
+  "r": 0.25
+ },
+ "(3, 210, 'NB4_drawdown')": {
+  "n_pool": 13,
+  "n_selected": 2,
+  "r": 0.15384615384615385
+ },
+ "(3, 210, 'EX_comparative')": {
+  "n_pool": 85,
+  "n_selected": 2,
+  "r": 0.023529411764705882
+ },
+ "(3, 210, 'S6_city_founding')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(3, 210, 'S4_gov_change_count')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(3, 210, 'W3_capture_k')": {
+  "n_pool": 5,
+  "n_selected": 2,
+  "r": 0.4
+ },
+ "(3, 210, 'W4_lose_k')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(3, 210, 'W1_wonder_race')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(4, 90, 'W6_peace_at')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(4, 90, 'NB1_value_threshold')": {
+  "n_pool": 353,
+  "n_selected": 2,
+  "r": 0.0056657223796034
+ },
+ "(4, 90, 'S7_any_destroyed')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(4, 90, 'S6_city_founding')": {
+  "n_pool": 14,
+  "n_selected": 2,
+  "r": 0.14285714285714285
+ },
+ "(4, 90, 'S4_gov_change_count')": {
+  "n_pool": 14,
+  "n_selected": 2,
+  "r": 0.14285714285714285
+ },
+ "(4, 90, 'W2_directed_conquest')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(4, 90, 'EX_comparative')": {
+  "n_pool": 126,
+  "n_selected": 2,
+  "r": 0.015873015873015872
+ },
+ "(4, 90, 'EX_tech_discovered')": {
+  "n_pool": 112,
+  "n_selected": 2,
+  "r": 0.017857142857142856
+ },
+ "(4, 90, 'S3_wars_at_T')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(4, 90, 'W1_wonder_race')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(4, 90, 'NW1_war_at')": {
+  "n_pool": 4,
+  "n_selected": 2,
+  "r": 0.5
+ },
+ "(4, 90, 'W4_lose_k')": {
+  "n_pool": 7,
+  "n_selected": 2,
+  "r": 0.2857142857142857
+ },
+ "(4, 90, 'NW2_diplo')": {
+  "n_pool": 16,
+  "n_selected": 2,
+  "r": 0.125
+ },
+ "(4, 90, 'EX_government_at')": {
+  "n_pool": 11,
+  "n_selected": 1,
+  "r": 0.09090909090909091
+ },
+ "(4, 90, 'S5_civ_wonders')": {
+  "n_pool": 3,
+  "n_selected": 1,
+  "r": 0.3333333333333333
+ },
+ "(4, 90, 'NB6_event')": {
+  "n_pool": 5,
+  "n_selected": 1,
+  "r": 0.2
+ },
+ "(4, 90, 'W3_capture_k')": {
+  "n_pool": 5,
+  "n_selected": 1,
+  "r": 0.2
+ },
+ "(4, 90, 'NW5_wonder')": {
+  "n_pool": 4,
+  "n_selected": 1,
+  "r": 0.25
+ },
+ "(4, 90, 'NB1_threshold')": {
+  "n_pool": 61,
+  "n_selected": 1,
+  "r": 0.01639344262295082
+ },
+ "(4, 120, 'EX_comparative')": {
+  "n_pool": 85,
+  "n_selected": 3,
+  "r": 0.03529411764705882
+ },
+ "(4, 120, 'NB1_value_threshold')": {
+  "n_pool": 361,
+  "n_selected": 2,
+  "r": 0.00554016620498615
+ },
+ "(4, 120, 'NB6_event')": {
+  "n_pool": 8,
+  "n_selected": 2,
+  "r": 0.25
+ },
+ "(4, 120, 'S5_civ_wonders')": {
+  "n_pool": 4,
+  "n_selected": 2,
+  "r": 0.5
+ },
+ "(4, 120, 'W3_capture_k')": {
+  "n_pool": 39,
+  "n_selected": 2,
+  "r": 0.05128205128205128
+ },
+ "(4, 120, 'NB1_threshold')": {
+  "n_pool": 71,
+  "n_selected": 2,
+  "r": 0.028169014084507043
+ },
+ "(4, 120, 'EX_tech_discovered')": {
+  "n_pool": 197,
+  "n_selected": 2,
+  "r": 0.01015228426395939
+ },
+ "(4, 120, 'W1_wonder_race')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(4, 120, 'NW1_war_at')": {
+  "n_pool": 14,
+  "n_selected": 2,
+  "r": 0.14285714285714285
+ },
+ "(4, 120, 'NW2_diplo')": {
+  "n_pool": 15,
+  "n_selected": 2,
+  "r": 0.13333333333333333
+ },
+ "(4, 120, 'S6_city_founding')": {
+  "n_pool": 11,
+  "n_selected": 2,
+  "r": 0.18181818181818182
+ },
+ "(4, 120, 'W2_directed_conquest')": {
+  "n_pool": 14,
+  "n_selected": 2,
+  "r": 0.14285714285714285
+ },
+ "(4, 120, 'S4_gov_change_count')": {
+  "n_pool": 21,
+  "n_selected": 2,
+  "r": 0.09523809523809523
+ },
+ "(4, 120, 'W4_lose_k')": {
+  "n_pool": 51,
+  "n_selected": 2,
+  "r": 0.0392156862745098
+ },
+ "(4, 120, 'EX_government_at')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(4, 150, 'EX_government_at')": {
+  "n_pool": 5,
+  "n_selected": 2,
+  "r": 0.4
+ },
+ "(4, 150, 'EX_comparative')": {
+  "n_pool": 49,
+  "n_selected": 2,
+  "r": 0.04081632653061224
+ },
+ "(4, 150, 'EX_tech_discovered')": {
+  "n_pool": 195,
+  "n_selected": 2,
+  "r": 0.010256410256410256
+ },
+ "(4, 150, 'W4_lose_k')": {
+  "n_pool": 42,
+  "n_selected": 2,
+  "r": 0.047619047619047616
+ },
+ "(4, 150, 'NB1_threshold')": {
+  "n_pool": 59,
+  "n_selected": 2,
+  "r": 0.03389830508474576
+ },
+ "(4, 150, 'S6_city_founding')": {
+  "n_pool": 9,
+  "n_selected": 2,
+  "r": 0.2222222222222222
+ },
+ "(4, 150, 'S5_civ_wonders')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(4, 150, 'S4_gov_change_count')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(4, 150, 'NW1_war_at')": {
+  "n_pool": 14,
+  "n_selected": 2,
+  "r": 0.14285714285714285
+ },
+ "(4, 150, 'W2_directed_conquest')": {
+  "n_pool": 22,
+  "n_selected": 2,
+  "r": 0.09090909090909091
+ },
+ "(4, 150, 'W1_wonder_race')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "(4, 150, 'NB1_value_threshold')": {
+  "n_pool": 304,
+  "n_selected": 2,
+  "r": 0.006578947368421052
+ },
+ "(4, 150, 'W3_capture_k')": {
+  "n_pool": 39,
+  "n_selected": 2,
+  "r": 0.05128205128205128
+ },
+ "(4, 150, 'NB4_drawdown')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(4, 150, 'NW2_diplo')": {
+  "n_pool": 11,
+  "n_selected": 2,
+  "r": 0.18181818181818182
+ },
+ "(4, 180, 'NW2_diplo')": {
+  "n_pool": 10,
+  "n_selected": 3,
+  "r": 0.3
+ },
+ "(4, 180, 'S4_gov_change_count')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "(4, 180, 'NW1_war_at')": {
+  "n_pool": 11,
+  "n_selected": 3,
+  "r": 0.2727272727272727
+ },
+ "(4, 180, 'EX_comparative')": {
+  "n_pool": 21,
+  "n_selected": 2,
+  "r": 0.09523809523809523
+ },
+ "(4, 180, 'EX_tech_discovered')": {
+  "n_pool": 153,
+  "n_selected": 2,
+  "r": 0.013071895424836602
+ },
+ "(4, 180, 'W1_wonder_race')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "(4, 180, 'W4_lose_k')": {
+  "n_pool": 28,
+  "n_selected": 2,
+  "r": 0.07142857142857142
+ },
+ "(4, 180, 'NB1_threshold')": {
+  "n_pool": 60,
+  "n_selected": 3,
+  "r": 0.05
+ },
+ "(4, 180, 'S5_civ_wonders')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "(4, 180, 'NB4_drawdown')": {
+  "n_pool": 7,
+  "n_selected": 2,
+  "r": 0.2857142857142857
+ },
+ "(4, 180, 'EX_government_at')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(4, 180, 'NW5_wonder')": {
+  "n_pool": 3,
+  "n_selected": 1,
+  "r": 0.3333333333333333
+ },
+ "(4, 180, 'NB1_value_threshold')": {
+  "n_pool": 272,
+  "n_selected": 2,
+  "r": 0.007352941176470588
+ },
+ "(4, 180, 'S6_city_founding')": {
+  "n_pool": 7,
+  "n_selected": 2,
+  "r": 0.2857142857142857
+ },
+ "(4, 180, 'W2_directed_conquest')": {
+  "n_pool": 19,
+  "n_selected": 2,
+  "r": 0.10526315789473684
+ },
+ "(4, 180, 'W3_capture_k')": {
+  "n_pool": 35,
+  "n_selected": 2,
+  "r": 0.05714285714285714
+ },
+ "(4, 210, 'NB1_value_threshold')": {
+  "n_pool": 252,
+  "n_selected": 3,
+  "r": 0.011904761904761904
+ },
+ "(4, 210, 'EX_comparative')": {
+  "n_pool": 19,
+  "n_selected": 3,
+  "r": 0.15789473684210525
+ },
+ "(4, 210, 'S6_city_founding')": {
+  "n_pool": 5,
+  "n_selected": 2,
+  "r": 0.4
+ },
+ "(4, 210, 'W1_wonder_race')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "(4, 210, 'NB4_drawdown')": {
+  "n_pool": 10,
+  "n_selected": 3,
+  "r": 0.3
+ },
+ "(4, 210, 'W4_lose_k')": {
+  "n_pool": 19,
+  "n_selected": 3,
+  "r": 0.15789473684210525
+ },
+ "(4, 210, 'EX_government_at')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "(4, 210, 'NB1_threshold')": {
+  "n_pool": 50,
+  "n_selected": 2,
+  "r": 0.04
+ },
+ "(4, 210, 'W3_capture_k')": {
+  "n_pool": 28,
+  "n_selected": 2,
+  "r": 0.07142857142857142
+ },
+ "(4, 210, 'NW1_war_at')": {
+  "n_pool": 12,
+  "n_selected": 2,
+  "r": 0.16666666666666666
+ },
+ "(4, 210, 'W2_directed_conquest')": {
+  "n_pool": 20,
+  "n_selected": 2,
+  "r": 0.1
+ },
+ "(4, 210, 'EX_tech_discovered')": {
+  "n_pool": 188,
+  "n_selected": 2,
+  "r": 0.010638297872340425
+ },
+ "(4, 210, 'NW2_diplo')": {
+  "n_pool": 11,
+  "n_selected": 2,
+  "r": 0.18181818181818182
+ },
+ "(4, 210, 'S4_gov_change_count')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "('tail', 210, 'S5_civ_wonders')": {
+  "n_pool": 26,
+  "n_selected": 5,
+  "r": 0.19230769230769232
+ },
+ "('tail', 210, 'NW5_wonder')": {
+  "n_pool": 40,
+  "n_selected": 5,
+  "r": 0.125
+ },
+ "('tail', 210, 'NB1_value_threshold')": {
+  "n_pool": 10,
+  "n_selected": 5,
+  "r": 0.5
+ },
+ "('tail', 210, 'W1_wonder_race')": {
+  "n_pool": 77,
+  "n_selected": 5,
+  "r": 0.06493506493506493
+ },
+ "('tail', 210, 'NB4_drawdown')": {
+  "n_pool": 54,
+  "n_selected": 5,
+  "r": 0.09259259259259259
+ },
+ "('tail', 210, 'NW1_war_at')": {
+  "n_pool": 3,
+  "n_selected": 2,
+  "r": 0.6666666666666666
+ },
+ "('tail', 210, 'NW2_diplo')": {
+  "n_pool": 20,
+  "n_selected": 5,
+  "r": 0.25
+ },
+ "('tail', 210, 'EX_tech_discovered')": {
+  "n_pool": 221,
+  "n_selected": 5,
+  "r": 0.02262443438914027
+ },
+ "('tail', 210, 'W5_tech_lead')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "('tail', 210, 'W6_peace_at')": {
+  "n_pool": 27,
+  "n_selected": 5,
+  "r": 0.18518518518518517
+ },
+ "('tail', 210, 'EX_government_at')": {
+  "n_pool": 64,
+  "n_selected": 4,
+  "r": 0.0625
+ },
+ "('tail', 210, 'NW4_survival')": {
+  "n_pool": 11,
+  "n_selected": 4,
+  "r": 0.36363636363636365
+ },
+ "('tail', 210, 'W2_directed_conquest')": {
+  "n_pool": 13,
+  "n_selected": 4,
+  "r": 0.3076923076923077
+ },
+ "('tail', 210, 'NEW_civil_war')": {
+  "n_pool": 4,
+  "n_selected": 4,
+  "r": 1.0
+ },
+ "('tail', 180, 'W5_tech_lead')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "('tail', 180, 'EX_government_at')": {
+  "n_pool": 74,
+  "n_selected": 5,
+  "r": 0.06756756756756757
+ },
+ "('tail', 180, 'NEW_civil_war')": {
+  "n_pool": 5,
+  "n_selected": 5,
+  "r": 1.0
+ },
+ "('tail', 180, 'NW1_war_at')": {
+  "n_pool": 3,
+  "n_selected": 3,
+  "r": 1.0
+ },
+ "('tail', 180, 'NW5_wonder')": {
+  "n_pool": 43,
+  "n_selected": 5,
+  "r": 0.11627906976744186
+ },
+ "('tail', 180, 'EX_tech_discovered')": {
+  "n_pool": 219,
+  "n_selected": 5,
+  "r": 0.0228310502283105
+ },
+ "('tail', 180, 'W2_directed_conquest')": {
+  "n_pool": 18,
+  "n_selected": 5,
+  "r": 0.2777777777777778
+ },
+ "('tail', 180, 'NW2_diplo')": {
+  "n_pool": 24,
+  "n_selected": 5,
+  "r": 0.20833333333333334
+ },
+ "('tail', 180, 'S5_civ_wonders')": {
+  "n_pool": 35,
+  "n_selected": 5,
+  "r": 0.14285714285714285
+ },
+ "('tail', 180, 'W1_wonder_race')": {
+  "n_pool": 85,
+  "n_selected": 4,
+  "r": 0.047058823529411764
+ },
+ "('tail', 180, 'NW4_survival')": {
+  "n_pool": 9,
+  "n_selected": 4,
+  "r": 0.4444444444444444
+ },
+ "('tail', 180, 'W6_peace_at')": {
+  "n_pool": 31,
+  "n_selected": 4,
+  "r": 0.12903225806451613
+ },
+ "('tail', 180, 'NB1_value_threshold')": {
+  "n_pool": 15,
+  "n_selected": 4,
+  "r": 0.26666666666666666
+ },
+ "('tail', 180, 'NB4_drawdown')": {
+  "n_pool": 74,
+  "n_selected": 4,
+  "r": 0.05405405405405406
+ },
+ "('tail', 150, 'NW4_survival')": {
+  "n_pool": 7,
+  "n_selected": 5,
+  "r": 0.7142857142857143
+ },
+ "('tail', 150, 'EX_government_at')": {
+  "n_pool": 80,
+  "n_selected": 5,
+  "r": 0.0625
+ },
+ "('tail', 150, 'NB1_value_threshold')": {
+  "n_pool": 12,
+  "n_selected": 5,
+  "r": 0.4166666666666667
+ },
+ "('tail', 150, 'NW1_war_at')": {
+  "n_pool": 3,
+  "n_selected": 3,
+  "r": 1.0
+ },
+ "('tail', 150, 'EX_tech_discovered')": {
+  "n_pool": 179,
+  "n_selected": 5,
+  "r": 0.027932960893854747
+ },
+ "('tail', 150, 'W1_wonder_race')": {
+  "n_pool": 94,
+  "n_selected": 4,
+  "r": 0.0425531914893617
+ },
+ "('tail', 150, 'W2_directed_conquest')": {
+  "n_pool": 24,
+  "n_selected": 4,
+  "r": 0.16666666666666666
+ },
+ "('tail', 150, 'NW2_diplo')": {
+  "n_pool": 25,
+  "n_selected": 4,
+  "r": 0.16
+ },
+ "('tail', 150, 'S5_civ_wonders')": {
+  "n_pool": 43,
+  "n_selected": 4,
+  "r": 0.09302325581395349
+ },
+ "('tail', 150, 'W5_tech_lead')": {
+  "n_pool": 4,
+  "n_selected": 4,
+  "r": 1.0
+ },
+ "('tail', 150, 'W6_peace_at')": {
+  "n_pool": 32,
+  "n_selected": 4,
+  "r": 0.125
+ },
+ "('tail', 150, 'NB4_drawdown')": {
+  "n_pool": 111,
+  "n_selected": 4,
+  "r": 0.036036036036036036
+ },
+ "('tail', 150, 'NEW_civil_war')": {
+  "n_pool": 15,
+  "n_selected": 4,
+  "r": 0.26666666666666666
+ },
+ "('tail', 150, 'NW5_wonder')": {
+  "n_pool": 44,
+  "n_selected": 4,
+  "r": 0.09090909090909091
+ },
+ "('tail', 150, 'EX_comparative')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "('tail', 120, 'W6_peace_at')": {
+  "n_pool": 31,
+  "n_selected": 4,
+  "r": 0.12903225806451613
+ },
+ "('tail', 120, 'W1_wonder_race')": {
+  "n_pool": 89,
+  "n_selected": 4,
+  "r": 0.0449438202247191
+ },
+ "('tail', 120, 'NW2_diplo')": {
+  "n_pool": 31,
+  "n_selected": 4,
+  "r": 0.12903225806451613
+ },
+ "('tail', 120, 'W5_tech_lead')": {
+  "n_pool": 13,
+  "n_selected": 4,
+  "r": 0.3076923076923077
+ },
+ "('tail', 120, 'NB4_drawdown')": {
+  "n_pool": 170,
+  "n_selected": 4,
+  "r": 0.023529411764705882
+ },
+ "('tail', 120, 'NW4_survival')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "('tail', 120, 'EX_comparative')": {
+  "n_pool": 20,
+  "n_selected": 4,
+  "r": 0.2
+ },
+ "('tail', 120, 'NEW_civil_war')": {
+  "n_pool": 27,
+  "n_selected": 4,
+  "r": 0.14814814814814814
+ },
+ "('tail', 120, 'NW5_wonder')": {
+  "n_pool": 43,
+  "n_selected": 4,
+  "r": 0.09302325581395349
+ },
+ "('tail', 120, 'EX_tech_discovered')": {
+  "n_pool": 196,
+  "n_selected": 4,
+  "r": 0.02040816326530612
+ },
+ "('tail', 120, 'NB1_value_threshold')": {
+  "n_pool": 5,
+  "n_selected": 4,
+  "r": 0.8
+ },
+ "('tail', 120, 'W2_directed_conquest')": {
+  "n_pool": 41,
+  "n_selected": 4,
+  "r": 0.0975609756097561
+ },
+ "('tail', 120, 'NW1_war_at')": {
+  "n_pool": 5,
+  "n_selected": 4,
+  "r": 0.8
+ },
+ "('tail', 120, 'S5_civ_wonders')": {
+  "n_pool": 50,
+  "n_selected": 4,
+  "r": 0.08
+ },
+ "('tail', 120, 'EX_government_at')": {
+  "n_pool": 57,
+  "n_selected": 4,
+  "r": 0.07017543859649122
+ },
+ "('tail', 120, 'S4_gov_change_count')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "('tail', 90, 'EX_comparative')": {
+  "n_pool": 112,
+  "n_selected": 4,
+  "r": 0.03571428571428571
+ },
+ "('tail', 90, 'S6_city_founding')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "('tail', 90, 'EX_government_at')": {
+  "n_pool": 69,
+  "n_selected": 4,
+  "r": 0.057971014492753624
+ },
+ "('tail', 90, 'S4_gov_change_count')": {
+  "n_pool": 19,
+  "n_selected": 4,
+  "r": 0.21052631578947367
+ },
+ "('tail', 90, 'W1_wonder_race')": {
+  "n_pool": 36,
+  "n_selected": 4,
+  "r": 0.1111111111111111
+ },
+ "('tail', 90, 'EX_tech_discovered')": {
+  "n_pool": 204,
+  "n_selected": 3,
+  "r": 0.014705882352941176
+ },
+ "('tail', 90, 'W6_peace_at')": {
+  "n_pool": 11,
+  "n_selected": 3,
+  "r": 0.2727272727272727
+ },
+ "('tail', 90, 'W3_capture_k')": {
+  "n_pool": 56,
+  "n_selected": 3,
+  "r": 0.05357142857142857
+ },
+ "('tail', 90, 'NB1_value_threshold')": {
+  "n_pool": 2,
+  "n_selected": 2,
+  "r": 1.0
+ },
+ "('tail', 90, 'NB6_event')": {
+  "n_pool": 8,
+  "n_selected": 3,
+  "r": 0.375
+ },
+ "('tail', 90, 'S5_civ_wonders')": {
+  "n_pool": 24,
+  "n_selected": 3,
+  "r": 0.125
+ },
+ "('tail', 90, 'W4_lose_k')": {
+  "n_pool": 28,
+  "n_selected": 3,
+  "r": 0.10714285714285714
+ },
+ "('tail', 90, 'NW2_diplo')": {
+  "n_pool": 19,
+  "n_selected": 3,
+  "r": 0.15789473684210525
+ },
+ "('tail', 90, 'NW4_survival')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "('tail', 90, 'NEW_civil_war')": {
+  "n_pool": 37,
+  "n_selected": 3,
+  "r": 0.08108108108108109
+ },
+ "('tail', 90, 'W2_directed_conquest')": {
+  "n_pool": 60,
+  "n_selected": 3,
+  "r": 0.05
+ },
+ "('tail', 90, 'NB4_drawdown')": {
+  "n_pool": 246,
+  "n_selected": 3,
+  "r": 0.012195121951219513
+ },
+ "('tail', 90, 'NW5_wonder')": {
+  "n_pool": 17,
+  "n_selected": 3,
+  "r": 0.17647058823529413
+ },
+ "('tail', 90, 'NW1_war_at')": {
+  "n_pool": 9,
+  "n_selected": 3,
+  "r": 0.3333333333333333
+ },
+ "('tail', 90, 'W5_tech_lead')": {
+  "n_pool": 13,
+  "n_selected": 3,
+  "r": 0.23076923076923078
+ },
+ "('mirror', 90, 'EX_comparative')": {
+  "n_pool": 100,
+  "n_selected": 1,
+  "r": 0.01
+ },
+ "('mirror', 90, 'S3_wars_at_T')": {
+  "n_pool": 7,
+  "n_selected": 1,
+  "r": 0.14285714285714285
+ },
+ "('mirror', 90, 'W1_wonder_race')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "('mirror', 90, 'NW5_wonder')": {
+  "n_pool": 3,
+  "n_selected": 1,
+  "r": 0.3333333333333333
+ },
+ "('mirror', 90, 'NB6_event')": {
+  "n_pool": 6,
+  "n_selected": 1,
+  "r": 0.16666666666666666
+ },
+ "('mirror', 90, 'W3_capture_k')": {
+  "n_pool": 3,
+  "n_selected": 1,
+  "r": 0.3333333333333333
+ },
+ "('mirror', 90, 'NB1_value_threshold')": {
+  "n_pool": 177,
+  "n_selected": 1,
+  "r": 0.005649717514124294
+ },
+ "('mirror', 90, 'S6_city_founding')": {
+  "n_pool": 45,
+  "n_selected": 1,
+  "r": 0.022222222222222223
+ },
+ "('mirror', 90, 'W4_lose_k')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "('mirror', 90, 'EX_government_at')": {
+  "n_pool": 18,
+  "n_selected": 1,
+  "r": 0.05555555555555555
+ },
+ "('mirror', 120, 'W3_capture_k')": {
+  "n_pool": 26,
+  "n_selected": 1,
+  "r": 0.038461538461538464
+ },
+ "('mirror', 120, 'W4_lose_k')": {
+  "n_pool": 30,
+  "n_selected": 1,
+  "r": 0.03333333333333333
+ },
+ "('mirror', 120, 'EX_tech_discovered')": {
+  "n_pool": 372,
+  "n_selected": 1,
+  "r": 0.002688172043010753
+ },
+ "('mirror', 120, 'NB6_event')": {
+  "n_pool": 7,
+  "n_selected": 1,
+  "r": 0.14285714285714285
+ },
+ "('mirror', 120, 'S4_gov_change_count')": {
+  "n_pool": 32,
+  "n_selected": 1,
+  "r": 0.03125
+ },
+ "('mirror', 120, 'NB1_threshold')": {
+  "n_pool": 36,
+  "n_selected": 1,
+  "r": 0.027777777777777776
+ },
+ "('mirror', 120, 'EX_government_at')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "('mirror', 120, 'W2_directed_conquest')": {
+  "n_pool": 8,
+  "n_selected": 1,
+  "r": 0.125
+ },
+ "('mirror', 120, 'NW1_war_at')": {
+  "n_pool": 15,
+  "n_selected": 1,
+  "r": 0.06666666666666667
+ },
+ "('mirror', 120, 'NW5_wonder')": {
+  "n_pool": 6,
+  "n_selected": 1,
+  "r": 0.16666666666666666
+ },
+ "('mirror', 150, 'NB4_drawdown')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "('mirror', 150, 'S4_gov_change_count')": {
+  "n_pool": 22,
+  "n_selected": 1,
+  "r": 0.045454545454545456
+ },
+ "('mirror', 150, 'NW2_diplo')": {
+  "n_pool": 5,
+  "n_selected": 1,
+  "r": 0.2
+ },
+ "('mirror', 150, 'NB1_threshold')": {
+  "n_pool": 33,
+  "n_selected": 1,
+  "r": 0.030303030303030304
+ },
+ "('mirror', 150, 'NB6_event')": {
+  "n_pool": 6,
+  "n_selected": 1,
+  "r": 0.16666666666666666
+ },
+ "('mirror', 150, 'EX_government_at')": {
+  "n_pool": 5,
+  "n_selected": 1,
+  "r": 0.2
+ },
+ "('mirror', 150, 'W4_lose_k')": {
+  "n_pool": 61,
+  "n_selected": 1,
+  "r": 0.01639344262295082
+ },
+ "('mirror', 150, 'W3_capture_k')": {
+  "n_pool": 51,
+  "n_selected": 1,
+  "r": 0.0196078431372549
+ },
+ "('mirror', 150, 'W2_directed_conquest')": {
+  "n_pool": 10,
+  "n_selected": 1,
+  "r": 0.1
+ },
+ "('mirror', 150, 'EX_comparative')": {
+  "n_pool": 1,
+  "n_selected": 1,
+  "r": 1.0
+ },
+ "('mirror', 180, 'NW5_wonder')": {
+  "n_pool": 5,
+  "n_selected": 1,
+  "r": 0.2
+ },
+ "('mirror', 180, 'S4_gov_change_count')": {
+  "n_pool": 8,
+  "n_selected": 1,
+  "r": 0.125
+ },
+ "('mirror', 180, 'W4_lose_k')": {
+  "n_pool": 68,
+  "n_selected": 1,
+  "r": 0.014705882352941176
+ },
+ "('mirror', 180, 'W3_capture_k')": {
+  "n_pool": 57,
+  "n_selected": 1,
+  "r": 0.017543859649122806
+ },
+ "('mirror', 180, 'NW1_war_at')": {
+  "n_pool": 16,
+  "n_selected": 1,
+  "r": 0.0625
+ },
+ "('mirror', 180, 'EX_government_at')": {
+  "n_pool": 5,
+  "n_selected": 1,
+  "r": 0.2
+ },
+ "('mirror', 180, 'NB1_value_threshold')": {
+  "n_pool": 124,
+  "n_selected": 1,
+  "r": 0.008064516129032258
+ },
+ "('mirror', 180, 'S5_civ_wonders')": {
+  "n_pool": 3,
+  "n_selected": 1,
+  "r": 0.3333333333333333
+ },
+ "('mirror', 180, 'NB4_drawdown')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "('mirror', 210, 'NW1_war_at')": {
+  "n_pool": 12,
+  "n_selected": 1,
+  "r": 0.08333333333333333
+ },
+ "('mirror', 210, 'EX_tech_discovered')": {
+  "n_pool": 441,
+  "n_selected": 1,
+  "r": 0.0022675736961451248
+ },
+ "('mirror', 210, 'NB1_value_threshold')": {
+  "n_pool": 111,
+  "n_selected": 1,
+  "r": 0.009009009009009009
+ },
+ "('mirror', 210, 'W4_lose_k')": {
+  "n_pool": 64,
+  "n_selected": 1,
+  "r": 0.015625
+ },
+ "('mirror', 210, 'S5_civ_wonders')": {
+  "n_pool": 3,
+  "n_selected": 1,
+  "r": 0.3333333333333333
+ },
+ "('mirror', 210, 'W2_directed_conquest')": {
+  "n_pool": 9,
+  "n_selected": 1,
+  "r": 0.1111111111111111
+ },
+ "('mirror', 210, 'W1_wonder_race')": {
+  "n_pool": 2,
+  "n_selected": 1,
+  "r": 0.5
+ },
+ "('mirror', 210, 'S6_city_founding')": {
+  "n_pool": 24,
+  "n_selected": 1,
+  "r": 0.041666666666666664
+ },
+ "('mirror', 210, 'NB1_threshold')": {
+  "n_pool": 28,
+  "n_selected": 1,
+  "r": 0.03571428571428571
+ },
+ "('mirror', 210, 'S4_gov_change_count')": {
+  "n_pool": 7,
+  "n_selected": 1,
+  "r": 0.14285714285714285
+ }
+}

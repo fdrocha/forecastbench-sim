@@ -1,0 +1,2256 @@
+--- a/worlds/freeciv/freeciv_world/configs/logging_config.py
++++ b/worlds/freeciv/freeciv_world/configs/logging_config.py
+@@ -5,9 +5,22 @@
+ if fc_args['debug.logging_path'] is not None:
+     logging_dir = os.path.expanduser(fc_args['debug.logging_path'])
+ else:
++    # Default recording/logging root: worlds/freeciv/logs.
++    #
++    # This MUST resolve to the same root that worlds/freeciv/scripts/*
++    # (run_world.py savegame downloads, serializers) use. A post-restructure
++    # split — observations under worlds/logs while savegames/serializers used
++    # worlds/freeciv/logs — made serialization silently savegame-blind and
++    # published dark worlds. run_world.py imports `logging_dir` from here, so
++    # there is a single source of truth; pin debug.logging_path to relocate
++    # BOTH observation states and savegames together.
+     logging_dir = os.path.normpath(os.path.join(os.path.dirname(
+-        os.path.realpath(__file__)), '..', '..', '..', 'logs'))
++        os.path.realpath(__file__)), '..', '..', 'logs'))
+ 
++# Level for the freeciv_world file logger. DEBUG logs every packet, which has
++# filled pods (37 GB/pod). Set FBSIM_FC_LOG_LEVEL=WARNING (or INFO) to tame it.
++_FC_FILE_LOG_LEVEL = os.environ.get('FBSIM_FC_LOG_LEVEL', 'DEBUG')
++
+ LOGGING_CONFIG = {
+     'version': 1,
+     'disable_existing_loggers': False,
+@@ -25,7 +38,7 @@
+             'mode': 'w',
+         },
+         'civrealmFileHandler': {
+-            'level': 'DEBUG',
++            'level': _FC_FILE_LOG_LEVEL,
+             'formatter': 'standard',
+             'class': 'logging.FileHandler',
+             # Change time.strftime('%%Y.%%m.%%d') to time.strftime('%%Y.%%m.%%d_%%H:%%M:%%S') to create a new file for each script
+@@ -52,7 +65,7 @@
+         },
+         'freeciv_world': {
+             'handlers': ['civrealmFileHandler'],
+-            'level': 'DEBUG',
++            'level': _FC_FILE_LOG_LEVEL,
+             'propagate': False
+         },
+     }
+--- a/worlds/freeciv/freeciv_world/evaluation/parallel_evaluator.py
++++ b/worlds/freeciv/freeciv_world/evaluation/parallel_evaluator.py
+@@ -511,7 +511,8 @@
+         for attempt in range(max_retries):
+             try:
+                 # Native async call with no explicit max_tokens cap.
+-                api_call = model.get_response_async(prompt, temperature=0.0)
++                # No temperature: provider-default sampling (benchmark protocol).
++                api_call = model.get_response_async(prompt)
+ 
+                 # Apply timeout if specified
+                 if timeout:
+@@ -640,7 +641,8 @@
+         for attempt in range(max_retries):
+             try:
+                 # Native async call with no explicit max_tokens cap.
+-                api_call = model.get_response_async(prompt, temperature=0.0)
++                # No temperature: provider-default sampling (benchmark protocol).
++                api_call = model.get_response_async(prompt)
+ 
+                 # Apply timeout if specified
+                 if timeout:
+@@ -749,7 +751,8 @@
+         for attempt in range(max_retries):
+             try:
+                 # Native async call with no explicit max_tokens cap.
+-                api_call = model.get_response_async(prompt, temperature=0.0)
++                # No temperature: provider-default sampling (benchmark protocol).
++                api_call = model.get_response_async(prompt)
+ 
+                 # Apply timeout if specified
+                 if timeout:
+--- a/worlds/freeciv/freeciv_world/forking/fork_manager.py
++++ b/worlds/freeciv/freeciv_world/forking/fork_manager.py
+@@ -52,7 +52,9 @@
+ import subprocess
+ import tempfile
+ import time
++import os
+ import random
++import re
+ from dataclasses import dataclass, field
+ from pathlib import Path
+ from typing import Any, Dict, List, Optional
+@@ -171,8 +173,12 @@
+             modifications: List of modifications to apply
+                           Each modification is a dict with 'type' and type-specific params:
+                           - {"type": "gold", "player_id": 0, "value": 5000}
++                          - {"type": "gold_add", "player_id": 0, "value": 500}
+                           - {"type": "government", "player_id": 0, "value": "Republic"}
+                           - {"type": "tech", "player_id": 0, "tech_id": 23}
++                          - {"type": "rng_seed", "value": 5001}
++                          If no rng_seed mod is given, the fork's saved RNG
++                          state is cleared so the engine reseeds freshly.
+             fork_name: Unique name for this fork
+ 
+         Returns:
+@@ -203,7 +209,42 @@
+ 
+         self.forks.append(fork)
+         return fork
++
++    @staticmethod
++    def _apply_mods(modifier: SavegameModifier, modifications: List[dict]) -> None:
++        """Apply a list of modification dicts to a SavegameModifier.
++
++        This is THE single mod-application path (used by both
++        _apply_modifications and run_fork). It is strict: an unknown
++        modification type raises instead of being silently dropped —
++        a silently-dropped `rng_seed` mod is how fork ensembles previously
++        collapsed to a point mass.
++
++        Raises:
++            ValueError: On an unknown modification type.
++        """
++        for mod in modifications:
++            mod_type = mod.get("type")
++
++            if mod_type == "gold":
++                modifier.set_player_gold(mod["player_id"], mod["value"])
++            elif mod_type == "gold_add":
++                modifier.add_player_gold(mod["player_id"], mod["value"])
++            elif mod_type == "government":
++                modifier.set_player_government(mod["player_id"], mod["value"])
++            elif mod_type == "tech":
++                modifier.grant_player_tech(mod["player_id"], mod["tech_id"])
++            elif mod_type == "rng_seed":
++                modifier.set_rng_from_seed(mod["value"])
++            else:
++                raise ValueError(f"Unknown modification type: {mod_type}")
+ 
++        # Default per-fork reseed: unless the caller pinned the RNG with an
++        # explicit rng_seed mod, clear the saved [random] table (and zero the
++        # recorded gameseed) so the engine draws a fresh seed on load.
++        if not any(mod.get("type") == "rng_seed" for mod in modifications):
++            modifier.clear_rng_state()
++
+     def _apply_modifications(
+         self,
+         savegame_path: str,
+@@ -221,19 +262,8 @@
+             Path to modified savegame
+         """
+         modifier = SavegameModifier(savegame_path)
++        self._apply_mods(modifier, modifications)
+ 
+-        for mod in modifications:
+-            mod_type = mod.get("type")
+-
+-            if mod_type == "gold":
+-                modifier.set_player_gold(mod["player_id"], mod["value"])
+-            elif mod_type == "government":
+-                modifier.set_player_government(mod["player_id"], mod["value"])
+-            elif mod_type == "tech":
+-                modifier.grant_player_tech(mod["player_id"], mod["tech_id"])
+-            else:
+-                raise ValueError(f"Unknown modification type: {mod_type}")
+-
+         # Save to output path
+         modifier.save(output_path)
+         return output_path
+@@ -342,19 +372,15 @@
+                 )
+                 temp_savegame = Path(temp_dir) / modified_name
+ 
+-                # Apply modifications (always rename player0 to match fork username)
++                # Apply modifications. Renaming player0 (name= AND username=/
++                # ranked_username=) to the fork username makes the server
++                # auto-reattach our connection on /load with player0 kept
++                # under AI control — no /take, no /aitoggle. The old
++                # rename+/take+double-/aitoggle dance wiped player0's AI
++                # research goal (goal_name=A_UNSET).
+                 modifier = SavegameModifier(fork.base_savegame_path)
+                 modifier.set_player_name(0, fork.username)
+-                for mod in fork.modifications:
+-                    mod_type = mod.get("type")
+-                    if mod_type == "gold":
+-                        modifier.set_player_gold(mod["player_id"], mod["value"])
+-                    elif mod_type == "gold_add":
+-                        modifier.add_player_gold(mod["player_id"], mod["value"])
+-                    elif mod_type == "government":
+-                        modifier.set_player_government(mod["player_id"], mod["value"])
+-                    elif mod_type == "tech":
+-                        modifier.grant_player_tech(mod["player_id"], mod["tech_id"])
++                self._apply_mods(modifier, fork.modifications)
+                 modifier.save(str(temp_savegame))
+ 
+                 # Clean up Docker and upload
+@@ -367,16 +393,17 @@
+                 # Configure fc_args for this fork - reset all relevant state
+                 fc_args["username"] = fork.username
+                 fc_args["debug.load_game"] = savegame_load_name
+-                fc_args["debug.take_player"] = fork.username  # Take control of our player
+                 fc_args["debug.record_action_and_observation"] = True
+                 fc_args["max_turns"] = end_turn
+ 
+                 # Seed random for consistency
+                 random.seed(self.base_seed)
+ 
+-                # Get a port for this fork - clear all Ports state first
+-                Ports.clear()
+-                Ports._cache = {}
++                # Get a port for this fork. Release only OUR stale claims
++                # (e.g. from a crashed previous run of this fork lane);
++                # Ports.clear() here used to wipe every concurrent lane's
++                # claims, causing port collisions at high concurrency.
++                Ports.release_user_claims(fork.username)
+                 port = Ports.get()
+                 fc_args["client_port"] = port
+                 print(f"Reset with port: {port}")
+@@ -390,11 +417,8 @@
+                 # Preserve all autosaves
+                 env.unwrapped.civ_controller.delete_save = False
+ 
+-                # Toggle player to AI control
+-                env.unwrapped.civ_controller.ws_client.send_message(
+-                    f"/aitoggle {fork.username}"
+-                )
+-                time.sleep(0.5)
++                # NOTE: no /aitoggle here. Load auto-reattaches our connection
++                # to player0, which keeps its AI flag from the savegame.
+ 
+                 # Run game loop
+                 done = False
+@@ -406,6 +430,34 @@
+                     final_turn = info.get("turn", final_turn)
+                     done = terminated or truncated
+ 
++                # fbsim v3 (2026-09-02): if the observer's player was eliminated before
++                # end_turn the env terminates, but the server keeps advancing the
++                # remaining AI players and autosaving every turn. Wait for the server
++                # to reach end_turn so the per-turn savegames (the only truth we use)
++                # cover the whole horizon instead of truncating the future.
++                if final_turn < end_turn and os.environ.get("FBSIM_WAIT_SERVER_END") == "1":
++                    import glob as _glob
++                    sg_dir = os.path.join("/var/lib/tomcat10/webapps/data/savegames", fork.username)
++                    wait_s = int(os.environ.get("FBSIM_WAIT_SERVER_END_S", "1200"))
++                    deadline = time.time() + wait_s
++                    print(f"Observer terminated at turn {final_turn} < {end_turn}; waiting up to {wait_s}s for server saves to reach T{end_turn}")
++                    last = -1
++                    while time.time() < deadline:
++                        saves = _glob.glob(os.path.join(sg_dir, f"{fork.username}_T*"))
++                        turns = []
++                        for sv in saves:
++                            m = re.search(r"_T(\d+)_", os.path.basename(sv))
++                            if m:
++                                turns.append(int(m.group(1)))
++                        cur = max(turns) if turns else -1
++                        if cur != last:
++                            print(f"  server savegames reach T{cur}", flush=True)
++                            last = cur
++                        if cur >= end_turn:
++                            final_turn = cur
++                            break
++                        time.sleep(10)
++
+                 # Extract final player states
+                 player_states = self._extract_player_states(env)
+ 
+--- a/worlds/freeciv/freeciv_world/forking/savegame_modifier.py
++++ b/worlds/freeciv/freeciv_world/forking/savegame_modifier.py
+@@ -28,13 +28,25 @@
+         self._load()
+ 
+     def _load(self) -> None:
+-        """Load and decompress the savegame."""
+-        with lzma.open(self.savegame_path, 'rt') as f:
+-            self.content = f.read()
++        """Load and decompress the savegame (.sav.xz, .sav.zst, or plain .sav)."""
++        name = self.savegame_path.name
++        if name.endswith('.zst'):
++            import zstandard
++            with open(self.savegame_path, 'rb') as f:
++                dctx = zstandard.ZstdDecompressor()
++                with dctx.stream_reader(f) as reader:
++                    self.content = reader.read().decode('utf-8')
++        elif name.endswith('.xz'):
++            with lzma.open(self.savegame_path, 'rt') as f:
++                self.content = f.read()
++        else:
++            with open(self.savegame_path, 'r') as f:
++                self.content = f.read()
+ 
+     def save(self, output_path: Optional[str] = None) -> str:
+         """
+-        Save the modified savegame.
++        Save the modified savegame, compressed to match the output extension
++        (.xz via lzma, .zst via zstandard, otherwise uncompressed).
+ 
+         Args:
+             output_path: Where to save. If None, overwrites original.
+@@ -46,8 +58,18 @@
+             output_path = str(self.savegame_path)
+ 
+         output_path = Path(output_path)
+-        with lzma.open(output_path, 'wt') as f:
+-            f.write(self.content)
++        name = output_path.name
++        if name.endswith('.zst'):
++            import zstandard
++            cctx = zstandard.ZstdCompressor()
++            with open(output_path, 'wb') as f:
++                f.write(cctx.compress(self.content.encode('utf-8')))
++        elif name.endswith('.xz'):
++            with lzma.open(output_path, 'wt') as f:
++                f.write(self.content)
++        else:
++            with open(output_path, 'w') as f:
++                f.write(self.content)
+ 
+         return str(output_path)
+ 
+@@ -63,16 +85,45 @@
+ 
+     def set_player_name(self, player_id: int, name: str) -> None:
+         """
+-        Set a player's name.
++        Set a player's name AND connection identity.
+ 
++        Rewrites `name=`, `username=` and `ranked_username=` in the
++        [player{N}] section. Rewriting the username fields is load-bearing for
++        forking: on `/load`, the server auto-reattaches connections to players
++        by username, so the fork client (connected under the fork username)
++        attaches to player0 without any `/take`+`/aitoggle` dance — which is
++        what used to wipe the player's AI research goal (goal_name=A_UNSET).
++
+         Args:
+             player_id: Player number (0-indexed)
+-            name: New player name
++            name: New player name / username
+         """
+-        pattern = rf'(\[player{player_id}\].*?name=")[^"]*"'
+-        replacement = rf'\g<1>{name}"'
+-        self.content = re.sub(pattern, replacement, self.content, flags=re.DOTALL)
++        section_start = self.content.find(f'[player{player_id}]\n')
++        if section_start == -1:
++            section_start = self.content.find(f'[player{player_id}]')
++        if section_start == -1:
++            raise ValueError(f"set_player_name: no [player{player_id}] section found")
++        section_end = self.content.find('\n[', section_start + 1)
++        section_end = len(self.content) if section_end == -1 else section_end
++        section = self.content[section_start:section_end]
+ 
++        section, n_name = re.subn(
++            r'^name="[^"]*"', f'name="{name}"', section, count=1, flags=re.MULTILINE)
++        if n_name == 0:
++            raise ValueError(
++                f"set_player_name: no name= field in [player{player_id}] section")
++        # username= / ranked_username= exist in server-written saves; rewrite
++        # them so load auto-reattach targets this player.
++        section, _ = re.subn(
++            r'^username="[^"]*"', f'username="{name}"', section, count=1,
++            flags=re.MULTILINE)
++        section, _ = re.subn(
++            r'^ranked_username="[^"]*"', f'ranked_username="{name}"', section,
++            count=1, flags=re.MULTILINE)
++
++        self.content = (self.content[:section_start] + section
++                        + self.content[section_end:])
++
+     def set_player_gold(self, player_id: int, gold: int) -> None:
+         """
+         Set a player's gold amount.
+@@ -115,11 +166,42 @@
+         Technologies are stored as a binary string where each position
+         represents whether that tech is known (1) or not (0).
+ 
++        Raises:
++            ValueError: If no tech row/field matched for the player (silent
++                no-ops here previously corrupted conditional ground truth).
++
+         Args:
+             player_id: Player number
+             tech_id: Technology ID to grant
+         """
+-        # Find the player's tech section
++        # Newer save format: techs live in the [research] table, one row per
++        # research number (== player id without team research), with a known-
++        # techs count in column 3 and a "done" bitstring as the last field:
++        #   0,"The Republic",8,0,2,"",30,"The Republic",0,"1010...01"
++        research_idx = self.content.find('[research]')
++        if research_idx != -1:
++            row_pattern = re.compile(
++                rf'^({player_id},"[^"]*",)(\d+)(,.*,")([01]+)("\s*)$', re.MULTILINE)
++
++            def replace_row(match):
++                head, count, mid, bits, tail = match.groups()
++                if tech_id >= len(bits) or bits[tech_id] == '1':
++                    return match.group(0)
++                new_bits = bits[:tech_id] + '1' + bits[tech_id + 1:]
++                return f'{head}{int(count) + 1}{mid}{new_bits}{tail}'
++
++            section_end = self.content.find('\n[', research_idx + 1)
++            section_end = len(self.content) if section_end == -1 else section_end
++            section = self.content[research_idx:section_end]
++            new_section, n = row_pattern.subn(replace_row, section)
++            if n == 0:
++                raise ValueError(
++                    f"grant_player_tech: no [research] row matched for player {player_id}")
++            self.content = (self.content[:research_idx] + new_section
++                            + self.content[section_end:])
++            return
++
++        # Old save format: per-player inventions bitstring.
+         pattern = rf'(\[player{player_id}\].*?research="inventions",")[01]*"'
+ 
+         def replace_tech(match):
+@@ -136,9 +218,114 @@
+ 
+             return f'{prefix}{tech_string}"'
+ 
+-        self.content = re.sub(pattern, replace_tech, self.content, flags=re.DOTALL)
++        new_content, n = re.subn(pattern, replace_tech, self.content, flags=re.DOTALL)
++        if n == 0:
++            raise ValueError(
++                f"grant_player_tech: no inventions field matched for player {player_id}")
++        self.content = new_content
+ 
+     # -------------------------------------------------------------------------
++    # RNG state mutation (for Monte Carlo rollouts)
++    # -------------------------------------------------------------------------
++
++    @staticmethod
++    def _fc_srand_state(seed: int) -> tuple:
++        """Reproduce Freeciv's ``fc_srand(seed)`` in Python.
++
++        Returns ``(v, j, k, x)`` matching the global ``rand_state`` Freeciv
++        would hold after ``fc_srand(seed)``. Mirrors ``utility/rand.c``
++        bit-for-bit: linear congruential init, then a 10000-iteration
++        warm-up via the Mitchell-Moore additive generator with
++        ``size = MAX_UINT32``.
++        """
++        MASK = 0xFFFFFFFF
++        v = [0] * 56
++        v[0] = seed & MASK
++        for i in range(1, 56):
++            v[i] = (3 * v[i - 1] + 257) & MASK
++        j, k, x = 0, 31, 55
++
++        # Heat-up: 10000 iterations of fc_rand(MAX_UINT32).
++        # With size == MAX_UINT32, divisor == 1 and max == MAX_UINT32 - 1,
++        # so the rejection branch only fires when v[j]+v[k] == MASK exactly.
++        for _ in range(10000):
++            while True:
++                new_rand = (v[j] + v[k]) & MASK
++                x = (x + 1) % 56
++                j = (j + 1) % 56
++                k = (k + 1) % 56
++                v[x] = new_rand
++                if new_rand <= MASK - 1:
++                    break
++        return v, j, k, x
++
++    def set_rng_from_seed(self, seed: int) -> None:
++        """Overwrite the savegame's ``[random]`` block with the state Freeciv
++        would have after ``fc_srand(seed)``.
++
++        Two Freeciv-only callers of ``fc_srand`` produce game RNG state:
++        ``init_game_seed`` at game start, and (after loading) restoration of
++        the saved table. By writing a ``fc_srand``-equivalent state directly
++        into the savegame, we get a deterministic, seed-controlled rollout
++        from this saved turn — without patching the server.
++        """
++        v, j, k, x = self._fc_srand_state(seed)
++
++        def _table_line(words) -> str:
++            # Freeciv writes each word as %8x (lowercase, space-padded, no
++            # leading zeros), space-separated, the whole thing in quotes.
++            return '"' + ' '.join(f'{w:8x}' for w in words) + '"'
++
++        new_block_lines = [
++            '[random]',
++            'saved=TRUE',
++            f'index_J={j}',
++            f'index_K={k}',
++            f'index_X={x}',
++        ]
++        for t in range(8):
++            words = v[t * 7:(t + 1) * 7]
++            new_block_lines.append(f'table{t}={_table_line(words)}')
++        new_block = '\n'.join(new_block_lines)
++
++        # Replace the existing [random] block (up to the next [section] header).
++        pattern = r'\[random\].*?(?=\n\[)'
++        new_content, n = re.subn(pattern, new_block, self.content, count=1, flags=re.DOTALL)
++        if n != 1:
++            raise RuntimeError("Failed to locate [random] block in savegame")
++        self.content = new_content
++
++    def clear_rng_state(self) -> None:
++        """Make the engine generate a FRESH game seed when this save loads.
++
++        Marks the saved ``[random]`` table as not-saved (``saved=FALSE``) so
++        the server ignores it on load, and zeroes the ``gameseed`` setting so
++        ``init_game_seed`` draws a fresh seed instead of replaying the
++        recorded one. This is the default per-fork reseed: without it every
++        fork resumes the identical saved RNG table and the fork ensemble
++        collapses to a near point mass.
++        """
++        new_content, n = re.subn(
++            r'(\[random\]\s*\nsaved=)TRUE', r'\g<1>FALSE', self.content, count=1)
++        if n != 1:
++            # saved=FALSE already means the table is ignored on load.
++            if not re.search(r'\[random\]\s*\nsaved=FALSE', self.content):
++                raise RuntimeError(
++                    "clear_rng_state: no [random] block with saved= flag found")
++        else:
++            self.content = new_content
++
++        # Zero the recorded gameseed so the engine generates a fresh one.
++        # Settings rows look like: "gameseed",1000,1000,"Changed" — only the
++        # first numeric column (the live value) is rewritten.
++        new_content, n = re.subn(
++            r'("gameseed",)\d+', r'\g<1>0', self.content, count=1)
++        if n == 1:
++            self.content = new_content
++        # If no gameseed settings row exists the server default (0) already
++        # generates a fresh seed, so nothing to do.
++
++    # -------------------------------------------------------------------------
+     # Game state queries
+     # -------------------------------------------------------------------------
+ 
+--- a/worlds/freeciv/freeciv_world/freeciv/civ_controller.py
++++ b/worlds/freeciv/freeciv_world/freeciv/civ_controller.py
+@@ -713,13 +713,19 @@
+             raise RuntimeError(
+                 f'The loaded game is saved by another user: {load_username}. Your username is {self.clstate.username}.')
+         self.ws_client.send_message(f'/load {save_name}')
++        # Force XZ autosaves immediately after load: fork servers otherwise
++        # write .sav.zst autosaves, which are unparseable wherever the zstd
++        # binary is missing (the savegame-blind serialization failure mode).
++        self.ws_client.send_message('/set compresstype XZ')
+         self.ws_client.send_message('/set pingtimeout 720')
+         self.ws_client.send_message(f"/set victories {fc_args['victories']}")
+         self.ws_client.send_message(f"/set endvictory {fc_args['endvictory']}")
+         self.ws_client.send_message(f"/set advisor {fc_args['advisor']}")
+-        if fc_args['debug.take_player']:
+-            self.clstate.aitoggle_player(fc_args['debug.take_player'])
+-            self.clstate.take_player(fc_args['debug.take_player'])
++        # NOTE: no /take + /aitoggle here. The load auto-reattaches this
++        # connection to the player whose username= matches (forks rewrite it
++        # via SavegameModifier.set_player_name), and the player keeps the AI
++        # flag stored in the savegame. The old aitoggle+take dance briefly
++        # made the player human, wiping its AI research goal (A_UNSET).
+ 
+         requests.post(
+             f"http://{self.host}:{fc_web_args['port']}/gamesetting?openchatbox={fc_args['openchatbox']}")
+@@ -910,6 +916,9 @@
+ 
+         packet['message'] = message
+         fc_logger.info(f'chat_msg: {packet}')
++        if event == E_SETTING:
++            # Server confirmations for /set commands ack pending settings.
++            self.clstate.ack_setting_from_message(message)
+         if event != E_SETTING and event != E_CONNECTION:
+             self.game_ctrl.add_chat_message(message)
+ 
+--- a/worlds/freeciv/freeciv_world/freeciv/connectivity/client_state.py
++++ b/worlds/freeciv/freeciv_world/freeciv/connectivity/client_state.py
+@@ -93,6 +93,10 @@
+         # Use this to determine whether a packet 115 is the first one and then decide whether the client is a follower
+         self.first_conn_info_received = False
+ 
++        # /set commands sent but not yet acknowledged by the server
++        # ({setting_name: full_command}). See _send_set / ack_setting_from_message.
++        self.pending_settings = {}
++
+     def register_all_handlers(self):
+         self.register_handler(0, "handle_processing_started")
+         self.register_handler(1, "handle_processing_finished")
+@@ -115,21 +119,64 @@
+     def get_follower_property(self):
+         return self.follower
+ 
++    # ------------------------------------------------------------------
++    # Acknowledged /set: every setting sent through _send_set is tracked
++    # until the server's E_SETTING reply confirms it. Unacked settings are
++    # reported loudly at game start (warn_unacked_settings) — silently
++    # dropped settings previously went unnoticed for whole campaigns.
++    # ------------------------------------------------------------------
++
++    def _send_set(self, name, value):
++        """Send `/set name value` and track it until the server acks it."""
++        command = f"/set {name} {value}"
++        self.pending_settings[str(name)] = command
++        self.ws_client.send_message(command)
++
++    def ack_setting_from_message(self, message):
++        """Mark a pending /set as acknowledged based on a server E_SETTING message.
++
++        Server replies look like: `Option: aifill has been set to 5.` (or
++        "... is already set to ..." when unchanged). Any E_SETTING message
++        naming a pending setting counts as its ack.
++        """
++        if not self.pending_settings or not message:
++            return
++        for name in list(self.pending_settings):
++            if name in message:
++                del self.pending_settings[name]
++
++    def warn_unacked_settings(self):
++        """Log an error for every /set the server never acknowledged."""
++        for name, command in self.pending_settings.items():
++            fc_logger.error(
++                f"Server never acknowledged setting '{name}' (sent: {command!r}). "
++                f"The game may be running with an unintended value.")
++        return list(self.pending_settings)
++
+     def init_game_setting(self):
++        # When a load/fork is in progress the game state (map, seeds, players,
++        # settings) comes from the savegame. Blasting new-game settings here
++        # (mapseed/gameseed/aifill + the whole multiplayer burst) raced the
++        # async /load and perturbed loaded games. Suppress all of it.
++        if fc_args['debug.load_game'] != '':
++            fc_logger.info(
++                'init_game_setting: load in progress '
++                f"({fc_args['debug.load_game']!r}) - suppressing new-game "
++                'setting blasts (seeds/aifill/multiplayer burst).')
++            return
++
+         if fc_args['debug.randomly_generate_seeds']:
+             random.seed(os.getpid()+int(time.time()) % 100000)
+             mapseed = random.randint(0, 999999)
+             gameseed = random.randint(0, 999999)
+-            self.ws_client.send_message(f"/set mapseed {mapseed}")
+-            self.ws_client.send_message(f"/set gameseed {gameseed}")
++            self._send_set("mapseed", mapseed)
++            self._send_set("gameseed", gameseed)
+         else:
+             # Set map seed. The same seed leads to the same map.
+             if 'debug.mapseed' in fc_args:
+-                self.ws_client.send_message(
+-                    f'/set mapseed {fc_args["debug.mapseed"]}')
++                self._send_set("mapseed", fc_args["debug.mapseed"])
+             if 'debug.gameseed' in fc_args:
+-                self.ws_client.send_message(
+-                    f'/set gameseed {fc_args["debug.gameseed"]}')
++                self._send_set("gameseed", fc_args["debug.gameseed"])
+ 
+         if self.multiplayer_game:
+             self.set_multiplayer_game()
+@@ -219,19 +266,19 @@
+ 
+     def set_hotseat_game(self):
+         # set player to 2. Based on HACKING file
+-        self.ws_client.send_message("/set aifill 2")
++        self._send_set("aifill", 2)
+         # based on https://github.com/freeciv/freeciv-web/blob/4de320067bef09da046d8b1e07b3e018a866493b/freeciv-web/src/main/webapp/javascript/hotseat.js
+-        self.ws_client.send_message("/set phasemode player")
+-        self.ws_client.send_message("/set minp 2")
+-        self.ws_client.send_message(f"/set endvictory {fc_args['endvictory']}")
+-        self.ws_client.send_message(f"/set advisor {fc_args['advisor']}")
+-        self.ws_client.send_message(f"/set victories {fc_args['victories']}")
+-        self.ws_client.send_message("/set ec_chat=enabled")
+-        self.ws_client.send_message("/set ec_info=enabled")
+-        self.ws_client.send_message("/set ec_max_size=20000")
+-        self.ws_client.send_message("/set ec_turns=32768")
++        self._send_set("phasemode", "player")
++        self._send_set("minp", 2)
++        self._send_set("endvictory", fc_args['endvictory'])
++        self._send_set("advisor", fc_args['advisor'])
++        self._send_set("victories", fc_args['victories'])
++        self._send_set("ec_chat", "enabled")
++        self._send_set("ec_info", "enabled")
++        self._send_set("ec_max_size", 20000)
++        self._send_set("ec_turns", 32768)
+ 
+-        self.ws_client.send_message("/set autotoggle disabled")
++        self._send_set("autotoggle", "disabled")
+         # add another agent under our control
+         self.ws_client.send_message(f"/create {self.user_name}2")
+         self.ws_client.send_message(f"/ai {self.user_name}2")
+@@ -244,45 +291,45 @@
+         # Set AI player to 0. Based on HACKING file
+         self.ws_client.send_message(f"/rulesetdir {fc_args['ruleset']}")
+         # Set AI difficulty to hard before aifill creates AI players
+-        self.ws_client.send_message("/set skilllevel hard")
++        self._send_set("skilllevel", "hard")
+         time.sleep(0.5)
+-        self.ws_client.send_message(f"/set aifill {fc_args['aifill']}")
++        self._send_set("aifill", fc_args['aifill'])
+         time.sleep(0.5)
+         # Set all AI-filled players to hard difficulty
+         self.ws_client.send_message("/hard")
+         time.sleep(0.2)
+-        # Try to gain admin access first, then disable fog of war
+-        self.ws_client.send_message("/cmdlevel hack")
+-        # Disable fog of war to get complete world data for reports
+-        self.ws_client.send_message("/set fogofwar 0")
+-        # Try alternative: reveal the map
+-        self.ws_client.send_message("/revealmap")
+-        self.ws_client.send_message(f"/set endvictory {fc_args['endvictory']}")
+-        self.ws_client.send_message(f"/set advisor {fc_args['advisor']}")
+-        self.ws_client.send_message(f"/set victories {fc_args['victories']}")
++        # NOTE: three dead commands removed here (they silently failed for
++        # entire campaigns): `/cmdlevel hack` (requires admin access we do not
++        # have), `/set fogofwar 0` (invalid bool literal — fogofwar stayed
++        # TRUE in every recorded [settings] block), and `/revealmap` (not a
++        # 3.x server command). Complete world data comes from per-turn
++        # savegame parsing, not from disabling fog of war.
++        self._send_set("endvictory", fc_args['endvictory'])
++        self._send_set("advisor", fc_args['advisor'])
++        self._send_set("victories", fc_args['victories'])
+         # Based on https://github.com/freeciv/freeciv-web/blob/de87e9c62dc4f274d95b5c298372d3ce8d6d57c7/publite2/pubscript_multiplayer.serv
+-        self.ws_client.send_message("/set topology \"\"")
+-        self.ws_client.send_message("/set wrap WRAPX")
++        self._send_set("topology", "\"\"")
++        self._send_set("wrap", "WRAPX")
+         # Set mode as turn-by-turn. Not allow players to play simultaneously.
+-        self.ws_client.send_message("/set phasemode player")
+-        self.ws_client.send_message("/set nationset all")
+-        self.ws_client.send_message(f"/set maxplayers {fc_args['maxplayers']}")
++        self._send_set("phasemode", "player")
++        self._send_set("nationset", "all")
++        self._send_set("maxplayers", fc_args['maxplayers'])
+         # This setting allows human to take the control of the agent in the middle of the game
+-        self.ws_client.send_message(f"/set allowtake {fc_args['allowtake']}")
+-        self.ws_client.send_message(f"/set autotoggle {fc_args['autotoggle']}")
+-        self.ws_client.send_message("/set timeout 0")
+-        self.ws_client.send_message("/set netwait 15")
+-        # self.ws_client.send_message("/set nettimeout 120")
+-        self.ws_client.send_message("/set pingtime 30")
+-        self.ws_client.send_message("/set pingtimeout 720")
+-        self.ws_client.send_message("/set threaded_save enabled")
+-        self.ws_client.send_message("/set scorelog enabled")
+-        self.ws_client.send_message("/set size 4")
+-        self.ws_client.send_message("/set landm 50")
++        self._send_set("allowtake", fc_args['allowtake'])
++        self._send_set("autotoggle", fc_args['autotoggle'])
++        self._send_set("timeout", 0)
++        self._send_set("netwait", 15)
++        # self._send_set("nettimeout", 120)
++        self._send_set("pingtime", 30)
++        self._send_set("pingtimeout", 720)
++        self._send_set("threaded_save", "enabled")
++        self._send_set("scorelog", "enabled")
++        self._send_set("size", 4)
++        self._send_set("landm", 50)
+         # use /set minp 1 will allow single agent to play
+-        self.ws_client.send_message(f"/set minp {fc_args['minp']}")
++        self._send_set("minp", fc_args['minp'])
+         # FRACTAL to make players on one continent, FAIR to make players on islands with the same geography
+-        self.ws_client.send_message("/set generator FRACTAL")
++        self._send_set("generator", "FRACTAL")
+         # self.ws_client.send_message("/metaconnection persistent")
+         self.ws_client.send_message(
+             f"/metamessage Multiplayer Game hosted by {self.username} in port {self.ws_client.client_port}")
+@@ -432,6 +479,9 @@
+             self.ws_client.send_message("/surrender ")
+ 
+     def pregame_start_game(self):
++        # Report any /set the server never acknowledged before we commit to
++        # starting the game with (possibly) unintended settings.
++        self.warn_unacked_settings()
+         test_packet = {"pid": packet_player_ready, "is_ready": True,
+                        "player_no": self.player_num()}
+         self.ws_client.send_request(test_packet)
+--- a/worlds/freeciv/freeciv_world/freeciv/units/unit_actions.py
++++ b/worlds/freeciv/freeciv_world/freeciv/units/unit_actions.py
+@@ -29,8 +29,30 @@
+ from freeciv_world.freeciv.utils.utility import find_set_bits
+ from freeciv_world.freeciv.utils.freeciv_logging import fc_logger
+ import freeciv_world.freeciv.utils.fc_types as fc_types
++
++
++class _ActionProbRow(dict):
++    """Action-probability row that treats unknown actions as impossible.
++
++    Pilot-bundle hardening: the server answers action-probability queries
++    asynchronously; on fast pods the first get_info() at env.reset() can run
++    before the DIR8_STAY row has arrived, which used to raise KeyError(-1)
++    deterministically. Our client is a NoOp observer (all-AI worlds and
++    forks), so the correct degraded semantics for a missing probability is
++    "not possible" ({'min': 0, 'max': 0}), never a crash.
++    """
++
++    def __missing__(self, key):
++        return {'min': 0, 'max': 0}
+ 
+ 
++class _ActionProbTable(dict):
++    """dir -> action-prob row table with benign rows for unknown dirs."""
++
++    def __missing__(self, key):
++        return _ActionProbRow()
++
++
+ class FocusUnit():
+     """Stores all relevant information for deciding on valid actions for the
+     unit in focus"""
+@@ -52,7 +74,7 @@
+         self.obsolete_type = None
+         self.transporter = None
+ 
+-        self.action_prob = {}
++        self.action_prob = _ActionProbTable()
+ 
+     def set_focus(self, punit, ptype, ptile, pterrain, pcity, pplayer):
+         """Sets the focus to unit punit having type ptype acting on ptile, pcity owned by pplayer"""
+@@ -228,7 +250,7 @@
+     # Use this to delete old probability before query the new pro.
+ 
+     def reset_action_pro(self, unit_id):
+-        self.unit_data[unit_id].action_prob = {}
++        self.unit_data[unit_id].action_prob = _ActionProbTable()
+ 
+     # Reset the target_unit_action_keys and remove the previously added target_unit_actions.
+     def clear_target_unit_actions(self):
+@@ -268,7 +290,7 @@
+                 self.target_unit_action_keys[action_key].append(
+                     (actor_unit_id, action.action_key))
+ 
+-        self.unit_data[actor_unit_id].action_prob[dir] = prob
++        self.unit_data[actor_unit_id].action_prob[dir] = _ActionProbRow(prob)
+ 
+     def add_unit_order_commands(self, unit_id):
+         """Enables and disables the correct units commands for the unit in focus."""
+--- a/worlds/freeciv/freeciv_world/freeciv/utils/port_utils.py
++++ b/worlds/freeciv/freeciv_world/freeciv/utils/port_utils.py
+@@ -151,10 +151,32 @@
+                                   for line in lines]
+         return [port for port in self._idles if port not in occupied_ports]
+ 
++    @staticmethod
++    def _parse_claim_line(line):
++        """Parse an occupied-ports row: `port uptime restart user [username]`.
++
++        The 5th (username) column tags who claimed the port so a fork lane can
++        release its own stale claims without touching other lanes' claims.
++        Rows written by older code lack the column; they parse as username '-'.
++        """
++        tokens = line.strip().split()
++        if len(tokens) < 4:
++            return None
++        row = [int(tokens[0]), int(tokens[1]), int(tokens[2]), int(tokens[3])]
++        row.append(tokens[4] if len(tokens) > 4 else "-")
++        return row
++
++    @staticmethod
++    def _format_claim_line(row):
++        p, uptime, restart, user = row[0], row[1], row[2], row[3]
++        username = row[4] if len(row) > 4 else "-"
++        return f"{int(p)} {int(uptime)} {int(restart)} {int(user)} {username}\n"
++
+     def _check_release(self, occupied_ports):
+         # delete from occupied if port restart times is updated.
+         status = self.status
+-        for id, [port, _, restart, user] in enumerate(occupied_ports):
++        for id, row in enumerate(occupied_ports):
++            port, restart, user = row[0], row[2], row[3]
+             if port not in status:
+                 continue
+             if user != status[port]["user"] and restart == status[port]["restart"]:
+@@ -181,15 +203,24 @@
+         )
+         return occupied_ports
+ 
+-    def get(self, port=None):
++    def get(self, port=None, username=None):
+         """
+         get the specified port or the next empty port (port=None) in a thread-safe way.
++
++        The claim row is tagged with `username` (default: fc_args['username'])
++        so stale claims can later be released per-username via
++        release_user_claims() without disturbing concurrent claimants.
+         """
++        if username is None:
++            username = fc_args.get('username', '-')
++        username = str(username).split()[0] if str(username).strip() else '-'
++
+         with FileLock(self.lock_file,mode=0o666):
+             with open(self.occupied_ports_file, "r", encoding="utf-8") as file:
+                 lines = file.readlines()
+-                ports_data = [list(map(int, line.strip().split()))
+-                              for line in lines]
++                ports_data = [row for row in (
++                    self._parse_claim_line(line) for line in lines)
++                    if row is not None]
+ 
+             empties = []
+             while True:
+@@ -211,20 +242,46 @@
+ 
+             status = self.status
+             ports_data.append(
+-                (result, status[result]["uptime"],
+-                 status[result]["restart"], 0)
++                [result, status[result]["uptime"],
++                 status[result]["restart"], 0, username]
+             )
+             occupied_ports_lines = [
+-                f"{int(p)} {int(uptime)} {int(restart)} {int(user)}\n"
+-                for [p, uptime, restart, user] in ports_data
++                self._format_claim_line(row) for row in ports_data
+             ]
+             with open(self.occupied_ports_file, "w", encoding="utf-8") as file:
+                 file.writelines(occupied_ports_lines)
+         return result
++
++    def release_user_claims(self, username):
++        """Release the port claims held by `username` only.
++
++        This replaces the old destructive pattern of calling clear() before
++        every fork, which wiped EVERY concurrent lane's claims (and the lock
++        file) and caused port collisions at high concurrency. Claims tagged
++        with other usernames (or untagged legacy rows) are left untouched.
++        """
++        username = str(username).split()[0] if str(username).strip() else '-'
++        if not os.path.exists(self.occupied_ports_file):
++            return 0
++        with FileLock(self.lock_file, mode=0o666):
++            with open(self.occupied_ports_file, "r", encoding="utf-8") as file:
++                lines = file.readlines()
++            rows = [row for row in (
++                self._parse_claim_line(line) for line in lines)
++                if row is not None]
++            kept = [row for row in rows if row[4] != username]
++            released = len(rows) - len(kept)
++            if released:
++                with open(self.occupied_ports_file, "w", encoding="utf-8") as file:
++                    file.writelines(self._format_claim_line(row) for row in kept)
++        return released
+ 
+     def clear(self):
+         """
+         delete lock file and occupied ports file
++
++        WARNING: destructive across ALL concurrent users of this host — it
++        wipes every lane's port claims. Prefer release_user_claims().
+         """
+         with open(self.occupied_ports_file, "w", encoding="utf-8") as _:
+             pass  # Do nothing, just create an empty file
+@@ -325,4 +382,33 @@
+         print(message)
+ 
+ 
+-Ports = PortStatus()
++class _LazyPortStatus:
++    """Lazily-instantiated PortStatus singleton.
++
++    PortStatus() polls the freeciv-web pubstatus endpoint in its constructor,
++    so constructing it at import time makes `import freeciv_world.forking...`
++    require a live server (breaking offline tools and unit tests). The real
++    instance is created on first use instead.
++    """
++
++    _instance = None
++
++    def _real(self):
++        if _LazyPortStatus._instance is None:
++            _LazyPortStatus._instance = PortStatus()
++        return _LazyPortStatus._instance
++
++    def __getattr__(self, name):
++        return getattr(self._real(), name)
++
++    def __setattr__(self, name, value):
++        setattr(self._real(), name, value)
++
++    def __iter__(self):
++        return iter(self._real())
++
++    def __next__(self):
++        return next(self._real())
++
++
++Ports = _LazyPortStatus()
+--- a/worlds/freeciv/freeciv_world/world_reports/config.py
++++ b/worlds/freeciv/freeciv_world/world_reports/config.py
+@@ -1,7 +1,7 @@
+ """Configuration for World Report Generation"""
+ 
+ from dataclasses import dataclass, field
+-from typing import List
++from typing import List, Optional
+ from pathlib import Path
+ 
+ 
+@@ -39,6 +39,9 @@
+     formats: List[str] = field(default_factory=lambda: ['html', 'pdf'])
+     plot_style: str = 'seaborn'
+     dpi: int = 150
++    # Explicit savegame filename prefix (<username>_T<turn>_*.sav*). When None
++    # it is derived from recording_dir (see savegame_parser.extract_username_from_config).
++    savegame_username: Optional[str] = None
+ 
+     def __post_init__(self):
+         """Validate configuration after initialization"""
+--- a/worlds/freeciv/freeciv_world/world_reports/extractors/metrics_collector.py
++++ b/worlds/freeciv/freeciv_world/world_reports/extractors/metrics_collector.py
+@@ -4,14 +4,29 @@
+ organizing it into a flat, metric-based structure.
+ """
+ 
++import os
+ from typing import Dict, List, Any, Optional
+ from datetime import datetime
+ from collections import defaultdict
+ 
+ from ..utils import metrics
+ from ..utils.event_detector import EventDetector
+-from ..utils.savegame_parser import get_savegame_data_for_report
++from ..utils.savegame_parser import (
++    get_savegame_data_for_report,
++    reset_savegame_coverage,
++    compute_savegame_coverage,
++    count_wonders_from_savegame,
++    military_unit_count,
++)
+ 
++# Marker stamped into metadata["truth_source"] when the per-player metrics were
++# overridden from the omniscient server savegame (vs the fog-of-war client view)
++TRUTH_SOURCE_SAVEGAME = "savegame"
++SAVEGAME_TRUTH_SERIES = [
++    "scores", "treasury", "cities_count", "population", "territory_size",
++    "units_count", "military_units_count", "wonders_count", "is_alive", "government",
++]
++
+ # Diplomatic state constants (from player_const.py)
+ DS_ARMISTICE = 0
+ DS_WAR = 1
+@@ -75,7 +90,15 @@
+ 
+     def __init__(self):
+         """Initialize metrics collector"""
+-        pass
++        # Provenance of per-player metrics; filled by collect_time_series and
++        # stamped into metadata["truth_source"] by collect_all.
++        self.truth_source: Dict[str, Any] = {
++            "source": None,
++            "turns_total": 0,
++            "turns_overridden": 0,
++            "turns_without_savegame": [],
++            "cities_crosscheck_mismatches": [],
++        }
+ 
+     def collect_all(
+         self,
+@@ -99,6 +122,11 @@
+         sorted_turns = sorted(states.keys())
+         max_turn = max(sorted_turns)
+ 
++        # Start a fresh savegame-coverage log for this serialization
++        recording_dir = getattr(config, 'recording_dir', None)
++        if recording_dir:
++            reset_savegame_coverage(recording_dir)
++
+         print("  Collecting metadata...")
+         metadata = self.collect_metadata(states, config)
+ 
+@@ -118,7 +146,7 @@
+         print("  Collecting snapshots...")
+         # Collect snapshots at multiple turns, not just max_turn
+         snapshot_turns = select_snapshot_turns(max_turn, max_snapshots=5)
+-        snapshots = self.collect_snapshots(states, snapshot_turns)
++        snapshots = self.collect_snapshots(states, snapshot_turns, config)
+ 
+         print("  Collecting territory snapshots...")
+         # Actually capture territory data at selected turns
+@@ -131,6 +159,37 @@
+         # the controlled player's relationships, not all pairwise diplomatic states.
+         diplomacy = self.collect_diplomacy(states, config, civilizations)
+ 
++        # Stamp savegame coverage into the serialization metadata. A turn
++        # counts as covered only if its savegame was found AND parsed; missing
++        # or failed turns silently degrade extraction to the embassy-gated
++        # player view, which is exactly the dark-world failure mode.
++        # Provenance of the per-player metrics: "savegame" means cities/units/
++        # population/territory/treasury/scores were overridden from the
++        # omniscient server savegame for every turn that had one (see
++        # collect_time_series). Downstream gates key off this marker.
++        metadata["truth_source"] = dict(self.truth_source)
++
++        if recording_dir:
++            cov = compute_savegame_coverage(recording_dir, sorted_turns)
++            metadata["savegame_coverage"] = cov["coverage"]
++            metadata["savegame_turns_expected"] = cov["expected"]
++            metadata["savegame_turns_parsed"] = cov["parsed"]
++            metadata["savegame_turns_missing"] = cov["missing_turns"]
++            metadata["savegame_turns_failed"] = cov["failed_turns"]
++            if cov["coverage"] < 1.0:
++                msg = (
++                    f"savegame_coverage={cov['coverage']:.4f} "
++                    f"({cov['parsed']}/{cov['expected']} turns parsed; "
++                    f"missing={cov['missing_turns'][:10]}"
++                    f"{'...' if len(cov['missing_turns']) > 10 else ''}, "
++                    f"failed={cov['failed_turns'][:10]}"
++                    f"{'...' if len(cov['failed_turns']) > 10 else ''}) "
++                    f"for recording_dir={recording_dir}")
++                print(f"  WARNING: incomplete savegame coverage: {msg}")
++                if os.environ.get("FBSIM_REQUIRE_SAVEGAME_COVERAGE") == "1":
++                    raise RuntimeError(
++                        f"FBSIM_REQUIRE_SAVEGAME_COVERAGE=1 and {msg}")
++
+         return {
+             "metadata": metadata,
+             "civilizations": civilizations,
+@@ -306,9 +365,28 @@
+             "cities_count": {},
+             "units_count": {},
+             "military_units_count": {},
+-            "wonders_count": {}
++            "wonders_count": {},
++            "is_alive": {},     # bool per player per turn (savegame is_alive)
++            "government": {},   # government name per player per turn
+         }
+ 
++        # Provenance bookkeeping for the savegame override (stamped into
++        # metadata["truth_source"] by collect_all).
++        ruleset = data_loader.ruleset if data_loader is not None else None
++        self.truth_source = {
++            "source": TRUTH_SOURCE_SAVEGAME,
++            "series": SAVEGAME_TRUTH_SERIES,
++            "military_units_source": (
++                "savegame unit table, types with attack > 0 (classic/civ2civ3 "
++                "table; matches the client type_attack_strength > 0 metric); "
++                "[scoreN].units for unknown rulesets"),
++            "wonders_source": "client",  # flips to savegame+ruleset when possible
++            "turns_total": len(sorted_turns),
++            "turns_overridden": 0,
++            "turns_without_savegame": [],
++            "cities_crosscheck_mismatches": [],
++        }
++
+         # Collect data for each turn
+         for turn in sorted_turns:
+             state = states[turn]
+@@ -330,7 +408,10 @@
+                 if not isinstance(player_info, dict):
+                     continue
+ 
+-                # Basic player metrics
++                # Basic player metrics (client view; overridden from the
++                # savegame below whenever one exists for this turn)
++                time_series["is_alive"][turn][pid] = bool(player_info.get('is_alive', True))
++                time_series["government"][turn][pid] = player_info.get('government_name') or ''
+                 time_series["treasury"][turn][pid] = metrics.get_player_gold(state, pid)
+                 time_series["science"][turn][pid] = metrics.get_player_science_production(state, pid)
+                 time_series["culture"][turn][pid] = player_info.get('culture', 0)
+@@ -375,8 +456,10 @@
+                     state, pid, data_loader.ruleset if data_loader else None
+                 )
+ 
+-            # Try to override with complete savegame data (production/science only)
++            # Try to override with complete savegame data
+             savegame_data = get_savegame_data_for_report(config, turn)
++            if savegame_data is None:
++                self.truth_source["turns_without_savegame"].append(turn)
+             if savegame_data:
+                 # Override production data
+                 if 'production' in savegame_data:
+@@ -392,9 +475,127 @@
+                         if player_id in player_ids:
+                             time_series["science"][turn][player_id] = sci['science_per_turn']
+ 
++                # Override the fog-of-war per-player metrics with the server's
++                # omniscient view (cities/units/population/territory/treasury/
++                # scores/alive/government/wonders).
++                if self._override_with_savegame_truth(
++                        time_series, turn, savegame_data, player_ids, ruleset,
++                        tech_discoveries_by_player):
++                    self.truth_source["turns_overridden"] += 1
++
+         # Note: techs_known is already monotonic by construction (cumulative event count)
+         return time_series
++
++    def _override_with_savegame_truth(
++        self,
++        time_series: Dict[str, Dict[int, Dict[int, Any]]],
++        turn: int,
++        savegame_data: Dict[str, Any],
++        player_ids: List[int],
++        ruleset: Optional[Dict],
++        tech_discoveries_by_player: Dict[int, List[int]],
++    ) -> bool:
++        """Replace the client-view per-player metrics for one turn with the
++        savegame's omniscient values.
++
++        The recorder is a client attached to player 0, so for players 1..N the
++        client-derived cities/units/population/territory are the subset the
++        observer happened to see, scores are -1 without an embassy and
++        treasury is 0 when unknown. The savegame has the complete state.
++
++        Definitions (kept identical to the client-side metrics):
++          cities_count          len(city table). Cross-checked vs score.cities
++                                and WARNED on mismatch only: the server
++                                computes [scoreN] before the turn-change city
++                                founding/capture that the save then reflects,
++                                so ~0.5% of cells differ by one (rng5001: 6 of
++                                ~900); the city table is the value the client
++                                also sees for player 0.
++          population            sum of city sizes
++          units_count           len(unit table)
++          military_units_count  savegame_parser.military_unit_count: unit types
++                                with attack > 0 (client definition) for
++                                classic/civ2civ3, else [scoreN].units
++          territory_size        owned tiles from the [map] owner rows
++          treasury              gold
++          scores                [scoreN].total
++          wonders_count         great+small wonders from city improvement bits
++                                (needs ruleset improvements + improvement_vector)
++          is_alive / government from the [playerN] section
++
++        Returns True if the savegame carried per-player state to apply.
++        """
++        cities = savegame_data.get('cities') or {}
++        units = savegame_data.get('units') or {}
++        scores = savegame_data.get('scores') or {}
++        gold = savegame_data.get('gold') or {}
++        alive = savegame_data.get('alive') or {}
++        governments = savegame_data.get('governments') or {}
++        barbarian = savegame_data.get('barbarian') or {}
++        tile_ownership = savegame_data.get('tile_ownership') or {}
++        rulesetdir = savegame_data.get('rulesetdir') or ''
++
++        present = set(cities) | set(scores) | set(alive)
++        if not present:
++            return False
++
++        wonders = count_wonders_from_savegame(
++            cities, savegame_data.get('improvement_vector') or [], ruleset)
++        if wonders is not None:
++            self.truth_source["wonders_source"] = "savegame city improvements + ruleset genus"
++
++        # Every player present in the savegame gets a row, including ones the
++        # client never listed (civilizations is built from the client view);
++        # the gate re-checks every savegame player, so skipping any would fail it.
++        for pid in sorted(present):
++            score_row = scores.get(pid) or {}
++            is_barbarian = barbarian.get(pid, 'None') != 'None'
++
++            if pid in scores:
++                time_series["scores"][turn][pid] = score_row.get('total', 0)
++            if pid in gold:
++                time_series["treasury"][turn][pid] = gold[pid]
++
++            if pid in cities:
++                city_list = cities[pid]
++                n_cities = len(city_list)
++                time_series["cities_count"][turn][pid] = n_cities
++                time_series["population"][turn][pid] = sum(int(c.get('size', 0)) for c in city_list)
++                score_cities = score_row.get('cities')
++                # Barbarians are never scored (all [scoreN] fields stay 0)
++                if (not is_barbarian and isinstance(score_cities, int)
++                        and score_cities != n_cities):
++                    self.truth_source["cities_crosscheck_mismatches"].append(
++                        {"turn": turn, "player_id": pid,
++                         "city_table": n_cities, "score_cities": score_cities})
++                    print(f"  WARNING: turn {turn} player {pid}: city table has "
++                          f"{n_cities} cities but [score{pid}].cities={score_cities}")
++
++            if pid in units:
++                unit_list = units[pid]
++                time_series["units_count"][turn][pid] = len(unit_list)
++                time_series["military_units_count"][turn][pid] = military_unit_count(
++                    unit_list, score_row, is_barbarian, rulesetdir)
++
++            if pid in cities or pid in tile_ownership:
++                time_series["territory_size"][turn][pid] = int(tile_ownership.get(pid, 0))
++
++            if wonders is not None and pid in wonders:
++                time_series["wonders_count"][turn][pid] = wonders[pid]
++
++            if pid in alive:
++                time_series["is_alive"][turn][pid] = bool(alive[pid])
++            if pid in governments:
++                time_series["government"][turn][pid] = governments[pid]
+ 
++            # A player the client never listed this turn still needs the
++            # event-derived tech count so the row is complete.
++            if pid not in time_series["techs_known"][turn]:
++                time_series["techs_known"][turn][pid] = sum(
++                    1 for t in tech_discoveries_by_player.get(pid, []) if t <= turn)
++
++        return True
++
+     def collect_events(
+         self,
+         states: Dict[int, Dict],
+@@ -511,15 +712,20 @@
+     def collect_snapshots(
+         self,
+         states: Dict[int, Dict],
+-        target_turns: List[int]
++        target_turns: List[int],
++        config: Any = None,
+     ) -> Dict[int, Dict[str, Any]]:
+         """Collect snapshot data for specific turns
+ 
+         Collects scores, rankings, and counts at multiple turns for resolution.
++        When ``config`` is given and a savegame exists for the turn, scores,
++        rankings and the city/unit counts are taken from the savegame
++        (omniscient) instead of the client's fog-of-war view.
+ 
+         Args:
+             states: Dict mapping turn numbers to game states
+             target_turns: List of turns to collect snapshots for
++            config: Optional ReportConfig (recording_dir) for savegame access
+ 
+         Returns:
+             Dict mapping turn to snapshot data
+@@ -585,7 +791,7 @@
+                 c.get('size', 0) for c in cities.values() if isinstance(c, dict)
+             )
+ 
+-            snapshots[target_turn] = {
++            snapshot = {
+                 "scores": scores,
+                 "rankings": rankings,
+                 "cities_count": cities_count,
+@@ -599,8 +805,52 @@
+                 }
+             }
+ 
++            # Override with the omniscient savegame view when available
++            savegame_data = get_savegame_data_for_report(config, target_turn) if config is not None else None
++            if savegame_data:
++                self._override_snapshot_with_savegame(snapshot, savegame_data)
++
++            snapshots[target_turn] = snapshot
++
+         return snapshots
+ 
++    @staticmethod
++    def _override_snapshot_with_savegame(snapshot: Dict[str, Any], savegame_data: Dict[str, Any]) -> None:
++        """Replace a snapshot's scores/rankings/counts with savegame values."""
++        sg_cities = savegame_data.get('cities') or {}
++        sg_units = savegame_data.get('units') or {}
++        sg_scores = savegame_data.get('scores') or {}
++        barbarian = savegame_data.get('barbarian') or {}
++        rulesetdir = savegame_data.get('rulesetdir') or ''
++        present = set(sg_cities) | set(sg_scores)
++        if not present:
++            return
++
++        for pid in sorted(present):
++            score_row = sg_scores.get(pid) or {}
++            is_barbarian = barbarian.get(pid, 'None') != 'None'
++            if pid in sg_scores:
++                snapshot["scores"][pid] = score_row.get('total', 0)
++            if pid in sg_cities:
++                snapshot["cities_count"][pid] = len(sg_cities[pid])
++            if pid in sg_units:
++                snapshot["units_count"][pid] = len(sg_units[pid])
++                snapshot["military_units_count"][pid] = military_unit_count(
++                    sg_units[pid], score_row, is_barbarian, rulesetdir)
++
++        snapshot["rankings"] = [
++            {"rank": rank, "player_id": pid, "score": score}
++            for rank, (pid, score) in enumerate(
++                sorted(snapshot["scores"].items(), key=lambda x: x[1], reverse=True), 1)
++        ]
++        snapshot["world_totals"] = {
++            "total_cities": sum(len(c) for c in sg_cities.values()),
++            "total_units": sum(len(u) for u in sg_units.values()),
++            "total_military_units": sum(snapshot["military_units_count"].get(pid, 0) for pid in present),
++            "total_population": sum(int(c.get('size', 0)) for cl in sg_cities.values() for c in cl),
++        }
++        snapshot["truth_source"] = TRUTH_SOURCE_SAVEGAME
++
+     def collect_territory_snapshots(
+         self,
+         states: Dict[int, Dict],
+--- a/worlds/freeciv/freeciv_world/world_reports/utils/savegame_parser.py
++++ b/worlds/freeciv/freeciv_world/world_reports/utils/savegame_parser.py
+@@ -4,13 +4,74 @@
+ which contain data for ALL players without fog-of-war limitations.
+ """
+ 
++import io
++import logging
++import lzma
+ import re
+ import requests
+ from pathlib import Path
+ from typing import Dict, List, Optional, Tuple
+ import subprocess
+ 
++logger = logging.getLogger('freeciv_world.savegame_parser')
+ 
++# ---------------------------------------------------------------------------
++# Savegame coverage tracking (see FBSIM_REQUIRE_SAVEGAME_COVERAGE)
++#
++# Serialization silently degrading to the embassy-gated player view (because
++# per-turn savegames were missing or unparseable) is what produced the "dark
++# world" corpus. Every savegame extraction attempt is recorded here, keyed by
++# recording_dir, so the serializer can stamp a `savegame_coverage` fraction
++# into its metadata and hard-fail when coverage is incomplete.
++# ---------------------------------------------------------------------------
++
++# {recording_dir: {turn: 'parsed' | 'missing' | 'failed'}}
++_savegame_coverage: Dict[str, Dict[int, str]] = {}
++
++
++def reset_savegame_coverage(recording_dir: str) -> None:
++    """Clear tracked savegame-extraction outcomes for a recording directory."""
++    _savegame_coverage[str(recording_dir)] = {}
++
++
++def note_savegame_status(recording_dir: str, turn: int, status: str) -> None:
++    """Record the outcome of a savegame extraction attempt for one turn.
++
++    A turn that ever parsed successfully stays 'parsed' (repeat calls for the
++    same turn are common during serialization).
++    """
++    log = _savegame_coverage.setdefault(str(recording_dir), {})
++    if log.get(turn) != 'parsed':
++        log[turn] = status
++
++
++def compute_savegame_coverage(recording_dir: str, expected_turns: List[int]) -> Dict[str, object]:
++    """Compute the fraction of expected turns whose savegame parsed.
++
++    Args:
++        recording_dir: Recording directory the serialization ran over
++        expected_turns: Turns the serialization covered (state turns)
++
++    Returns:
++        Dict with keys: coverage (float 0..1), expected (int), parsed (int),
++        missing_turns (list), failed_turns (list). Turns never attempted are
++        counted as missing.
++    """
++    log = _savegame_coverage.get(str(recording_dir), {})
++    expected = sorted(set(expected_turns))
++    parsed = [t for t in expected if log.get(t) == 'parsed']
++    failed = [t for t in expected if log.get(t) == 'failed']
++    missing = [t for t in expected if log.get(t) not in ('parsed', 'failed')]
++    coverage = (len(parsed) / len(expected)) if expected else 0.0
++    return {
++        'coverage': coverage,
++        'expected': len(expected),
++        'parsed': len(parsed),
++        'missing_turns': missing,
++        'failed_turns': failed,
++    }
++
++
+ def list_server_savegames(username: str, host: str = 'localhost', port: int = 8080) -> List[str]:
+     """List savegames on the Freeciv server
+ 
+@@ -124,23 +185,49 @@
+         Decompressed savegame content as string
+     """
+     if filename.endswith('.zst'):
+-        # Use zstd to decompress
+-        result = subprocess.run(
+-            ['zstd', '-d', '-c'],
+-            input=savegame_content,
+-            capture_output=True,
+-            check=True
+-        )
+-        return result.stdout.decode('utf-8')
++        # Use the zstd binary when available, falling back to the pure-python
++        # `zstandard` package. The fallback is load-bearing: pods without the
++        # zstd binary previously made every .sav.zst unparseable, silently
++        # degrading serialization to the embassy-gated player view.
++        try:
++            result = subprocess.run(
++                ['zstd', '-d', '-c'],
++                input=savegame_content,
++                capture_output=True,
++                check=True
++            )
++            return result.stdout.decode('utf-8')
++        except (FileNotFoundError, OSError, subprocess.CalledProcessError) as e:
++            logger.warning(
++                f"zstd binary decompression unavailable/failed for {filename} "
++                f"({e!r}); falling back to python zstandard")
++            try:
++                import zstandard
++            except ImportError as import_err:
++                raise RuntimeError(
++                    f"Cannot decompress {filename}: zstd binary failed ({e!r}) "
++                    f"and the python 'zstandard' package is not installed"
++                ) from import_err
++            # stream_reader handles frames without a content-size header
++            # (zstd CLI default), which one-shot decompress() rejects.
++            dctx = zstandard.ZstdDecompressor()
++            with dctx.stream_reader(io.BytesIO(savegame_content)) as reader:
++                return reader.read().decode('utf-8')
+     elif filename.endswith('.xz'):
+-        # Use xz to decompress
+-        result = subprocess.run(
+-            ['xz', '-d', '-c'],
+-            input=savegame_content,
+-            capture_output=True,
+-            check=True
+-        )
+-        return result.stdout.decode('utf-8')
++        # Use the xz binary when available, falling back to stdlib lzma.
++        try:
++            result = subprocess.run(
++                ['xz', '-d', '-c'],
++                input=savegame_content,
++                capture_output=True,
++                check=True
++            )
++            return result.stdout.decode('utf-8')
++        except (FileNotFoundError, OSError, subprocess.CalledProcessError) as e:
++            logger.warning(
++                f"xz binary decompression unavailable/failed for {filename} "
++                f"({e!r}); falling back to python lzma")
++            return lzma.decompress(savegame_content).decode('utf-8')
+     else:
+         # Uncompressed
+         return savegame_content.decode('utf-8')
+@@ -865,8 +952,282 @@
+                     continue
+ 
+     return tile_counts
++
++
++
++# ---------------------------------------------------------------------------
++# Omniscient per-player state (cities / units / alive / government)
++#
++# The recorder is a FreeCiv client attached to player 0, so every per-player
++# metric derived from client state files is fog-of-war limited for players
++# 1..N (cities/units the observer never saw are simply absent). The savegame
++# is the server's complete view; the parsers below read it so the serializer
++# can override the client-view metrics with ground truth.
++# ---------------------------------------------------------------------------
++
++def _split_csv_row(line: str) -> List[str]:
++    """Split one savegame table row on commas, honouring double quotes.
++
++    Quoted fields are returned without their quotes; ``"a,b"`` stays one field.
++    """
++    values: List[str] = []
++    current: List[str] = []
++    in_quotes = False
++    for char in line:
++        if char == '"':
++            in_quotes = not in_quotes
++        elif char == ',' and not in_quotes:
++            values.append(''.join(current))
++            current = []
++        else:
++            current.append(char)
++    values.append(''.join(current))
++    return values
++
++
++def _iter_player_sections(savegame_content: str):
++    """Yield (player_id, section_text) for every ``[playerN]`` section.
++
++    A section runs from its header to the next ``[...]`` section header at the
++    start of a line (normally the matching ``[scoreN]``).
++    """
++    headers = list(re.finditer(r'^\[player(\d+)\]', savegame_content, re.MULTILINE))
++    for i, match in enumerate(headers):
++        start = match.end()
++        nxt = re.compile(r'^\[', re.MULTILINE).search(savegame_content, start)
++        end = nxt.start() if nxt else len(savegame_content)
++        yield int(match.group(1)), savegame_content[start:end]
++
++
++def _section_scalar(section: str, key: str) -> Optional[str]:
++    """Return the raw value of ``key=value`` in a section (quotes stripped)."""
++    match = re.search(r'^' + re.escape(key) + r'=(.*)$', section, re.MULTILINE)
++    if not match:
++        return None
++    return match.group(1).strip().strip('"')
++
++
++def _parse_table(section: str, table_name: str) -> List[Dict[str, str]]:
++    """Parse a freeciv savegame table ``name={"col",...\nrow\nrow\n}``.
++
++    Returns one dict per row keyed by column name. Missing tables (e.g. the
++    ``c=`` table of a player with ncities=0) yield an empty list.
++    """
++    header_match = re.search(r'^' + re.escape(table_name) + r'=\{(.*)$', section, re.MULTILINE)
++    if not header_match:
++        return []
++    columns = _split_csv_row(header_match.group(1).rstrip('}'))
++    rows: List[Dict[str, str]] = []
++    pos = header_match.end()
++    while True:
++        nl = section.find('\n', pos)
++        if nl == -1:
++            break
++        line = section[pos:nl]
++        pos = nl + 1
++        if line.startswith('}'):
++            break
++        if not line.strip():
++            continue
++        values = _split_csv_row(line)
++        if len(values) < len(columns):
++            # Defensive: a wrapped/odd row; keep what we can align.
++            values += [''] * (len(columns) - len(values))
++        rows.append(dict(zip(columns, values)))
++    return rows
++
++
++def _to_int(value: Optional[str], default: int = 0) -> int:
++    try:
++        return int(value)
++    except (TypeError, ValueError):
++        return default
++
++
++def parse_player_cities(savegame_content: str) -> Dict[int, List[Dict[str, object]]]:
++    """Parse every player's city table from the savegame.
++
++    Returns ``{player_id: [{'name', 'size', 'x', 'y', 'id', 'improvements'}]}``.
++    Players present in the savegame but without cities map to ``[]``.
++    ``improvements`` is the raw 0/1 string indexed like ``[savefile]
++    improvement_vector``.
++    """
++    cities: Dict[int, List[Dict[str, object]]] = {}
++    for pid, section in _iter_player_sections(savegame_content):
++        rows = _parse_table(section, 'c')
++        cities[pid] = [{
++            'name': row.get('name', ''),
++            'size': _to_int(row.get('size')),
++            'x': _to_int(row.get('x')),
++            'y': _to_int(row.get('y')),
++            'id': _to_int(row.get('id')),
++            'improvements': row.get('improvements', ''),
++        } for row in rows]
++    return cities
+ 
+ 
++def parse_player_units(savegame_content: str) -> Dict[int, List[Dict[str, object]]]:
++    """Parse every player's unit table from the savegame.
++
++    Returns ``{player_id: [{'id', 'type', 'x', 'y', 'hp', 'veteran',
++    'homecity'}]}``; ``type`` is the ruleset unit type name
++    (``type_by_name``). Players without units map to ``[]``.
++
++    NOTE: the savegame carries no attack strengths and the recording's
++    ruleset.json has no unit types, so the military split is done by unit
++    type name against a per-ruleset table (``ZERO_ATTACK_UNIT_TYPES``); see
++    ``military_unit_count``.
++    """
++    units: Dict[int, List[Dict[str, object]]] = {}
++    for pid, section in _iter_player_sections(savegame_content):
++        rows = _parse_table(section, 'u')
++        units[pid] = [{
++            'id': _to_int(row.get('id')),
++            'type': row.get('type_by_name', ''),
++            'x': _to_int(row.get('x')),
++            'y': _to_int(row.get('y')),
++            'hp': _to_int(row.get('hp')),
++            'veteran': _to_int(row.get('veteran')),
++            'homecity': _to_int(row.get('homecity')),
++        } for row in rows]
++    return units
++
++
++# Unit types the classic/civ2civ3 rulesets flag "NonMil" (freeciv's
++# is_military_unit() is the negation; [scoreN].units counts the rest).
++CIVILIAN_UNIT_TYPES = frozenset({
++    'Settlers', 'Migrants', 'Workers', 'Engineers', 'Explorer', 'Caravan',
++    'Freight', 'Diplomat', 'Spy', 'Leader', 'Barbarian Leader',
++})
++
++# Unit types with attack_strength == 0 in the classic/civ2civ3 rulesets: the
++# NonMil types plus the pure transports. The client-side metric
++# (``military_units_count`` = units with ``type_attack_strength > 0``) excludes
++# these, whereas freeciv's [scoreN].units still counts Galleon/Transport/AWACS
++# as military (verified on rng5001: player 0 T155 client 27 vs score.units 28,
++# the difference being one Galleon).
++ZERO_ATTACK_UNIT_TYPES = CIVILIAN_UNIT_TYPES | frozenset({'Galleon', 'Transport', 'AWACS'})
++
++# Rulesets whose unit-type names the table above is known to cover.
++MILITARY_TYPE_RULESETS = frozenset({'classic', 'civ2civ3'})
++
++
++def parse_rulesetdir(savegame_content: str) -> str:
++    """Return ``[game] rulesetdir`` (e.g. ``"classic"``), or ``''``."""
++    match = re.search(r'^rulesetdir="?([^"\n]*)"?$', savegame_content, re.MULTILINE)
++    return match.group(1).strip() if match else ''
++
++
++def count_military_units_by_type(unit_list: List[Dict[str, object]]) -> int:
++    """Count units whose type has attack strength > 0 (client definition)."""
++    return sum(1 for u in unit_list if (u.get('type') or '') not in ZERO_ATTACK_UNIT_TYPES)
++
++
++def military_unit_count(unit_list: List[Dict[str, object]],
++                        score_row: Optional[Dict[str, int]],
++                        is_barbarian: bool,
++                        rulesetdir: str) -> int:
++    """Military unit count for one player, matching the client metric.
++
++    Definition used (documented for the serializer):
++      * rulesetdir in ``MILITARY_TYPE_RULESETS``: count units from the unit
++        table whose type is not in ``ZERO_ATTACK_UNIT_TYPES`` -- identical to
++        the client's ``type_attack_strength > 0`` (exact for player 0 on
++        rng5001 across all 152 turns).
++      * otherwise: ``[scoreN].units`` for scored players (freeciv score.c's
++        is_military_unit count, which additionally counts zero-attack
++        transports), falling back to the type table for unscored
++        (barbarian) players whose [scoreN] rows are all zero.
++    """
++    if rulesetdir in MILITARY_TYPE_RULESETS:
++        return count_military_units_by_type(unit_list)
++    score_units = (score_row or {}).get('units')
++    if not is_barbarian and isinstance(score_units, int):
++        return score_units
++    return count_military_units_by_type(unit_list)
++
++
++def parse_player_alive(savegame_content: str) -> Dict[int, bool]:
++    """Parse ``is_alive`` for every ``[playerN]`` section."""
++    alive: Dict[int, bool] = {}
++    for pid, section in _iter_player_sections(savegame_content):
++        raw = _section_scalar(section, 'is_alive')
++        alive[pid] = (raw or '').upper() == 'TRUE'
++    return alive
++
++
++def parse_player_governments(savegame_content: str) -> Dict[int, str]:
++    """Parse ``government_name`` for every ``[playerN]`` section."""
++    governments: Dict[int, str] = {}
++    for pid, section in _iter_player_sections(savegame_content):
++        governments[pid] = _section_scalar(section, 'government_name') or ''
++    return governments
++
++
++def parse_player_barbarian_types(savegame_content: str) -> Dict[int, str]:
++    """Parse ``ai.barb_type`` per player ("None" for regular civilisations).
++
++    Barbarian/pirate players are never scored by the server (all ``[scoreN]``
++    fields stay 0), so callers must not cross-check their city counts
++    against ``score.cities``.
++    """
++    barb: Dict[int, str] = {}
++    for pid, section in _iter_player_sections(savegame_content):
++        barb[pid] = _section_scalar(section, 'ai.barb_type') or 'None'
++    return barb
++
++
++def parse_player_declared_counts(savegame_content: str) -> Dict[int, Dict[str, int]]:
++    """Parse the ``ncities`` / ``nunits`` scalars declared in each player section."""
++    counts: Dict[int, Dict[str, int]] = {}
++    for pid, section in _iter_player_sections(savegame_content):
++        counts[pid] = {
++            'ncities': _to_int(_section_scalar(section, 'ncities')),
++            'nunits': _to_int(_section_scalar(section, 'nunits')),
++        }
++    return counts
++
++
++def parse_improvement_vector(savegame_content: str) -> List[str]:
++    """Parse ``[savefile] improvement_vector`` (name per improvements-bit index)."""
++    match = re.search(r'^improvement_vector=(.*?)(?=^\w+=|^\[)', savegame_content,
++                      re.MULTILINE | re.DOTALL)
++    if not match:
++        return []
++    return [v for v in _split_csv_row(match.group(1).replace('\n', '')) if v]
++
++
++def count_wonders_from_savegame(cities: Dict[int, List[Dict[str, object]]],
++                                improvement_vector: List[str],
++                                ruleset: Optional[Dict]) -> Optional[Dict[int, int]]:
++    """Count wonders (great + small, matching the client-side definition) per
++    player from the savegame city tables.
++
++    Requires the ruleset's ``improvements`` (for genus) and the savefile's
++    ``improvement_vector`` (bit index -> improvement name). Returns None when
++    either is unavailable so the caller can keep the client-view value.
++    """
++    if not improvement_vector or not ruleset or 'improvements' not in ruleset:
++        return None
++    wonder_names = set()
++    for impr in ruleset['improvements'].values():
++        genus = impr.get('genus', 2)
++        soundtag = impr.get('soundtag', '') or ''
++        if genus in (0, 1) or soundtag.startswith('w'):
++            wonder_names.add(impr.get('name'))
++    if not wonder_names:
++        return None
++    wonder_bits = [i for i, name in enumerate(improvement_vector) if name in wonder_names]
++    result: Dict[int, int] = {}
++    for pid, city_list in cities.items():
++        count = 0
++        for city in city_list:
++            bits = city.get('improvements', '') or ''
++            count += sum(1 for i in wonder_bits if i < len(bits) and bits[i] == '1')
++        result[pid] = count
++    return result
++
++
+ def parse_player_states_for_conditional(savegame_content: str) -> Dict[int, dict]:
+     """Parse player states in the format expected by conditional fork evaluation.
+ 
+@@ -1099,11 +1460,13 @@
+     # Find savegame in local recordings directory
+     savegame_name = find_local_savegame_for_turn(username, turn, recording_dir)
+     if not savegame_name:
++        note_savegame_status(recording_dir, turn, 'missing')
+         return None
+ 
+     # Load from local directory
+     result = load_local_savegame(savegame_name, recording_dir)
+     if not result:
++        note_savegame_status(recording_dir, turn, 'missing')
+         return None
+ 
+     savegame_bytes, actual_filename = result
+@@ -1124,7 +1487,19 @@
+         gold = parse_player_gold(content)
+         scores = parse_player_scores(content)
+         player_states = parse_player_states_for_conditional(content)
++
++        # Omniscient per-player state (overrides the fog-of-war client view)
++        cities = parse_player_cities(content)
++        units = parse_player_units(content)
++        alive = parse_player_alive(content)
++        governments = parse_player_governments(content)
++        barbarian = parse_player_barbarian_types(content)
++        declared_counts = parse_player_declared_counts(content)
++        tile_ownership = parse_tile_ownership(content)
++        improvement_vector = parse_improvement_vector(content)
++        rulesetdir = parse_rulesetdir(content)
+ 
++        note_savegame_status(recording_dir, turn, 'parsed')
+         return {
+             'production': production,
+             'science': science,
+@@ -1135,12 +1510,28 @@
+             'gold': gold,
+             'scores': scores,
+             'player_states': player_states,  # For conditional fork comparison
++            'cities': cities,                # {pid: [{name,size,x,y,id,improvements}]}
++            'units': units,                  # {pid: [{id,type,x,y,hp,veteran,homecity}]}
++            'alive': alive,                  # {pid: bool}
++            'governments': governments,      # {pid: government_name}
++            'barbarian': barbarian,          # {pid: ai.barb_type} ("None" = real civ)
++            'declared_counts': declared_counts,  # {pid: {ncities, nunits}}
++            'tile_ownership': tile_ownership,    # {pid: owned tile count}
++            'improvement_vector': improvement_vector,  # bit index -> improvement name
++            'rulesetdir': rulesetdir,            # e.g. "classic" (military type table)
+         }
+ 
+     except Exception as e:
+-        print(f"Error parsing savegame {actual_filename}: {e}")
+-        import traceback
+-        traceback.print_exc()
++        # NEVER swallow this silently: a failed parse means serialization
++        # degrades to the embassy-gated player view (frozen civs, no wonders,
++        # empty diplomacy). Log loudly and record the failure so the
++        # savegame_coverage stamp (and FBSIM_REQUIRE_SAVEGAME_COVERAGE) see it.
++        note_savegame_status(recording_dir, turn, 'failed')
++        logger.error(
++            f"Savegame parse FAILED for turn {turn} ({actual_filename}): {e!r}. "
++            f"Extraction will degrade to the embassy-gated player view for this turn.",
++            exc_info=True)
++        print(f"ERROR: savegame parse failed for turn {turn} ({actual_filename}): {e!r}")
+         return None
+ 
+ 
+@@ -1157,16 +1548,41 @@
+     Args:
+         config: ReportConfig instance with recording_dir attribute
+ 
++    Resolution order:
++      1. an explicit ``savegame_username`` (or ``username``) attribute on
++         the config (e.g. a corpus dir like .../forks/rng5001 whose savegames
++         are named seed1000forkrng5001_T60_*.sav.zst)
++      2. the path component after ``recordings`` in ``recording_dir``
++      3. the common ``<username>_T<turn>_`` prefix of the files actually
++         present in ``<recording_dir>/savegames``
++      4. the legacy default ``'myagent2'``
++
+     Returns:
+         Username string (defaults to 'myagent2' if not found)
+     """
++    for attr in ('savegame_username', 'username'):
++        explicit = getattr(config, attr, None)
++        if isinstance(explicit, str) and explicit:
++            return explicit
++
+     username = 'myagent2'  # default
+-    if hasattr(config, 'recording_dir'):
+-        parts = config.recording_dir.rstrip('/').split('/')
++    recording_dir = getattr(config, 'recording_dir', None)
++    if recording_dir:
++        parts = str(recording_dir).rstrip('/').split('/')
+         if 'recordings' in parts:
+             idx = parts.index('recordings')
+             if idx + 1 < len(parts):
+-                username = parts[idx + 1]
++                return parts[idx + 1]
++        # Infer from the savegame filenames themselves
++        savegames_dir = Path(recording_dir) / 'savegames'
++        if savegames_dir.is_dir():
++            prefixes = set()
++            for path in savegames_dir.iterdir():
++                match = re.match(r'^(.+?)_T\d+_', path.name)
++                if match:
++                    prefixes.add(match.group(1))
++            if len(prefixes) == 1:
++                return prefixes.pop()
+     return username
+ 
+ 
+--- a/worlds/freeciv/pyproject.toml
++++ b/worlds/freeciv/pyproject.toml
+@@ -28,6 +28,9 @@
+     "litellm>=1.80.0,<1.82",
+     "google-cloud-secret-manager>=2.16.0",
+     "datasets>=3.1.0",
++    # Pure-python .sav.zst decompression fallback: savegames must stay
++    # parseable even on hosts without the zstd binary (dark-world incident).
++    "zstandard>=0.22",
+ ]
+ 
+ [project.optional-dependencies]
+--- a/worlds/freeciv/scripts/mine_lowprob_corpus.py
++++ b/worlds/freeciv/scripts/mine_lowprob_corpus.py
+@@ -10,14 +10,26 @@
+ with adequate support. Each game contributes one Bernoulli draw against the
+ class base rate -> real ground-truth calibration data in the tail.
+ 
++Support is counted at GAME level by default (distinct games per class): each
++game contributes ~5 correlated per-civ instances per class, so instance counts
++overstate the evidence. Instance counts are still reported. Legacy
++instance-level selection is available via --support instances.
++
++--split-half partitions games into two halves by a deterministic, seedable
++hash of the game id (stable across runs and machines): classes are selected on
++half-A rate/support, and half-B base rates are emitted alongside as the
++scoring truth labels.
++
+ Usage:
+     uv run python worlds/freeciv/scripts/mine_lowprob_corpus.py \
+-        --data-dir data/games --snapshot-turn 40 \
++        --data-dir data/games data/games_mc --snapshot-turn 40 \
+         --rate-lo 0.01 --rate-hi 0.09 --min-n 30 --workers 8 \
+         --out-dir data/lowprob
+ """
+ 
+ import argparse
++import gzip
++import hashlib
+ import json
+ import sys
+ from pathlib import Path
+@@ -27,6 +39,76 @@
+ sys.path.insert(0, 'src')
+ 
+ 
++def split_half_of(game_id: str, split_seed: int) -> str:
++    """Deterministic half assignment ('A'/'B') by hash of game id.
++
++    Stable across runs and machines (sha256, not Python's salted hash);
++    change --split-seed to draw a different partition.
++    """
++    h = hashlib.sha256(f"{split_seed}:{game_id}".encode()).digest()
++    return "A" if int.from_bytes(h[:8], "big") % 2 == 0 else "B"
++
++
++def summarize_classes(records, split_seed=None):
++    """Group instance records into (template, target, horizon) class rows.
++
++    Each row reports instance counts (n, yes, base_rate) and game-level
++    support (n_games = distinct games contributing instances). When
++    split_seed is not None, per-half fields (n_a/yes_a/rate_a/n_games_a and
++    the _b equivalents) are added from the deterministic game-id split.
++    """
++    classes = defaultdict(list)
++    for rec in records:
++        classes[(rec["template_id"], rec["target"], rec["horizon"])].append(rec)
++
++    rows = []
++    for (tmpl, target, horizon), recs in classes.items():
++        n = len(recs)
++        yes = sum(1 for r in recs if r["ground_truth"])
++        row = {
++            "template_id": tmpl, "target": target, "horizon": horizon,
++            "n": n, "yes": yes, "base_rate": yes / n if n else 0.0,
++            "n_games": len({r["game_id"] for r in recs}),
++        }
++        if split_seed is not None:
++            for half in ("A", "B"):
++                sub = [r for r in recs
++                       if split_half_of(r["game_id"], split_seed) == half]
++                k = half.lower()
++                nh = len(sub)
++                yh = sum(1 for r in sub if r["ground_truth"])
++                row[f"n_{k}"] = nh
++                row[f"yes_{k}"] = yh
++                row[f"rate_{k}"] = yh / nh if nh else None
++                row[f"n_games_{k}"] = len({r["game_id"] for r in sub})
++        rows.append(row)
++    rows.sort(key=lambda x: x["base_rate"])
++    return rows
++
++
++def select_classes(class_rows, rate_lo, rate_hi, min_n, support, split_half):
++    """Tail-band selection.
++
++    support='games' (default) uses distinct-game counts as the criterion;
++    support='instances' is the legacy instance-count behavior. In split-half
++    mode the band and support threshold apply to half A only, and half B must
++    be non-empty (its rate is the scoring truth).
++    """
++    if split_half:
++        sup_key = "n_games_a" if support == "games" else "n_a"
++        return [
++            c for c in class_rows
++            if c[sup_key] >= min_n and c["rate_a"] is not None
++            and rate_lo <= c["rate_a"] <= rate_hi
++            and c["rate_b"] is not None
++        ]
++    sup_key = "n_games" if support == "games" else "n"
++    return [
++        c for c in class_rows
++        if c[sup_key] >= min_n and rate_lo <= c["base_rate"] <= rate_hi
++    ]
++
++
+ def _target_key(template_id: str, params: dict) -> str:
+     """Item that makes a question class specific (and its rareness meaningful)."""
+     for k in ("tech_name", "wonder_name", "government_type"):
+@@ -46,10 +128,12 @@
+         from freeciv_world.world_reports.questions import (
+             QuestionGenerator, QuestionResolver, REGISTRY, question_bank_to_dict,
+         )
+-        with open(data_file) as f:
++        opener = gzip.open if str(data_file).endswith(".gz") else open
++        with opener(data_file, "rt") as f:
+             game_data = json.load(f)
+ 
+-        game_id = game_data.get('metadata', {}).get('username', Path(data_file).stem)
++        game_id = game_data.get('metadata', {}).get(
++            'username', Path(data_file).name.split(".")[0])
+         max_turn = game_data.get('metadata', {}).get('turn', 0)
+         if snapshot_turn >= max_turn:
+             return None
+@@ -89,18 +173,30 @@
+ 
+ def main():
+     ap = argparse.ArgumentParser(description="Mine low-probability FreeCiv question corpus")
+-    ap.add_argument("--data-dir", default="data/games")
++    ap.add_argument("--data-dir", nargs="+", default=["data/games"],
++                    help="one or more game-data dirs (pooled)")
+     ap.add_argument("--snapshot-turn", type=int, default=40)
+     ap.add_argument("--rate-lo", type=float, default=0.01)
+     ap.add_argument("--rate-hi", type=float, default=0.09)
+-    ap.add_argument("--min-n", type=int, default=30, help="min games supporting a class")
++    ap.add_argument("--min-n", type=int, default=30,
++                    help="min support per class (see --support)")
++    ap.add_argument("--support", choices=["games", "instances"], default="games",
++                    help="selection support: distinct games (default) or "
++                         "question instances (legacy behavior)")
++    ap.add_argument("--split-half", action="store_true",
++                    help="select classes on half A of a deterministic game-id "
++                         "split; emit half-B base rates as scoring truth")
++    ap.add_argument("--split-seed", type=int, default=0,
++                    help="seed for the split-half game-id hash")
+     ap.add_argument("--workers", type=int, default=8)
+     ap.add_argument("--out-dir", default="data/lowprob")
+     ap.add_argument("--limit", type=int, default=None, help="cap #games (debug)")
+     args = ap.parse_args()
+ 
+-    data_dir = Path(args.data_dir)
+-    files = sorted(data_dir.glob("*_data.json"))
++    # plain or gzipped game files (the mined fleets land as *_data.json.gz)
++    files = [f for d in args.data_dir
++             for pat in ("*_data.json", "*_data.json.gz")
++             for f in sorted(Path(d).glob(pat))]
+     if args.limit:
+         files = files[: args.limit]
+     print(f"Found {len(files)} game files; snapshot turn {args.snapshot_turn}")
+@@ -121,37 +217,30 @@
+     print(f"Total binary questions: {len(records)}")
+ 
+     # Group into classes: (template, target, horizon)
+-    classes = defaultdict(list)  # key -> list of records
+-    for rec in records:
+-        key = (rec["template_id"], rec["target"], rec["horizon"])
+-        classes[key].append(rec)
++    class_rows = summarize_classes(
++        records, split_seed=args.split_seed if args.split_half else None)
+ 
+-    class_rows = []
+-    for (tmpl, target, horizon), recs in classes.items():
+-        n = len(recs)
+-        yes = sum(1 for r in recs if r["ground_truth"])
+-        rate = yes / n if n else 0.0
+-        class_rows.append({
+-            "template_id": tmpl, "target": target, "horizon": horizon,
+-            "n": n, "yes": yes, "base_rate": rate,
+-        })
+-    class_rows.sort(key=lambda x: x["base_rate"])
+-
+-    # Select tail classes
+-    selected = [
+-        c for c in class_rows
+-        if c["n"] >= args.min_n and args.rate_lo <= c["base_rate"] <= args.rate_hi
+-    ]
++    # Select tail classes (game-level support by default; half A in split mode)
++    selected = select_classes(class_rows, args.rate_lo, args.rate_hi,
++                              args.min_n, args.support, args.split_half)
+     selected_keys = {(c["template_id"], c["target"], c["horizon"]) for c in selected}
+ 
+-    # Instance-level corpus for selected classes, tagging each with its class base rate (true prob)
+-    rate_by_key = {(c["template_id"], c["target"], c["horizon"]): c["base_rate"] for c in selected}
++    # Instance-level corpus for selected classes, tagging each with its class
++    # base rate (true prob). In split mode the scoring truth is the half-B
++    # rate (half A picked the class); the half-A rate rides along for QA.
++    sel_by_key = {(c["template_id"], c["target"], c["horizon"]): c for c in selected}
+     corpus = []
+     for rec in records:
+         key = (rec["template_id"], rec["target"], rec["horizon"])
+         if key in selected_keys:
+             rec2 = dict(rec)
+-            rec2["class_base_rate"] = rate_by_key[key]  # true low probability of the class
++            c = sel_by_key[key]
++            if args.split_half:
++                rec2["class_base_rate"] = c["rate_b"]  # scoring truth (held-out half)
++                rec2["class_base_rate_half_a"] = c["rate_a"]
++                rec2["split_half"] = split_half_of(rec["game_id"], args.split_seed)
++            else:
++                rec2["class_base_rate"] = c["base_rate"]  # true low probability of the class
+             corpus.append(rec2)
+ 
+     out_dir = Path(args.out_dir)
+@@ -159,6 +248,9 @@
+     meta = {
+         "snapshot_turn": args.snapshot_turn, "n_games": len(files),
+         "rate_band": [args.rate_lo, args.rate_hi], "min_n": args.min_n,
++        "support": args.support,
++        "split_half": args.split_half,
++        "split_seed": args.split_seed if args.split_half else None,
+         "total_binary_questions": len(records),
+         "n_classes_total": len(class_rows),
+         "n_classes_selected": len(selected),
+@@ -177,10 +269,17 @@
+     print(f"\nSelected {len(selected)} tail classes "
+           f"({args.rate_lo:.0%}-{args.rate_hi:.0%}), {len(corpus)} instances. "
+           f"Wrote to {out_dir}/")
+-    print("\nSelected classes (rate | n | template | horizon | target):")
+-    for c in sorted(selected, key=lambda x: x["base_rate"]):
+-        print(f"  {c['base_rate']:.3f}  n={c['n']:4d}  "
+-              f"{c['template_id']:20s} {c['horizon']:3s}  {c['target']}")
++    if args.split_half:
++        print("\nSelected classes (rateA->rateB | gamesA/gamesB | template | horizon | target):")
++        for c in sorted(selected, key=lambda x: x["rate_a"]):
++            print(f"  {c['rate_a']:.3f}->{c['rate_b']:.3f}  "
++                  f"g={c['n_games_a']:3d}/{c['n_games_b']:3d}  "
++                  f"{c['template_id']:20s} {c['horizon']:3s}  {c['target']}")
++    else:
++        print("\nSelected classes (rate | games | n | template | horizon | target):")
++        for c in sorted(selected, key=lambda x: x["base_rate"]):
++            print(f"  {c['base_rate']:.3f}  g={c['n_games']:3d}  n={c['n']:4d}  "
++                  f"{c['template_id']:20s} {c['horizon']:3s}  {c['target']}")
+ 
+ 
+ if __name__ == "__main__":
+--- a/worlds/freeciv/scripts/run_fork.py
++++ b/worlds/freeciv/scripts/run_fork.py
+@@ -25,6 +25,9 @@
+     gold_add:player_id:amount    - Add gold to player's treasury
+     government:player_id:name    - Set player's government (e.g., Republic)
+     tech:player_id:tech_id       - Grant technology by ID
++    rng_seed:seed                - Pin the fork's game RNG to a specific seed
++                                   (default: saved RNG state is cleared so the
++                                   engine reseeds freshly per fork)
+ 
+ Output:
+     logs/recordings/{seed}fork{name}/savegames/ — Fork savegames
+@@ -69,13 +72,23 @@
+     """
+     parts = mod_str.split(":")
+ 
++    mod_type = parts[0].lower()
++
++    # rng_seed is not player-specific: "rng_seed:SEED"
++    if mod_type == "rng_seed":
++        if len(parts) != 2:
++            raise ValueError(
++                f"Invalid modification format: {mod_str}. "
++                "Expected format: rng_seed:seed"
++            )
++        return {"type": "rng_seed", "value": int(parts[1])}
++
+     if len(parts) < 3:
+         raise ValueError(
+             f"Invalid modification format: {mod_str}. "
+             "Expected format: type:player_id:value"
+         )
+ 
+-    mod_type = parts[0].lower()
+     player_id = int(parts[1])
+ 
+     if mod_type == "gold":
+@@ -109,6 +122,10 @@
+ def modification_to_name(mod: dict) -> str:
+     """Convert a modification dict to a name-friendly string."""
+     mod_type = mod["type"]
++
++    if mod_type == "rng_seed":
++        return f"rng{mod['value']}"
++
+     player_id = mod["player_id"]
+ 
+     if mod_type == "gold":
+--- a/worlds/freeciv/scripts/run_world.py
++++ b/worlds/freeciv/scripts/run_world.py
+@@ -90,10 +90,12 @@
+     # Also seed Python's random module for nation selection (used in civ_controller.py)
+     random.seed(seed)
+ 
+-    # Load game support - continue from a previous savegame
++    # Load game support - continue from a previous savegame.
++    # NOTE: no take_player. Load auto-reattaches this connection to the player
++    # whose username matches, and the player keeps the AI flag stored in the
++    # savegame (the /take+/aitoggle dance wiped the AI's research goal).
+     if load_game:
+         fc_args['debug.load_game'] = load_game
+-        fc_args['debug.take_player'] = run_id  # Take control of our player
+         fc_args['begin_turn_timeout'] = 60  # Increase timeout for loaded games
+ 
+     def log(msg):
+@@ -165,10 +167,10 @@
+         # DO NOT toggle them - that would turn OFF their AI!
+         log(f"All {num_ai_players - 1} aifill players are AI-controlled by default")
+     else:
+-        # When loading, toggle player back to AI control
+-        log(f"Toggling {fc_args['username']} back to Freeciv AI control...")
+-        env.unwrapped.civ_controller.ws_client.send_message(f"/aitoggle {fc_args['username']}")
+-        time.sleep(0.5)
++        # When loading, the player auto-reattaches with its AI flag intact.
++        # DO NOT /aitoggle here - the player is already AI, toggling would
++        # flip it to human control and wipe its AI plans.
++        log(f"Loaded game: {fc_args['username']} stays under Freeciv AI control")
+ 
+     done = False
+     step = 0
+@@ -203,8 +205,13 @@
+ 
+     env.close()
+ 
+-    # Download and persist all savegames from Docker container
+-    recording_dir = Path(__file__).parent.parent / 'logs' / 'recordings' / run_id
++    # Download and persist all savegames from Docker container.
++    # The recording root comes from logging_config (single source of truth,
++    # honoring debug.logging_path) so savegames land in the SAME directory
++    # tree as the observation states — a split root here is what silently
++    # made serialization savegame-blind (dark worlds).
++    from freeciv_world.configs.logging_config import logging_dir
++    recording_dir = Path(logging_dir) / 'recordings' / run_id
+     recording_dir.mkdir(parents=True, exist_ok=True)
+     downloaded, skipped, failed = download_all_savegames_from_docker(run_id, str(recording_dir))
+     log(f"Downloaded {downloaded} savegames (skipped {skipped} existing, {failed} failed)")
