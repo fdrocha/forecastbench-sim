@@ -22,9 +22,12 @@ A row whose answer failed to parse is re-asked once (fresh call, `attempts` = 2)
 """
 import argparse, csv, json, os, random, re, sys, time, threading, urllib.request, urllib.error, collections
 from concurrent.futures import ThreadPoolExecutor
-ROOT = '/Users/jaeholee0404/civbench'; SETS = f'{ROOT}/tmp/fbsim_v3_corpus/draw_v1'; REPORTS = f'{ROOT}/tmp/fbsim_v3_corpus/reports'
 HERE = os.path.dirname(os.path.abspath(__file__))
-KEY = os.environ.get('OPENROUTER_API_KEY') or next((l.split('=', 1)[1].strip().strip('"\'') for l in open(f'{ROOT}/.env') if l.startswith('OPENROUTER_API_KEY=')), None)
+# Question sets, world reports and model panels: FBSIM_FREECIV_V3_DATA, a folder laid out like this one
+# (sets/draw_v1/, reports/, run/models_v*.csv), e.g. forecastbench-sim-paper/production/freeciv.
+DATA = os.environ.get('FBSIM_FREECIV_V3_DATA', os.path.join(HERE, '..'))
+SETS = os.path.join(DATA, 'sets', 'draw_v1'); REPORTS = os.path.join(DATA, 'reports')
+KEY = os.environ.get('OPENROUTER_API_KEY')
 # Prompt = [prefix (intro + background + report), tail (question, optional fact, criteria, instructions)].
 # The prefix is identical for every question of one kind in one world and is sent as its own content part with a
 # cache_control breakpoint so provider prefix caches hit (v1.8, 2026-09-08). Wording otherwise = the derisk prompts.
@@ -255,7 +258,7 @@ def call(model, messages, reasoning, max_tokens=16384):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--models', default='', help='comma list of names or OpenRouter ids from the models file; default = every row')
-    ap.add_argument('--models-file', default=f'{HERE}/models_v1.csv')
+    ap.add_argument('--models-file', default=os.path.join(DATA, 'run', 'models_v1.csv'))
     ap.add_argument('--sets', default='bank,tails,mirrors,continuous,natcond'); ap.add_argument('--out', required=True)
     ap.add_argument('--reasoning', default='low', choices=['low', 'medium', 'high', 'none'])
     ap.add_argument('--limit', type=int, default=0); ap.add_argument('--workers', type=int, default=0, help='override the models-file workers column (0 = use it, else 16)')

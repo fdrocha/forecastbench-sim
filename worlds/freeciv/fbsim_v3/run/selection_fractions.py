@@ -36,7 +36,7 @@ def load_selected(corpus):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     here = os.path.dirname(os.path.abspath(__file__))
-    ap.add_argument('--corpus', default=f'{here}/../fbsim_v3_corpus')
+    ap.add_argument('--corpus', default=os.environ.get('FBSIM_V3_CORPUS', f'{here}/../fbsim_v3_corpus'))
     ap.add_argument('--out', default=None, help='default: <corpus>/draw_v1/selection_fractions_bank_tails_mirrors.json')
     ap.add_argument('--results', default=None, help='elicit_v1.py results dir; enables the reweighted CSV')
     ap.add_argument('--reweighted-csv', default=None, help='default: <corpus>/results_v1/freeciv_binary_reweighted.csv')
@@ -53,7 +53,7 @@ def main():
         sys.path.insert(0, here); import numpy as np, score_v1 as sv
         S, C, N = sv.load_sets(f'{a.corpus}/draw_v1'); R = sv.load_results([a.results])
         rows = [x for x in sv.score_items(R, S, C, N, impute=0.5) if x['set'] in ('bank', 'tails', 'mirrors')]
-        meta = {m['openrouter_id']: m for m in csv.DictReader(open(f'{here}/models_v1.csv'))}
+        meta = {m['openrouter_id']: m for m in csv.DictReader(open(os.path.join(os.environ.get('FBSIM_FREECIV_V3_DATA', f'{here}/..'), 'run', 'models_v1.csv')))}
         csv_out = a.reweighted_csv or f'{a.corpus}/results_v1/freeciv_binary_reweighted.csv'
         with open(csv_out, 'w', newline='') as f:
             w = csv.writer(f); w.writerow(['model', 'eci', 'bank_excess_brier_unweighted', 'whole_pool_excess_brier_weighted_1_over_r'])

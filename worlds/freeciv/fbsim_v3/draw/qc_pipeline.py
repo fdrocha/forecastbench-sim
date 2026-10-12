@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""qc_pipeline.py DRAW_DIR — downstream-aware QC of the drawn sets: report consistency, criteria coverage,
+"""qc_pipeline.py DRAW_DIR REPORTS_DIR FAMILY_SPECS_JSON — downstream-aware QC of the drawn sets: report consistency, criteria coverage,
 scoring-rule uniformity, natcond admissibility, plus a random reading sample."""
 import json, sys, re, random, collections, glob, os
 import pandas as pd
@@ -10,7 +10,7 @@ binary = bank + tails + mirrors + extra
 print('== sizes:', {k: len(v) for k, v in S.items()})
 # 1. names used in questions vs names in the regenerated world reports
 rep = {}
-for f in glob.glob('/Users/jaeholee0404/civbench/tmp/fbsim_v3_corpus/reports/seed*/turn_060_report.txt'):
+for f in glob.glob(f'{sys.argv[2]}/seed*/turn_060_report.txt'):
     w = os.path.basename(os.path.dirname(f)); txt = open(f).read(); rep[w] = txt
     names = re.findall(r'^\d+\s+\| ([^|]+?)\s+\|', txt.split('CURRENT STATE')[0].split('CIVILIZATIONS')[1], re.M)
     rep[w + ':names'] = [n.strip() for n in names]
@@ -28,7 +28,7 @@ need = {'score': 'score', 'population': 'population', 'number of cities': 'citie
 print('== report columns:', cols)
 print('== quantity in questions -> report column present:', {k: (v in cols) for k, v in need.items()})
 # 3. criteria template coverage per family
-spec = json.load(open('/Users/jaeholee0404/civbench/tmp/fbsim_v2/family_specs.json'))['families']
+spec = json.load(open(sys.argv[3]))['families']
 alias = {'NB1_value_threshold': 'NB1_threshold', 'W2_directed_conquest': 'W2_directed_conquest', 'NC1_value_at_T': 'NC1_value', 'NC5_world_captures': 'NC5_count', 'NC14_world_wonders': 'NC14_wonders_built', 'S7_world_razings': 'S7_city_razing', 'S7_any_destroyed': 'S7_city_razing', 'S6_city_founding': 'S6_city_founding', 'W3_capture_k': 'NB6_event', 'W4_lose_k': 'NB6_event', 'S3_wars_at_T': 'S3_wars_at_T'}
 fams = collections.Counter(i['family'] for i in binary + cont)
 rows = []

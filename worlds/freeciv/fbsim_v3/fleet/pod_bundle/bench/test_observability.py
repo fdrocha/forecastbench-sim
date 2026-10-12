@@ -54,7 +54,7 @@ from freeciv_world.world_reports.extractors.metrics_collector import (  # noqa: 
 from freeciv_world.world_reports.utils import savegame_parser as sp  # noqa: E402
 import observability_gate  # noqa: E402
 
-CORPUS = '/Users/jaeholee0404/civbench/tmp/fbsim_v2_corpus/rollouts'
+CORPUS = os.environ.get('FBSIM_V2_CORPUS', '')   # the fbsim v2 rollouts
 RNG5001_DIR = os.environ.get(
     'FBSIM_TEST_RNG5001_DIR', os.path.join(CORPUS, 'forks-s1000-a', 'forks', 'rng5001'))
 RNG5001_USER = 'seed1000forkrng5001'

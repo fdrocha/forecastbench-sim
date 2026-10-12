@@ -79,7 +79,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--env-file", default="")
     ap.add_argument("--models", default=",".join(SEVEN))
-    ap.add_argument("--models-file", default=str(HERE / "models_v2.csv"))
+    ap.add_argument("--models-file", default=str(ev.DATA / "run" / "models_v2.csv"))
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--smoke", action="store_true", help="one prompt of the first model only")

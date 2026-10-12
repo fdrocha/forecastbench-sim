@@ -12,7 +12,7 @@ Writes <fork_dir>/<user>_sgtables.json.gz. Uses the bundle's savegame_parser.
 """
 import argparse, glob, gzip, json, os, re, sys
 from multiprocessing import Pool
-BUNDLE = '/Users/jaeholee0404/civbench/tmp/pilot_v2/fleet_prep/pod_bundle'
+BUNDLE = os.path.join(os.path.dirname(os.path.abspath(__file__)), *(['..'] * 4))   # this repository's root
 if os.path.isdir('/workspace/civbench'): BUNDLE = '/workspace/civbench'
 sys.path.insert(0, os.path.join(BUNDLE, 'worlds', 'freeciv'))
 from freeciv_world.world_reports.utils import savegame_parser as sp  # noqa

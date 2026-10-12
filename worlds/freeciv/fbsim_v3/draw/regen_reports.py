@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""regen_reports.py SEED [SEED ...] — regenerate turn-60 world reports from the v3 anchors (savegame truth).
-Reads state/anchors_raw/seed<N>/seed<N>_data.json.gz, stamps metadata.map_size from the T60 savegame settings,
+"""regen_reports.py STATE_DIR OUT_DIR SEED [SEED ...] — regenerate turn-60 world reports from the v3 anchors (savegame truth).
+Reads STATE_DIR/anchors_raw/seed<N>/seed<N>_data.json.gz, stamps metadata.map_size from the T60 savegame settings,
 renders with the patched freeciv_world renderer (no territory maps), writes
-/Users/jaeholee0404/civbench/tmp/fbsim_v3_corpus/reports/seed<N>/turn_060_report.txt (+ the data json used)."""
+OUT_DIR/seed<N>/turn_060_report.txt (+ the data json used)."""
 import gzip, json, lzma, re, shutil, sys, glob
 from pathlib import Path
 from freeciv_world.world_reports.txt_report import generate_txt_report
-BASE = Path('/Users/jaeholee0404/civbench/tmp/fbsim_v3_run/state')
-OUT = Path('/Users/jaeholee0404/civbench/tmp/fbsim_v3_corpus/reports')
-for seed in sys.argv[1:]:
+BASE = Path(sys.argv[1])
+OUT = Path(sys.argv[2])
+for seed in sys.argv[3:]:
     src = BASE / f'anchors_raw/seed{seed}'
     d = json.load(gzip.open(src / f'seed{seed}_data.json.gz', 'rt'))
     sav = sorted(glob.glob(str(src / f'savegames/seed{seed}_T60_*.sav.xz')))[0]

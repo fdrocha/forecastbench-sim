@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from elicit_v2 import REPORTS, SETS, FIRST_PARTY, call, load_models, spent  # noqa: E402
+from elicit_v2 import DATA, REPORTS, SETS, FIRST_PARTY, call, load_models, spent  # noqa: E402
 
 # ---- run-1 texts, verbatim (elicit_v1.py v1.8) ----
 BASE_PREFIX = """You will be asked a binary forecasting question about a simulation in progress. Your task is to estimate the probability that the event described in the question occurs. Please provide your reasoning before stating your final probability.
@@ -111,7 +111,7 @@ lock = threading.Lock()
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", required=True)
-    ap.add_argument("--models-file", default=str(Path(__file__).resolve().parent / "models_v2.csv"))
+    ap.add_argument("--models-file", default=str(DATA / "run" / "models_v2.csv"))
     ap.add_argument("--out", required=True)
     ap.add_argument("--workers", type=int, default=0)
     ap.add_argument("--limit", type=int, default=0, help="only the first N turn-1 questions and their cells")

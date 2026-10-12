@@ -49,8 +49,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 V3 = HERE.parent
-SETS = V3 / "sets" / "draw_v1"
-REPORTS = V3 / "reports"
+# Question sets, world reports and model panels: FBSIM_FREECIV_V3_DATA, a folder laid out like this one
+# (sets/draw_v1/, reports/, run/models_v*.csv), e.g. forecastbench-sim-paper/production/freeciv.
+DATA = Path(os.environ.get("FBSIM_FREECIV_V3_DATA", V3))
+SETS = DATA / "sets" / "draw_v1"
+REPORTS = DATA / "reports"
 SEED = 2026
 FILES = {"bank": "bank_750", "tails": "tails_300", "mirrors": "mirrors_50", "continuous": "continuous_300"}
 FIRST_PARTY = ("anthropic/", "openai/", "google/")
@@ -418,7 +421,7 @@ def main():
     global KEY
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", default="", help="comma list of names or OpenRouter ids from the models file; default = every row")
-    ap.add_argument("--models-file", default=str(HERE / "models_v2.csv"))
+    ap.add_argument("--models-file", default=str(DATA / "run" / "models_v2.csv"))
     ap.add_argument("--sets", default="bank,tails,mirrors,continuous", help="run 2 default: the natural conditionals stay unbatched (elicit_natcond_v1.py); add natcond to batch them")
     ap.add_argument("--out", required=True)
     ap.add_argument("--per-prompt", type=int, default=50)

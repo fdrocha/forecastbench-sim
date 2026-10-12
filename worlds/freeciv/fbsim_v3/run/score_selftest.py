@@ -30,7 +30,7 @@ for i, c in enumerate(N):
         for m, v in [('oracle', c['p']), ('flat', 0.5), ('noisy', noise(c['p'])), ('broken', c['p'])]: emit(m, c['qid'], 'nonews', 'bin', v)
     if c['control_single_prompt']:
         for m, v in [('oracle', c['p_given']), ('flat', 0.5), ('noisy', noise(c['p_given'])), ('broken', c['p_given'])]: emit(m, item, 'single', 'bin', v)
-d = tempfile.mkdtemp(dir='/private/tmp/claude-501/-Users-jaeholee0404/eec6d9ea-59b9-4f86-a6bf-66180c2461cb/scratchpad')
+d = tempfile.mkdtemp()
 with open(f'{d}/results.jsonl', 'w') as f:
     for r in rows: f.write(json.dumps(r) + '\n')
 R = sv.load_results([d]); items = sv.score_items(R, S, C, N, 0.5); summ = sv.summarise(items, 200, 0)

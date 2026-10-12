@@ -35,7 +35,7 @@ rows are dropped and the parse rate is reported alongside every aggregate.
 """
 import argparse, csv, glob, json, math, os, collections
 import numpy as np
-SETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'sets', 'draw_v1')   # v2: relative to this checkout
+SETS = os.path.join(os.environ.get('FBSIM_FREECIV_V3_DATA', os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')), 'sets', 'draw_v1')
 TAU = np.array([.05, .25, .5, .75, .95]); EPS = 1e-3
 
 def load_sets(sets_dir=SETS):

@@ -3,7 +3,7 @@
 # parallel rsync --files-from chunks (MooseFS is latency-bound; 8 streams moved 59k files / 2.4 GB in ~5 min).
 # Wanted: every *_data.json.gz and *_sgtables.json.gz, TRUNCATED markers, anchors (everything), horizon saves
 # (T60/T61/T90/T120/T150/T180/T210/T211) of every fork, queue markers and logs. Incremental (rsync skips existing).
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ID="${1:?}"; DEST="${2:-/Users/jaeholee0404/civbench/tmp/fbsim_v3_corpus/raw}"; PAR="${3:-8}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ID="${1:?}"; DEST="${2:-${FBSIM_V3_CORPUS:?set FBSIM_V3_CORPUS or pass DEST}/raw}"; PAR="${3:-8}"
 read -r IP PORT <<<"$(bash "$HERE/rp.sh" addr "$ID")"; [ -n "$PORT" ] || { echo "no addr"; exit 1; }
 RSH="ssh -i $HOME/.ssh/id_ed25519_runpod -p $PORT -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o LogLevel=ERROR"
 mkdir -p "$DEST" "$HERE/state"; L="$HERE/state/pull_files.txt"
