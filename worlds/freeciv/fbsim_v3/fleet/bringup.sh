@@ -4,7 +4,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ID="${1:?POD_ID}"
 BUNDLE="${FBSIM_POD_BUNDLE:-$HERE/state/bundle}"   # the bundle rsynced to every pod (no .venv; pod_setup.sh builds it on the pod)
-[ -d "$BUNDLE" ] || bash "$HERE/make_bundle.sh" "$BUNDLE"
+[ -n "${FBSIM_POD_BUNDLE:-}" ] || bash "$HERE/make_bundle.sh" "$BUNDLE"   # rebuilt each time so code changes reach new pods; FBSIM_POD_BUNDLE pins one as is
 SSHKEY="$HOME/.ssh/id_ed25519_runpod"
 for i in $(seq 1 60); do a="$(bash $HERE/rp.sh addr "$ID")"; [ -n "$a" ] && break; sleep 15; done
 [ -n "${a:-}" ] || { echo "no address after 15 min"; exit 1; }
