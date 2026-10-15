@@ -1,0 +1,274 @@
+{
+  "source_repository": "https://github.com/forecastingresearch/forecastbench-sim",
+  "source_branch": "freeciv-v3",
+  "source_commit": "daca5a15af759f4124960e30694bff15256b7f5d",
+  "author": "Jaeho Lee and contributors",
+  "license": "GPL-3.0 (repository LICENSE)",
+  "excluded": [
+    "question sets, world reports, model panels, launch scripts and run records (forecastbench-sim-paper production/freeciv)",
+    "paper analysis and generators (forecastbench-sim-paper src/fbsim_paper/assets/freeciv)",
+    "raw responses, scores and replay data (private data archive)",
+    "the pod bundle's vendored fbsim-core, pyproject.toml and uv.lock (production/freeciv; built from this repository instead)",
+    "freeciv_world_as_run.patch (applied to worlds/freeciv; the file itself is in production/freeciv)",
+    "logprob comparison, smoke reports, cost and cache probes, dated manuscript-editing scripts"
+  ],
+  "adaptations": [
+    "Question sets, reports and model panels read from FBSIM_FREECIV_V3_DATA (default: this folder) instead of the producer checkout (run/elicit_v1.py, elicit_v2.py, elicit_natcond_v1.py, effort_check_v2.py, score_v1.py, score_v2.py, selection_fractions.py)",
+    "API keys from the environment only (run/elicit_v1.py, fleet/rp.sh)",
+    "Producer paths replaced by arguments or environment variables (draw/qc_pipeline.py, draw/regen_reports.py, draw/sg_tables.py, fleet/pull.sh, fleet/pull2.sh, fleet/exhausted.sh, fleet/finalize.sh, fleet/pod_bundle/bench/test_observability.py)",
+    "fleet/finalize.sh: pod ids as arguments, draw scripts called from ../draw, the legacy mine_v3.py step removed (that script was never committed)",
+    "run/score_selftest.py: system temp directory",
+    "fleet/make_bundle.sh added; bringup.sh builds the bundle from this repository (packages/fbsim-core, worlds/freeciv with the as-run patch applied)",
+    "README.md rewritten for this repository"
+  ],
+  "files": [
+    {
+      "path": ".gitignore",
+      "source_sha256": "244b78be28e70d837a05712a88acfca42625580d7be9dadc0c0ce08c92f472e8"
+    },
+    {
+      "path": "draw/anchor_qc.py",
+      "source_sha256": "ca8945755c3474149647878e9fc094707d0ff3d27e031b3d8e63c43bac6a8e5b"
+    },
+    {
+      "path": "draw/bank_v1.py",
+      "source_sha256": "8155bb78f1918515dad0cfe2d76438f81ce7647a1351383a4f3d1a0021fe773f"
+    },
+    {
+      "path": "draw/consolidate_v4.py",
+      "source_sha256": "d762c704f287a30a0c59eec429120f5bb585b52966b89abfef602b0687c6c39b"
+    },
+    {
+      "path": "draw/corpus_qc.py",
+      "source_sha256": "055821004a8c1012c4827a7264dd20a7522ffa5f2baef2d7148f0cd25d156a92"
+    },
+    {
+      "path": "draw/criteria_v1.py",
+      "source_sha256": "557da8e8169cb4f6334b8e27de2e6af11ab0e0456f6802e8053502bab1fd2220"
+    },
+    {
+      "path": "draw/describe_draw.py",
+      "source_sha256": "e45b1c6e133af3b42ab11f1be7fb4141a71ff654806bd0a5f3129e9bdb4872cf"
+    },
+    {
+      "path": "draw/draw_v1.py",
+      "source_sha256": "7dc7c82cac6560f99968d61dccff86082542d96a13bc6433b78fe4837ae5236c"
+    },
+    {
+      "path": "draw/export_natcond_replays.py",
+      "source_sha256": "16ad587886d49e97fb0523d13e0a8447b8b8fa42f16fba1a0463ea9882d6fc5c"
+    },
+    {
+      "path": "draw/make_queue.py",
+      "source_sha256": "827e05d226349587fb9184fd435a944e515d592975598ef79dcbe015d1d99e7c"
+    },
+    {
+      "path": "draw/natcond_draw_sim.py",
+      "source_sha256": "7f13924db5f21d2ae156c5ab4c8c524b7d3ad1391e719a3839063ff944dae30b"
+    },
+    {
+      "path": "draw/qc_pipeline.py",
+      "source_sha256": "1fc1444a726aa6de17374c263e4aa28dd30176299901c7335c3d501d35b520b5"
+    },
+    {
+      "path": "draw/regen_reports.py",
+      "source_sha256": "7324b9d94c791639218fa25193ad1f1d593b031fcc4498cbf75d5f48632518f8"
+    },
+    {
+      "path": "draw/report_draw.py",
+      "source_sha256": "47cbba3b9ecc197c2aaa74d8a0cf9b1295c8a1120719265812a3e6dfe9125865"
+    },
+    {
+      "path": "draw/rp_list.py",
+      "source_sha256": "06c99ed435cfc24d20c7c2a589cb15c40c81703372b2118455335e931108bfb3"
+    },
+    {
+      "path": "draw/sg_tables.py",
+      "source_sha256": "c2594630a4aa54ae357ddedefa484d7050fb6a19b0e3d31898a421af3e194e10"
+    },
+    {
+      "path": "draw/sweep_v4.py",
+      "source_sha256": "1a9353a58d580342c84fba8e07abae1fd6d0cff19219352c36a39590e2ac93bd"
+    },
+    {
+      "path": "fleet/archive_setup.sh",
+      "source_sha256": "94246bfa18311ba4fc3f434a3c5451b142ef871637f661cbb3c028c4adaab406"
+    },
+    {
+      "path": "fleet/bringup.sh",
+      "source_sha256": "5752be362583211c743584bf30b04c4dfd096950d5c7df2b45bf6eac49bd1d3d"
+    },
+    {
+      "path": "fleet/exhausted.sh",
+      "source_sha256": "d08876c33457800fdee050dc65fbdb9aac3039372b2f4569dc37944b871ed571"
+    },
+    {
+      "path": "fleet/finalize.sh",
+      "source_sha256": "5b22961e1f6b7ba47928230f17da9040d8f1a5f4af375cf53a98ae005a8f4685"
+    },
+    {
+      "path": "fleet/finish_all.sh",
+      "source_sha256": "ea837d49dc406acc69538e87d7cb70f02475c6089bb9b49b8e0f0ec19d37e9c1"
+    },
+    {
+      "path": "fleet/fleet_ssh.sh",
+      "source_sha256": "4d6113e8cce9a807b6072ce582244d65a38b02cdd9ed27fb10404496452daff0"
+    },
+    {
+      "path": "fleet/launch_pending.sh",
+      "source_sha256": "555371741028a9542d650baa16d3c4393cdade7dc0e6485e78c3a4d18b994383"
+    },
+    {
+      "path": "fleet/launch_workers.sh",
+      "source_sha256": "429f51207a20bff29d29491331147b394090739c029831d41ffd339ce4bd71a2"
+    },
+    {
+      "path": "fleet/on_pod/anchor_one.sh",
+      "source_sha256": "d5bc7965cef5d55ca12f9cf8f180eb2d00517cf2f0287272a1c1d475d626a2f3"
+    },
+    {
+      "path": "fleet/on_pod/anchors_run.sh",
+      "source_sha256": "70ced58a50c29a9299d9614dc4a7c28c9f0b1e06adf2edb6fd79a2949722d9eb"
+    },
+    {
+      "path": "fleet/on_pod/finish_pod.sh",
+      "source_sha256": "c79a188a8e80047fd088d5e2e93210cddf9d5d672b8995a452534aa6ed2a6147"
+    },
+    {
+      "path": "fleet/on_pod/rerun_list.sh",
+      "source_sha256": "c7877eb9bf5c0285b665d91fa538dc9b4268d4f03f0fd552fb939114531930ab"
+    },
+    {
+      "path": "fleet/on_pod/start_sync.sh",
+      "source_sha256": "05de156a490b0385ee5e9eff6f664f5b371b24d5f5b1d4f096b765917df26e35"
+    },
+    {
+      "path": "fleet/on_pod/status_pod.sh",
+      "source_sha256": "deb6744bd333aa60a669fd523bb7b59bf680bf734defd8d249863ce45beafee3"
+    },
+    {
+      "path": "fleet/on_pod/sync_loop.sh",
+      "source_sha256": "75424714427d701ed28be92037dbf4020952358071590eaeab50562b928a367d"
+    },
+    {
+      "path": "fleet/on_pod/worker.sh",
+      "source_sha256": "b6f09611e68aca486a62742b1e222e94ac1ebc2f3514fbfdc3f9984754cab86d"
+    },
+    {
+      "path": "fleet/pod_bundle/bench/observability_gate.py",
+      "source_sha256": "8defae178cf9b490d45718a124c373ec16af886b2534d0d5f78d5de03a62c8ee"
+    },
+    {
+      "path": "fleet/pod_bundle/bench/pilot_gates.py",
+      "source_sha256": "8b5ab32203faa08cae33964e377617591788547d1521e3446ef0c3a7a82a228e"
+    },
+    {
+      "path": "fleet/pod_bundle/bench/test_observability.py",
+      "source_sha256": "8eefe08aa77667710812f7da70c1c1643e6689849afb613393fc4584dafcc073"
+    },
+    {
+      "path": "fleet/pod_bundle/bench/world_publish_gate.py",
+      "source_sha256": "b91f3ec4ea3825ba96ed36b4e4bd97e54a7182352036039f02d260c13a594430"
+    },
+    {
+      "path": "fleet/pod_bundle/fork_one.sh",
+      "source_sha256": "930ef308a1bdd22329f27ad71b7419b9f669ba9e22e5faf02e1df0133395924c"
+    },
+    {
+      "path": "fleet/pod_bundle/mine_forks.sh",
+      "source_sha256": "d49a15116145a64971edc87632828ed739c05adac5e346cb02e7520b786572d7"
+    },
+    {
+      "path": "fleet/pod_bundle/mine_one_world.sh",
+      "source_sha256": "2155cd262936dec89d7b3a5a4c859869d797ab167fcd515803ab6691913a88aa"
+    },
+    {
+      "path": "fleet/pod_bundle/mine_worlds.sh",
+      "source_sha256": "d65e41404f4ae5615397d970d43a649ee7b2e02bff4e15fb8bc17d87599385ea"
+    },
+    {
+      "path": "fleet/pod_bundle/p1_drive.sh",
+      "source_sha256": "a648c5f86a2ce86c82dac4f3e8310ad9778be1d72caaf28dcba0468ef2b11cc3"
+    },
+    {
+      "path": "fleet/pod_bundle/pod_setup.sh",
+      "source_sha256": "6c76cfb9d99f83558bec5c7faed10469a538c95820f5b84bd1df888460bbdfd4"
+    },
+    {
+      "path": "fleet/pod_bundle/rescue_serialize.sh",
+      "source_sha256": "334fcf8c7adf93104cc8d53122ce97389e3fafbbb2ad9d96588e42d6abc37213"
+    },
+    {
+      "path": "fleet/pull.sh",
+      "source_sha256": "49eb5d662729621723d6f83d7c025740d1e5442473e48053d69c43a009e88e23"
+    },
+    {
+      "path": "fleet/pull2.sh",
+      "source_sha256": "3112aa6eebbf440ac063844b1e2fbf34b685ecb4e55dbf64b7c035090f71df73"
+    },
+    {
+      "path": "fleet/rebalance.sh",
+      "source_sha256": "5b446ff0458bed948b5a78fe7e4a8ca40984f69c48fc74afe1deb91634720f20"
+    },
+    {
+      "path": "fleet/requeue_slice.sh",
+      "source_sha256": "00dac46355f919365384a07d605a390ca4d2f06221655fb24aa0d520b78d6ceb"
+    },
+    {
+      "path": "fleet/rp.sh",
+      "source_sha256": "c1f622fc5f8d3e670ba8d47f1e03d4c82edeca7eca6e4ef7cab9fab87438b8df"
+    },
+    {
+      "path": "fleet/start_cmd.sh",
+      "source_sha256": "a82430ae0a4f60386818d3673a1ff2a48f75c71365c4a3fe5447b3e7cc0bbc15"
+    },
+    {
+      "path": "fleet/status.sh",
+      "source_sha256": "45d0d934d24678e905d65f4655f12763964f817836864366764050a7859d2c26"
+    },
+    {
+      "path": "fleet/switch_anchor.sh",
+      "source_sha256": "b3f3af94408ec17287a6a15806519de285360553ef6e109b2e4e48d16f37e236"
+    },
+    {
+      "path": "run/effort_check_v2.py",
+      "source_sha256": "21b114747b48072a9286243567ba30c75e7ab28ebc3094874c1ba8edd988c5a8"
+    },
+    {
+      "path": "run/elicit_natcond_v1.py",
+      "source_sha256": "780b6f1353cfe36e89b30a3049f8a4c32098de7fdabc443412491308635cb0ec"
+    },
+    {
+      "path": "run/elicit_v1.py",
+      "source_sha256": "4a3a94b8567476ee5263117a074c1790b92c27356c34b37f1db7729922d00a86"
+    },
+    {
+      "path": "run/elicit_v2.py",
+      "source_sha256": "0e4b07fda1466cfb497762a43331551c611cb1dd81ddd3aa97ec06d142404e57"
+    },
+    {
+      "path": "run/rebuild_rows_v2.py",
+      "source_sha256": "7f271bb3957a8824684e9f36e6dec9cfe6fbf98c1d49f2213e4ea4f9c8161b21"
+    },
+    {
+      "path": "run/reparse.py",
+      "source_sha256": "7cfc46e2bb6f5d01ade3d2bd4f1e0d743c5d46ff27db28aabe432e1e58ed76f9"
+    },
+    {
+      "path": "run/score_selftest.py",
+      "source_sha256": "f18de4e64412e83a92f9bd96506739d179d9e8cc0d50bb3e724e643add15a542"
+    },
+    {
+      "path": "run/score_v1.py",
+      "source_sha256": "b80e011f34fbd510fbb1580dd662e93a461081cbe7c07f694dbd82a22300bbb7"
+    },
+    {
+      "path": "run/score_v2.py",
+      "source_sha256": "fb23e2a834a4c289fda03d9ef797c5a8ed003b1c4ec74fd8ad080802688d87a9"
+    },
+    {
+      "path": "run/selection_fractions.py",
+      "source_sha256": "c2111f23e43d8cb26590dd45da6790db0da3e6318bbf142c2e7c784939e41aab"
+    }
+  ]
+}

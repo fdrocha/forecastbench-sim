@@ -1,7 +1,7 @@
 """Configuration for World Report Generation"""
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 
 
@@ -39,6 +39,9 @@ class ReportConfig:
     formats: List[str] = field(default_factory=lambda: ['html', 'pdf'])
     plot_style: str = 'seaborn'
     dpi: int = 150
+    # Explicit savegame filename prefix (<username>_T<turn>_*.sav*). When None
+    # it is derived from recording_dir (see savegame_parser.extract_username_from_config).
+    savegame_username: Optional[str] = None
 
     def __post_init__(self):
         """Validate configuration after initialization"""

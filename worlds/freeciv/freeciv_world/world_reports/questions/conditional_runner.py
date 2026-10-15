@@ -7,7 +7,9 @@ execution time in half.
 
 The key insight: We already have a complete game recording. The "control fork"
 would just replay the recorded game, which is already captured in savegames.
-We only need to run the *intervention* fork to see what changes.
+We only need to run the *intervention* fork to see what changes. This holds
+only if the fork keeps the recording's saved RNG state, so forks are created
+with reseed=False.
 
 Flow:
 1. Load baseline player states from end_turn savegame (parse_player_states_for_conditional)
@@ -403,7 +405,8 @@ manager = ForkManager("{self.recording_dir}", {self.base_seed})
 fork = manager.create_fork(
     checkpoint_turn={checkpoint_turn},
     modifications={mods_json},
-    fork_name="{fork_name}"
+    fork_name="{fork_name}",
+    reseed=False,
 )
 result = manager.run_fork(fork, {end_turn})
 

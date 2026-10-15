@@ -31,6 +31,28 @@ from freeciv_world.freeciv.utils.freeciv_logging import fc_logger
 import freeciv_world.freeciv.utils.fc_types as fc_types
 
 
+class _ActionProbRow(dict):
+    """Action-probability row that treats unknown actions as impossible.
+
+    Pilot-bundle hardening: the server answers action-probability queries
+    asynchronously; on fast pods the first get_info() at env.reset() can run
+    before the DIR8_STAY row has arrived, which used to raise KeyError(-1)
+    deterministically. Our client is a NoOp observer (all-AI worlds and
+    forks), so the correct degraded semantics for a missing probability is
+    "not possible" ({'min': 0, 'max': 0}), never a crash.
+    """
+
+    def __missing__(self, key):
+        return {'min': 0, 'max': 0}
+
+
+class _ActionProbTable(dict):
+    """dir -> action-prob row table with benign rows for unknown dirs."""
+
+    def __missing__(self, key):
+        return _ActionProbRow()
+
+
 class FocusUnit():
     """Stores all relevant information for deciding on valid actions for the
     unit in focus"""
@@ -52,7 +74,7 @@ class FocusUnit():
         self.obsolete_type = None
         self.transporter = None
 
-        self.action_prob = {}
+        self.action_prob = _ActionProbTable()
 
     def set_focus(self, punit, ptype, ptile, pterrain, pcity, pplayer):
         """Sets the focus to unit punit having type ptype acting on ptile, pcity owned by pplayer"""
@@ -228,7 +250,7 @@ class UnitActions(ActionList):
     # Use this to delete old probability before query the new pro.
 
     def reset_action_pro(self, unit_id):
-        self.unit_data[unit_id].action_prob = {}
+        self.unit_data[unit_id].action_prob = _ActionProbTable()
 
     # Reset the target_unit_action_keys and remove the previously added target_unit_actions.
     def clear_target_unit_actions(self):
@@ -268,7 +290,7 @@ class UnitActions(ActionList):
                 self.target_unit_action_keys[action_key].append(
                     (actor_unit_id, action.action_key))
 
-        self.unit_data[actor_unit_id].action_prob[dir] = prob
+        self.unit_data[actor_unit_id].action_prob[dir] = _ActionProbRow(prob)
 
     def add_unit_order_commands(self, unit_id):
         """Enables and disables the correct units commands for the unit in focus."""

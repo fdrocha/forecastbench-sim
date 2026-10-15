@@ -151,10 +151,32 @@ class PortStatus:
                                   for line in lines]
         return [port for port in self._idles if port not in occupied_ports]
 
+    @staticmethod
+    def _parse_claim_line(line):
+        """Parse an occupied-ports row: `port uptime restart user [username]`.
+
+        The 5th (username) column tags who claimed the port so a fork lane can
+        release its own stale claims without touching other lanes' claims.
+        Rows written by older code lack the column; they parse as username '-'.
+        """
+        tokens = line.strip().split()
+        if len(tokens) < 4:
+            return None
+        row = [int(tokens[0]), int(tokens[1]), int(tokens[2]), int(tokens[3])]
+        row.append(tokens[4] if len(tokens) > 4 else "-")
+        return row
+
+    @staticmethod
+    def _format_claim_line(row):
+        p, uptime, restart, user = row[0], row[1], row[2], row[3]
+        username = row[4] if len(row) > 4 else "-"
+        return f"{int(p)} {int(uptime)} {int(restart)} {int(user)} {username}\n"
+
     def _check_release(self, occupied_ports):
         # delete from occupied if port restart times is updated.
         status = self.status
-        for id, [port, _, restart, user] in enumerate(occupied_ports):
+        for id, row in enumerate(occupied_ports):
+            port, restart, user = row[0], row[2], row[3]
             if port not in status:
                 continue
             if user != status[port]["user"] and restart == status[port]["restart"]:
@@ -181,15 +203,24 @@ class PortStatus:
         )
         return occupied_ports
 
-    def get(self, port=None):
+    def get(self, port=None, username=None):
         """
         get the specified port or the next empty port (port=None) in a thread-safe way.
+
+        The claim row is tagged with `username` (default: fc_args['username'])
+        so stale claims can later be released per-username via
+        release_user_claims() without disturbing concurrent claimants.
         """
+        if username is None:
+            username = fc_args.get('username', '-')
+        username = str(username).split()[0] if str(username).strip() else '-'
+
         with FileLock(self.lock_file,mode=0o666):
             with open(self.occupied_ports_file, "r", encoding="utf-8") as file:
                 lines = file.readlines()
-                ports_data = [list(map(int, line.strip().split()))
-                              for line in lines]
+                ports_data = [row for row in (
+                    self._parse_claim_line(line) for line in lines)
+                    if row is not None]
 
             empties = []
             while True:
@@ -211,20 +242,46 @@ class PortStatus:
 
             status = self.status
             ports_data.append(
-                (result, status[result]["uptime"],
-                 status[result]["restart"], 0)
+                [result, status[result]["uptime"],
+                 status[result]["restart"], 0, username]
             )
             occupied_ports_lines = [
-                f"{int(p)} {int(uptime)} {int(restart)} {int(user)}\n"
-                for [p, uptime, restart, user] in ports_data
+                self._format_claim_line(row) for row in ports_data
             ]
             with open(self.occupied_ports_file, "w", encoding="utf-8") as file:
                 file.writelines(occupied_ports_lines)
         return result
 
+    def release_user_claims(self, username):
+        """Release the port claims held by `username` only.
+
+        This replaces the old destructive pattern of calling clear() before
+        every fork, which wiped EVERY concurrent lane's claims (and the lock
+        file) and caused port collisions at high concurrency. Claims tagged
+        with other usernames (or untagged legacy rows) are left untouched.
+        """
+        username = str(username).split()[0] if str(username).strip() else '-'
+        if not os.path.exists(self.occupied_ports_file):
+            return 0
+        with FileLock(self.lock_file, mode=0o666):
+            with open(self.occupied_ports_file, "r", encoding="utf-8") as file:
+                lines = file.readlines()
+            rows = [row for row in (
+                self._parse_claim_line(line) for line in lines)
+                if row is not None]
+            kept = [row for row in rows if row[4] != username]
+            released = len(rows) - len(kept)
+            if released:
+                with open(self.occupied_ports_file, "w", encoding="utf-8") as file:
+                    file.writelines(self._format_claim_line(row) for row in kept)
+        return released
+
     def clear(self):
         """
         delete lock file and occupied ports file
+
+        WARNING: destructive across ALL concurrent users of this host — it
+        wipes every lane's port claims. Prefer release_user_claims().
         """
         with open(self.occupied_ports_file, "w", encoding="utf-8") as _:
             pass  # Do nothing, just create an empty file
@@ -325,4 +382,33 @@ class PortStatusParser(HTMLParser):
         print(message)
 
 
-Ports = PortStatus()
+class _LazyPortStatus:
+    """Lazily-instantiated PortStatus singleton.
+
+    PortStatus() polls the freeciv-web pubstatus endpoint in its constructor,
+    so constructing it at import time makes `import freeciv_world.forking...`
+    require a live server (breaking offline tools and unit tests). The real
+    instance is created on first use instead.
+    """
+
+    _instance = None
+
+    def _real(self):
+        if _LazyPortStatus._instance is None:
+            _LazyPortStatus._instance = PortStatus()
+        return _LazyPortStatus._instance
+
+    def __getattr__(self, name):
+        return getattr(self._real(), name)
+
+    def __setattr__(self, name, value):
+        setattr(self._real(), name, value)
+
+    def __iter__(self):
+        return iter(self._real())
+
+    def __next__(self):
+        return next(self._real())
+
+
+Ports = _LazyPortStatus()
