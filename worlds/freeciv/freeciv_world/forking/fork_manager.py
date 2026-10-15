@@ -80,6 +80,7 @@ class Fork:
     modifications: List[dict]  # [{type: "gold", player_id: 0, value: 1000}]
     output_dir: str
     username: str  # For Docker paths and game identification
+    reseed: bool = True  # Clear the saved RNG state when no rng_seed mod is given
 
 
 @dataclass
@@ -164,7 +165,8 @@ class ForkManager:
         self,
         checkpoint_turn: int,
         modifications: List[dict],
-        fork_name: str
+        fork_name: str,
+        reseed: bool = True,
     ) -> Fork:
         """Create a fork definition from a checkpoint.
 
@@ -177,9 +179,10 @@ class ForkManager:
                           - {"type": "government", "player_id": 0, "value": "Republic"}
                           - {"type": "tech", "player_id": 0, "tech_id": 23}
                           - {"type": "rng_seed", "value": 5001}
-                          If no rng_seed mod is given, the fork's saved RNG
-                          state is cleared so the engine reseeds freshly.
             fork_name: Unique name for this fork
+            reseed: If no rng_seed mod is given, clear the fork's saved RNG
+                    state so the engine reseeds freshly. Pass False to keep
+                    the recording's saved RNG state instead.
 
         Returns:
             Fork object
@@ -204,14 +207,19 @@ class ForkManager:
             base_savegame_path=str(savegame_path),
             modifications=modifications,
             output_dir=output_dir,
-            username=username
+            username=username,
+            reseed=reseed,
         )
 
         self.forks.append(fork)
         return fork
 
     @staticmethod
-    def _apply_mods(modifier: SavegameModifier, modifications: List[dict]) -> None:
+    def _apply_mods(
+        modifier: SavegameModifier,
+        modifications: List[dict],
+        reseed: bool = True,
+    ) -> None:
         """Apply a list of modification dicts to a SavegameModifier.
 
         This is THE single mod-application path (used by both
@@ -240,16 +248,18 @@ class ForkManager:
                 raise ValueError(f"Unknown modification type: {mod_type}")
 
         # Default per-fork reseed: unless the caller pinned the RNG with an
-        # explicit rng_seed mod, clear the saved [random] table (and zero the
-        # recorded gameseed) so the engine draws a fresh seed on load.
-        if not any(mod.get("type") == "rng_seed" for mod in modifications):
+        # explicit rng_seed mod or passed reseed=False, clear the saved
+        # [random] table (and zero the recorded gameseed) so the engine draws
+        # a fresh seed on load.
+        if reseed and not any(mod.get("type") == "rng_seed" for mod in modifications):
             modifier.clear_rng_state()
 
     def _apply_modifications(
         self,
         savegame_path: str,
         modifications: List[dict],
-        output_path: str
+        output_path: str,
+        reseed: bool = True,
     ) -> str:
         """Apply modifications to a savegame and save to new location.
 
@@ -257,12 +267,13 @@ class ForkManager:
             savegame_path: Path to original savegame
             modifications: List of modifications to apply
             output_path: Where to save the modified savegame
+            reseed: See create_fork
 
         Returns:
             Path to modified savegame
         """
         modifier = SavegameModifier(savegame_path)
-        self._apply_mods(modifier, modifications)
+        self._apply_mods(modifier, modifications, reseed)
 
         # Save to output path
         modifier.save(output_path)
@@ -380,7 +391,7 @@ class ForkManager:
                 # research goal (goal_name=A_UNSET).
                 modifier = SavegameModifier(fork.base_savegame_path)
                 modifier.set_player_name(0, fork.username)
-                self._apply_mods(modifier, fork.modifications)
+                self._apply_mods(modifier, fork.modifications, fork.reseed)
                 modifier.save(str(temp_savegame))
 
                 # Clean up Docker and upload
