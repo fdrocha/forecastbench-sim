@@ -330,6 +330,8 @@ class ClientState(CivPropController):
         self._send_set("minp", fc_args['minp'])
         # FRACTAL to make players on one continent, FAIR to make players on islands with the same geography
         self._send_set("generator", "FRACTAL")
+        if fc_args.get('barbarians'):
+            self._send_set("barbarians", fc_args['barbarians'])
         # self.ws_client.send_message("/metaconnection persistent")
         self.ws_client.send_message(
             f"/metamessage Multiplayer Game hosted by {self.username} in port {self.ws_client.client_port}")

@@ -68,7 +68,8 @@ def cleanup_docker_savegames(username: str, container_name: str = 'freeciv-web')
     )
 
 
-def main(seed: int, max_turns: int = 50, num_ai_players: int = 5, quiet: bool = False, load_game: str = ""):
+def main(seed: int, max_turns: int = 50, num_ai_players: int = 5, quiet: bool = False, load_game: str = "",
+         barbarians: str = ""):
     # Use seed as the unique identifier for this run
     # Username requirements (from freeciv-proxy validate_username):
     # - Must be 3-31 characters long
@@ -81,6 +82,8 @@ def main(seed: int, max_turns: int = 50, num_ai_players: int = 5, quiet: bool = 
     fc_args['debug.record_action_and_observation'] = True
     fc_args['max_turns'] = max_turns
     fc_args['aifill'] = num_ai_players
+    if barbarians:
+        fc_args['barbarians'] = barbarians
     fc_args['begin_turn_timeout'] = 120  # Longer timeout for stable long games
 
     # Set seed for deterministic runs
@@ -246,6 +249,12 @@ if __name__ == '__main__':
         help='Suppress output (useful for batch runs)'
     )
     parser.add_argument(
+        '--barbarians',
+        type=str,
+        default="",
+        help='Server barbarians setting, e.g. DISABLED (default: server default)'
+    )
+    parser.add_argument(
         '--load_game',
         type=str,
         default="",
@@ -258,5 +267,6 @@ if __name__ == '__main__':
         max_turns=args.max_turns,
         num_ai_players=args.num_ai_players,
         quiet=args.quiet,
-        load_game=args.load_game
+        load_game=args.load_game,
+        barbarians=args.barbarians
     ))
