@@ -149,6 +149,25 @@ def _format_events(
     return lines
 
 
+def _format_diplomacy(relations: dict[str, Any], civs: list[tuple[int, dict[str, Any]]], turn: int) -> list[str]:
+    """Pairwise diplomatic state at `turn`; empty with fewer than two civs. Embassy is the lower ID's record of the pair."""
+    if len(civs) < 2:
+        return []
+    rows = []
+    for i, (a, civ_a) in enumerate(civs):
+        for b, civ_b in civs[i + 1:]:
+            rec = (relations.get(f"{a}_{b}") or {}).get(str(turn)) or {}
+            state = rec.get("state", "Never met")
+            first = rec.get("first_contact_turn")
+            rows.append([civ_a.get("name", f"Player {a}"), civ_b.get("name", f"Player {b}"), state,
+                         first if state != "Never met" and first not in (None, -1) else "never",
+                         "yes" if rec.get("embassy") else "no"])
+    lines = [f"DIPLOMACY (TURN {turn})",
+             "State between each pair of civilizations. 'Never met' = no contact yet; an embassy gives full intelligence on the other side."]
+    lines.extend(_format_table(["Civ A", "Civ B", "State", "First contact turn", "Embassy"], rows))
+    return lines
+
+
 def _format_event_types() -> list[str]:
     lines = ["EVENT TYPES (exhaustive)"]
     lines.append(", ".join(EVENT_TYPES))
@@ -310,6 +329,11 @@ def generate_txt_report(
         current_rows
     ))
     lines.append("")
+
+    diplomacy = _format_diplomacy((data.get("diplomacy") or {}).get("relations") or {}, civs, report_turn)
+    if diplomacy:
+        lines.extend(diplomacy)
+        lines.append("")
 
     # Government timeline
     lines.extend(_format_government_timeline(gov_by_turn, civs))
