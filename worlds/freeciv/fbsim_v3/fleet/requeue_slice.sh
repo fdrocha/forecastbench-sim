@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# requeue_slice.sh SRC_POD_ID — deal a dead pod's remaining local todo slice round-robin to live 32-vCPU workers and ship it.
+# requeue_slice.sh SRC_POD_ID — deal a dead pod's remaining local todo slice round-robin to the other live workers and ship it.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; cd "$HERE"; SRC="${1:?}"
-targets=$(awk -F'\t' -v src="$SRC" '$1!~/^#/ && $9!="deleted" && $5==32 && $2!=src{print $2}' state/pods.tsv)
+[ -s state/archive_pods.txt ] || { echo "no archive pods in state/archive_pods.txt"; exit 1; }
+targets=$(awk -F'\t' -v src="$SRC" 'NR==FNR{arch[$1]=1; next} $1!~/^#/ && $9!="deleted" && !($2 in arch) && $2!=src{print $2}' state/archive_pods.txt state/pods.tsv)
 n=$(echo "$targets" | wc -w); i=0; mkdir -p state/requeue
 for t in $targets; do rm -rf "state/requeue/$t"; mkdir -p "state/requeue/$t"; done
 for f in state/queue/$SRC/todo/*; do i=$((i+1)); t=$(echo $targets | awk -v k=$(( (i-1) % n + 1 )) '{print $k}'); cp "$f" "state/requeue/$t/"; done

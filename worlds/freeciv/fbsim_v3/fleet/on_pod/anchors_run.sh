@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # anchors_run.sh MAX_TURNS SEED... — run anchor_one.sh for each seed concurrently (all at once), detached.
+# FBSIM_N_PLAYERS and FBSIM_BARBARIANS pass through to anchor_one.sh.
 MAX_TURNS="${1:?}"; shift
 mkdir -p /workspace/fleet/logs /workspace/out/anchors
 for s in "$@"; do

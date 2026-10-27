@@ -5,7 +5,7 @@ description = "FreeCiv world for ForecastBench-Sim: the CivRealm game engine + F
 readme = "README.md"
 license = {text = "GLP3.0"}
 keywords = ["freeciv", "forecastbench", "ai", "reinforcement-learning"]
-requires-python = ">=3.11"
+requires-python = ">=3.11.4"
 dependencies = [
     "fbsim-core",
     'importlib-resources',

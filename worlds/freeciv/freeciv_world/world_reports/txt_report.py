@@ -149,6 +149,25 @@ def _format_events(
     return lines
 
 
+def _format_diplomacy(relations: dict[str, Any], civs: list[tuple[int, dict[str, Any]]], turn: int) -> list[str]:
+    """Pairwise diplomatic state at `turn`; empty with fewer than two civs. Embassy is the lower ID's record of the pair."""
+    if len(civs) < 2:
+        return []
+    rows = []
+    for i, (a, civ_a) in enumerate(civs):
+        for b, civ_b in civs[i + 1:]:
+            rec = (relations.get(f"{a}_{b}") or {}).get(str(turn)) or {}
+            state = rec.get("state", "Never met")
+            first = rec.get("first_contact_turn")
+            rows.append([civ_a.get("name", f"Player {a}"), civ_b.get("name", f"Player {b}"), state,
+                         first if state != "Never met" and first not in (None, -1) else "never",
+                         "yes" if rec.get("embassy") else "no"])
+    lines = [f"DIPLOMACY (TURN {turn})",
+             "State between each pair of civilizations. 'Never met' = no contact yet; an embassy gives full intelligence on the other side."]
+    lines.extend(_format_table(["Civ A", "Civ B", "State", "First contact turn", "Embassy"], rows))
+    return lines
+
+
 def _format_event_types() -> list[str]:
     lines = ["EVENT TYPES (exhaustive)"]
     lines.append(", ".join(EVENT_TYPES))
@@ -311,6 +330,11 @@ def generate_txt_report(
     ))
     lines.append("")
 
+    diplomacy = _format_diplomacy((data.get("diplomacy") or {}).get("relations") or {}, civs, report_turn)
+    if diplomacy:
+        lines.extend(diplomacy)
+        lines.append("")
+
     # Government timeline
     lines.extend(_format_government_timeline(gov_by_turn, civs))
     lines.append("")
@@ -347,17 +371,15 @@ def generate_txt_report(
     lines.extend(_format_events(data.get("events", []), civ_names, max_turn=report_turn))
     lines.append("")
 
-    # Territory maps
+    # Territory maps (none when map_interval is 0)
     map_dir = output_dir / f"turn_{report_turn:03d}_territory_maps"
-    map_dir.mkdir(parents=True, exist_ok=True)
-    visualizer = MapVisualizer(dpi=150, style="seaborn", data_loader=data_loader)
-    map_turns = [t for t in range(map_interval, report_turn + 1, map_interval)]
-    if report_turn not in map_turns:
-        map_turns.append(report_turn)
-    lines.append("TERRITORY MAPS (PNG)")
-    if not map_turns:
-        lines.append("No map turns available.")
-    else:
+    if map_interval > 0:
+        map_dir.mkdir(parents=True, exist_ok=True)
+        visualizer = MapVisualizer(dpi=150, style="seaborn", data_loader=data_loader)
+        map_turns = [t for t in range(map_interval, report_turn + 1, map_interval)]
+        if report_turn not in map_turns:
+            map_turns.append(report_turn)
+        lines.append("TERRITORY MAPS (PNG)")
         for t in sorted(set(map_turns)):
             state = data_loader.get_state(t)
             if not state or "map" not in state or "player" not in state:

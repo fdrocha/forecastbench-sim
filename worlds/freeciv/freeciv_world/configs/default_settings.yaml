@@ -40,6 +40,8 @@ autotoggle: disabled
 endvictory: enabled
 # Victory condition options: SPACERACE|ALLIED|CULTURE. If a certain victory condition is not set, the calculation logic for that victory condition will be skipped
 victories: "SPACERACE|ALLIED"
+# Barbarian setting sent at game setup (e.g. DISABLED). Empty leaves the server default.
+barbarians: ""
 # Whether to open the chatbox in the web interface. Options: enabled, disabled.
 openchatbox: enabled
 # The ruleset to be used.

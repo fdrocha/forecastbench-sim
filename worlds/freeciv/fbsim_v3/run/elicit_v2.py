@@ -51,8 +51,23 @@ HERE = Path(__file__).resolve().parent
 V3 = HERE.parent
 # Question sets, world reports and model panels: FBSIM_FREECIV_V3_DATA, a folder laid out like this one
 # (sets/draw_v1/, reports/, run/models_v*.csv), e.g. forecastbench-sim-paper/production/freeciv.
+# FBSIM_FREECIV_V3_DRAW names the draw under sets/; FBSIM_FREECIV_N_CIVS sets the civilization count in the prompts.
 DATA = Path(os.environ.get("FBSIM_FREECIV_V3_DATA", V3))
-SETS = DATA / "sets" / "draw_v1"
+SETS = DATA / "sets" / os.environ.get("FBSIM_FREECIV_V3_DRAW", "draw_v1")
+FIVE_CIVS = "Five AI civilizations are competing."
+CIVS_LINES = {"1": "One AI civilization is playing alone.", "2": "Two AI civilizations are competing.", "3": "Three AI civilizations are competing.",
+              "4": "Four AI civilizations are competing.", "5": FIVE_CIVS}
+N_CIVS = os.environ.get("FBSIM_FREECIV_N_CIVS", "5")
+if N_CIVS not in CIVS_LINES:
+    raise SystemExit(f"FBSIM_FREECIV_N_CIVS={N_CIVS!r}: expected one of 1-5")
+CIVS_LINE = CIVS_LINES[N_CIVS]
+
+
+def with_civs(prefix):
+    assert FIVE_CIVS in prefix, "prompt prefix lacks the civilization sentence"
+    return prefix.replace(FIVE_CIVS, CIVS_LINE)
+
+
 REPORTS = DATA / "reports"
 SEED = 2026
 FILES = {"bank": "bank_750", "tails": "tails_300", "mirrors": "mirrors_50", "continuous": "continuous_300"}
@@ -85,6 +100,8 @@ Question Background: This is a partial report on a FreeCiv game simulation in pr
 
 {report}
 """
+CONT_PREFIX = with_civs(CONT_PREFIX)
+BIN_PREFIX = with_civs(BIN_PREFIX)
 CONT_TAIL = """
 Questions ({n} in total):
 

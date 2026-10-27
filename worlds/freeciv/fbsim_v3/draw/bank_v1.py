@@ -3,11 +3,14 @@
 plus continuous instances (value vectors) and reveal vectors (turns 61-90). One source for bank, tails, mirrors,
 continuous and natural-conditional draws. Truth = all replays (qAll); qA/qB kept for reference.
 Output: OUT_DIR/<world>.pkl = {'bin': [inst...], 'Y': bool matrix [n_inst, n_rep], 'cont': [inst...], 'V': float matrix,
-'reveals': [rev...], 'X': bool matrix, 'civ_names', 'n'}"""
+'reveals': [rev...], 'X': bool matrix, 'civ_names', 'n'}
+Options: --horizons 90,120 (default 90..210); --binary-only skips continuous instances and reveals."""
 import os, sys, pickle, itertools, collections, numpy as np
 CONSOL, OUT = sys.argv[1], sys.argv[2]; os.makedirs(OUT, exist_ok=True)
 WAR, CEASE, ARMI, PEACE, ALLY, NOMET = 1, 2, 3, 4, 5, 0
-HZ = (90, 120, 150, 180, 210)
+HZ = tuple(int(h) for h in sys.argv[sys.argv.index('--horizons') + 1].split(',')) if '--horizons' in sys.argv else (90, 120, 150, 180, 210)
+BINARY_ONLY = '--binary-only' in sys.argv
+NUM = {1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight', 9: 'nine', 10: 'ten'}
 def nice(m): return {'scores': 'score', 'treasury': 'treasury', 'population': 'population', 'cities_count': 'number of cities',
                      'territory_size': 'territory size', 'military_units_count': 'number of military units', 'techs_known': 'number of technologies'}[m]
 for fn in sorted(f for f in os.listdir(CONSOL) if f.endswith('.pkl')):
@@ -54,7 +57,7 @@ for fn in sorted(f for f in os.listdir(CONSOL) if f.endswith('.pkl')):
                 addb('EX_comparative', T, f"Will {na} have a higher {nice(metric)} than {nb} at turn {T}?", np.where(np.isnan(va) | np.isnan(vb), False, va > vb), (a, b), metric=metric)
                 addb('EX_comparative', T, f"Will {nb} have a higher {nice(metric)} than {na} at turn {T}?", np.where(np.isnan(va) | np.isnan(vb), False, vb > va), (b, a), metric=metric)
         wars = (dT[:, :] == WAR).sum(axis=1)
-        for k in (1, 2, 3, 4): addb('S3_wars_at_T', T, f"Will at least {k} pairs of civilizations be at war at exactly turn {T}?", wars >= k, (), k=k)
+        for k in range(1, min(4, len(pairs)) + 1): addb('S3_wars_at_T', T, f"Will at least {k} pairs of civilizations be at war at exactly turn {T}?", wars >= k, (), k=k)
         addb('S7_any_destroyed', T, f"Will any city be destroyed by turn {T}?", np.array([any(61 <= t <= T for t in dv) for dv in destr]), ())
         addb('NB6_event', T, f"Will any city be conquered between turn 61 and turn {T}?", np.array([any(61 <= t <= T for (t, *_ ) in cv) for cv in conq]), (), kind='any')
         for k in (3, 10, 20): addb('NB6_event', T, f"Will at least {k} cities be conquered (in total) by turn {T}?", np.array([sum(1 for (t, *_ ) in cv if 61 <= t <= T) >= k for cv in conq]), (), kind=f'ge{k}')
@@ -69,7 +72,7 @@ for fn in sorted(f for f in os.listdir(CONSOL) if f.endswith('.pkl')):
             addb('NW5_wonder', T, f"Will {wname(w)} be completed by any civilization by turn {T}?", np.array([w in f for f in firsts]), (), wonder=w)
             cnt = collections.Counter(f[w] for f in firsts if w in f)
             for p, c in cnt.most_common(2):
-                if p in civs: addb('W1_wonder_race', T, f"Will {name(p)} complete {wname(w)} by turn {T}?", np.array([f.get(w) == p for f in firsts]), (p,), wonder=w)
+                if p in civs and len(civs) > 1: addb('W1_wonder_race', T, f"Will {name(p)} complete {wname(w)} by turn {T}?", np.array([f.get(w) == p for f in firsts]), (p,), wonder=w)
         tk = m['techs_known'][:, tj, :]
         for c in civs:
             ci = cidx[c]; nc = name(c); others = [cidx[o] for o in civs if o != c]
@@ -80,7 +83,7 @@ for fn in sorted(f for f in os.listdir(CONSOL) if f.endswith('.pkl')):
             for k in (1, 2, 3): addb('S4_gov_change_count', T, f"Will {nc}'s government change at least {k} time{'s' if k > 1 else ''} by turn {T}? (Anarchy counts as a form of government, for this question.)", gc >= k, (c,), k=k)
             techs = sorted({tn for tm in tech for (p, tn) in tm if p == c})
             for tn in techs: addb('EX_tech_discovered', T, f"Will {nc} have discovered {tn} by turn {T}?", np.array([tm.get((c, tn), 10**9) <= T for tm in tech]), (c,), tech=tn)
-            addb('W5_tech_lead', T, f"Will {nc} know strictly more technologies than every other civilization at turn {T}?", np.where(np.isnan(tk[:, ci]), False, tk[:, ci] > np.nanmax(tk[:, others], axis=1)), (c,))
+            if others: addb('W5_tech_lead', T, f"Will {nc} know strictly more technologies than every other civilization at turn {T}?", np.where(np.isnan(tk[:, ci]), False, tk[:, ci] > np.nanmax(tk[:, others], axis=1)), (c,))
             for metric in ('techs_known', 'scores', 'treasury', 'population', 'cities_count', 'territory_size', 'military_units_count'):
                 v = m[metric][:, tj, ci]; fam = 'NB1_threshold' if metric == 'techs_known' else 'NB1_value_threshold'
                 for ql in (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95):
@@ -99,11 +102,14 @@ for fn in sorted(f for f in os.listdir(CONSOL) if f.endswith('.pkl')):
     seen = set(); keep = [i for i, b in enumerate(bins) if not (b['text'] in seen or seen.add(b['text']))]
     dropped = len(bins) - len(keep); bins = [bins[i] for i in keep]; Ys = [Ys[i] for i in keep]
     Y = np.array(Ys, dtype=bool) if Ys else np.zeros((0, n), bool)
+    if BINARY_ONLY:
+        pickle.dump({'world': world, 'n': n, 'civ_names': d['civ_names'], 'civs': civs, 'bin': bins, 'Y': Y, 'halfA': A, 'halfB': B}, open(os.path.join(OUT, f'{world}.pkl'), 'wb'), protocol=4)
+        print(f"{world}: {len(bins)} binary ({dropped} duplicate texts dropped)", flush=True); continue
     # ---------------- continuous ----------------
     conts, Vs = [], []
     def addc(family, T, text, vals, subj, **kw):
         vals = np.asarray(vals, float); f = vals[~np.isnan(vals)]
-        if len(f) < 100: return
+        if len(f) < n / 10: return       # 100 of the paper's 1,000 replays
         need = civs if family == 'P6_world_techs' else list(subj)
         if not all(safe[T][c] for c in need): return
         iqr = float(np.subtract(*np.percentile(f, [75, 25])))
@@ -120,7 +126,7 @@ for fn in sorted(f for f in os.listdir(CONSOL) if f.endswith('.pkl')):
             ci = cidx[c]; nc = name(c)
             for metric, noun in (('scores', 'score'), ('population', 'population'), ('cities_count', 'number of cities'), ('territory_size', 'territory size')):
                 addc('NC1_value_at_T', T, f"What will {nc}'s {noun} be at turn {T}?", m[metric][:, tj, ci], (c,), metric=metric)
-        addc('P6_world_techs', T, f"What will the combined number of technologies known by all five civilizations be at turn {T}?", np.nansum(m['techs_known'][:, tj, :], axis=1), ())
+        if len(civs) > 1: addc('P6_world_techs', T, f"What will the combined number of technologies known by all {NUM.get(len(civs), len(civs))} civilizations be at turn {T}?", np.nansum(m['techs_known'][:, tj, :], axis=1), ())
         addc('NC5_world_captures', T, f"How many cities will be captured (in total, across all civilizations) by turn {T}?", [float(sum(1 for (t, *_ ) in cv if 61 <= t <= T)) for cv in conq], ())
         addc('NC14_world_wonders', T, f"How many wonders will be completed (across all civilizations) between turn 61 and turn {T}?", [float(sum(1 for (t, p, w) in wv if 61 <= t <= T)) for wv in wond], ())
         addc('S7_world_razings', T, f"How many cities will be destroyed in total by turn {T}?", [float(sum(1 for t in dv if 61 <= t <= T)) for dv in destr], ())
@@ -129,7 +135,7 @@ for fn in sorted(f for f in os.listdir(CONSOL) if f.endswith('.pkl')):
     revs, Xs = [], []
     def addx(kind, text, x, subj, strength):
         x = np.asarray(x, bool)
-        if x.sum() < 100: return
+        if x.sum() < n / 10: return
         revs.append(dict(world=world, kind=kind, text=text, subj=list(subj), strength=strength, nx=int(x.sum()))); Xs.append(x)
     for pi, (a, b) in enumerate(pairs):
         seg = dst[:, w61:w90 + 1, pi]; na, nb = name(a), name(b)
@@ -147,7 +153,8 @@ for fn in sorted(f for f in os.listdir(CONSOL) if f.endswith('.pkl')):
         addx('civ_anarchy', f"{nc} fell into anarchy at some point.", (gov[:, w61:w90 + 1, ci] == ANARCHY).any(axis=1), (c,), 'weak')
         addx('civ_wonder', f"{nc} completed a wonder.", [any(61 <= t <= 90 and p == c for (t, p, w) in wv) for wv in wond], (c,), 'weak')
         addx('civ_cities_grew4', f"{nc} had at least four more cities at turn 90 than at turn 60.", cc[:, w90, ci] >= cc[:, tidx[60], ci] + 4, (c,), 'weak')
-        sc = m['scores']; addx('civ_score_leader', f"{nc} had the highest score of any civilization at turn 90.", np.where(np.isnan(sc[:, w90, ci]), False, sc[:, w90, ci] > np.nanmax(sc[:, w90, [cidx[o] for o in civs if o != c]], axis=1)), (c,), 'loss')
+        sc = m['scores']
+        if len(civs) > 1: addx('civ_score_leader', f"{nc} had the highest score of any civilization at turn 90.", np.where(np.isnan(sc[:, w90, ci]), False, sc[:, w90, ci] > np.nanmax(sc[:, w90, [cidx[o] for o in civs if o != c]], axis=1)), (c,), 'loss')
         K = int(round(float(np.nanmedian(m['techs_known'][:, w90, ci])))); addx('civ_techs_K', f"{nc} knew at least {K} technologies at turn 90.", m['techs_known'][:, w90, ci] >= K, (c,), 'weak')
     X = np.array(Xs, dtype=bool) if Xs else np.zeros((0, n), bool)
     pickle.dump({'world': world, 'n': n, 'civ_names': d['civ_names'], 'civs': civs, 'bin': bins, 'Y': Y, 'cont': conts, 'V': V, 'reveals': revs, 'X': X, 'halfA': A, 'halfB': B}, open(os.path.join(OUT, f'{world}.pkl'), 'wb'), protocol=4)

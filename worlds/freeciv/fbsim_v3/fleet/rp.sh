@@ -87,7 +87,7 @@ cmd_ssh() {
        -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=6 -o BatchMode=yes -o LogLevel=ERROR "root@$ip" "$@"
 }
 
-cmd_list() { rp GET /pods | python3 "$HERE/rp_list.py"; }
+cmd_list() { rp GET /pods | python3 "$HERE/../draw/rp_list.py"; }
 
 cmd_delete() {
   local id="$1" body
