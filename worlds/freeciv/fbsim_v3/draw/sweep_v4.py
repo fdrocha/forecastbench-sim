@@ -14,6 +14,7 @@ import collections, itertools, json, os, pickle, sys
 import numpy as np
 
 CONSOL, OUTF = sys.argv[1], sys.argv[2]
+NUM = {1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight', 9: 'nine', 10: 'ten'}
 WAR, CEASE, ARMI, PEACE, ALLY, NOMET = 1, 2, 3, 4, 5, 0
 R = {}
 def add(t, i): R.setdefault(t, []).append(i)
@@ -90,15 +91,16 @@ for fn in sorted(f for f in os.listdir(CONSOL) if f.endswith('.pkl')):
                 addbin(w, 'W2_directed_conq', T, f"Will {name(c)} capture at least one city from {name(c2)} by turn {T}?", yes, civA=c, civB=c2)
             tk = m['techs_known'][:, tidx[T], :]
             others = [cidx[o] for o in alive60 if o != c]
-            lead = np.where(np.isnan(tk[:, cidx[c]]), False, tk[:, cidx[c]] > np.nanmax(tk[:, others], axis=1))
-            addbin(w, 'W5_tech_lead', T, f"Will {name(c)} know strictly more technologies than every other civilization at turn {T}?", lead, civ=c)
+            if others:
+                lead = np.where(np.isnan(tk[:, cidx[c]]), False, tk[:, cidx[c]] > np.nanmax(tk[:, others], axis=1))
+                addbin(w, 'W5_tech_lead', T, f"Will {name(c)} know strictly more technologies than every other civilization at turn {T}?", lead, civ=c)
             addcont(w, 'P5_techs_at_T', T, f"How many technologies will {name(c)} know at turn {T}?", tk[:, cidx[c]], civ=c)
         for pi in pair_alive:
             a, b = pairs[pi]
             addbin(w, 'W6_peace_at', T, f"Will {name(a)} and {name(b)} have a formal peace in effect at turn {T}?", dT[:, pi] == PEACE, pair=[a, b])
         addbin(w, 'S7_any_destroyed', T, f"Will any city be destroyed (razed) by turn {T}?", np.array([any(t <= T for t in dv) for dv in destr]))
         addcont(w, 'S7c_destroyed_count', T, f"How many cities will be destroyed (razed) in total by turn {T}?", np.array([float(sum(t <= T for t in dv)) for dv in destr]))
-        addcont(w, 'P6_world_techs', T, f"What will the combined number of technologies known by all five civilizations be at turn {T}?",
+        addcont(w, 'P6_world_techs', T, f"What will the combined number of technologies known by all {NUM.get(len(alive60), len(alive60))} civilizations be at turn {T}?",
                 np.nansum(m['techs_known'][:, tidx[T], [cidx[c] for c in alive60]], axis=1))
         addcont(w, 'NC5_count_v4', T, f"How many cities will be conquered (in total, all civs) by turn {T}?", np.array([float(sum(t <= T for (t, *_) in cv)) for cv in conq]))
         addcont(w, 'NC14_wonders_built_v4', T, f"How many wonders will be completed (all civs) between turn 61 and {T}?", np.array([float(sum(t <= T for (t, p, d) in wv)) for wv in wond]))

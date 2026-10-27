@@ -7,6 +7,7 @@ Stratified random draws (structural strata only; never on the noisy estimate bey
   continuous 300 = 240 spread (~6/family/horizon over 8 families, T90 4) + 60 timing at T210 (P9 40, P7 15, P8 5); IQR>0
   natcond   600 = 4 horizons (120..210) x 150 from BANK questions x reveals, blocks A30 B20 C1 20 C2 50 D30,
             template-balanced inside blocks, n_x>=100, <=2 reveals (distinct kinds) per question, <=8 cells per revealed event
+--binary-only writes bank, tails and mirrors only; --no-natcond adds continuous but skips natcond.
 Truth for everything = all replays. Effect sizes for natcond are reported after the draw, never used for it."""
 import os, sys, json, pickle, random, collections, numpy as np
 BANK, OUT = sys.argv[1], sys.argv[2]; SEED = int(sys.argv[sys.argv.index('--seed') + 1]) if '--seed' in sys.argv else 2026
@@ -67,6 +68,12 @@ tails = draw_cells(tcands, 60, lambda c: c['T'], caps=[(family, 10, CELL), (worl
 used |= {c['id'] for c in tails}
 mcands = [c for c in binpool if 0.95 <= c['qAll'] < 1 and c['id'] not in used]
 mirrors = draw_cells(mcands, 10, lambda c: c['T'], caps=[(family, 3, CELL), (world, 3, CELL), (subj, 1, GLOBAL)], balance='family')
+strip = lambda c: {k: v for k, v in c.items() if k != 'idx'}
+def write_and_exit(sets, note):   # a partial draw: write these sets and stop
+    for name, items in sets: json.dump([strip(c) for c in items], open(f'{OUT}/{name}.json', 'w'), indent=0)
+    print('  '.join(f"{name.split('_')[0]} {len(items)}" for name, items in sets) + f"  ({note})"); sys.exit(0)
+if '--binary-only' in sys.argv:   # no continuous or natcond inputs needed
+    write_and_exit((('bank_750', bank), ('tails_300', tails), ('mirrors_50', mirrors)), 'binary only')
 # continuous
 rng = random.Random(SEED + 2)
 contpool = []
@@ -83,6 +90,8 @@ for T in HZ:
         used = {c['id'] for c in got}; pool = [c for c in spread if c['T'] == T and c['id'] not in used]
         got += draw_cells(pool, 60 - len(got), lambda c: c['T'], caps=[(world, 3, CELL), (subj, 1, GLOBAL), (family, 9, CELL)], balance='family')
     cont += got
+if '--no-natcond' in sys.argv:   # no reveals needed
+    write_and_exit((('bank_750', bank), ('tails_300', tails), ('mirrors_50', mirrors), ('continuous_300', cont)), 'no natcond')
 # ---------------- natcond from bank questions ----------------
 value_fams = {'NB1_value_threshold', 'EX_comparative', 'NB4_drawdown'}
 state_fams = {'NW1_war_at', 'W6_peace_at', 'EX_government_at', 'W5_tech_lead', 'NW2_diplo', 'NW5_wonder', 'W1_wonder_race', 'S3_wars_at_T'}
@@ -156,7 +165,6 @@ rng_c = random.Random(SEED + 4); n_nc = len(natcond)
 nn = set(rng_c.sample(range(n_nc), min(300, n_nc))); sp = set(rng_c.sample(range(n_nc), min(300, n_nc)))   # independent arms
 for i, c in enumerate(natcond): c['control_no_news'] = i in nn; c['control_single_prompt'] = i in sp
 # ---------------- write ----------------
-strip = lambda c: {k: v for k, v in c.items() if k != 'idx'}
 json.dump([strip(c) for c in bank], open(f'{OUT}/bank_750.json', 'w'), indent=0)
 json.dump([strip(c) for c in tails], open(f'{OUT}/tails_300.json', 'w'), indent=0)
 json.dump([strip(c) for c in mirrors], open(f'{OUT}/mirrors_50.json', 'w'), indent=0)

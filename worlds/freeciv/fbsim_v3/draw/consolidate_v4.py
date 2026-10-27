@@ -53,7 +53,7 @@ def load(fp):
 def wonder_set(ruleset_path):
     r = json.load(open(ruleset_path)); return {v['name'] for v in r['improvements'].values() if v.get('genus') == 0}
 
-def exact_events(sg, wonders, tech_vec):
+def exact_events(sg, wonders, tech_vec, n_main=N_MAIN):
     """Rebuild the event list from the savegame tables, classifying owner changes."""
     tabs = sg['tables']; turns = sorted(int(t) for t in tabs)
     first_seen = {}
@@ -63,7 +63,7 @@ def exact_events(sg, wonders, tech_vec):
     barb = (sg.get('static') or {}).get('barbarian_type') or {}
     def kind_of(p): 
         if barb.get(p, 'None') not in ('None', 'NOT_A_BARBARIAN', None): return 'barbarian'
-        return 'main' if int(p) < N_MAIN else 'splinter'
+        return 'main' if int(p) < n_main else 'splinter'
     city_name = {}
     for t in turns:
         for p, cl in tabs[str(t)]['cities'].items():
@@ -98,13 +98,13 @@ def exact_events(sg, wonders, tech_vec):
     return sorted(out, key=lambda x: (x[0], x[1])), kinds
 
 def do_world(args):
-    world, tagmap, out_dir, wonders = args
+    world, tagmap, out_dir, wonders, n_main = args
     tags = sorted(tagmap, key=_tag_key)
     reserved, rest = tags[0], tags[1:]
     halfA_tags = {t for i, t in enumerate(rest) if i % 2 == 0}
     first = load(tagmap[tags[0]])
     turns = sorted(int(t) for t in first['time_series']['scores'])
-    civs = sorted(first['time_series']['scores'][str(turns[0])].keys(), key=int)[:N_MAIN]
+    civs = sorted(first['time_series']['scores'][str(turns[0])].keys(), key=int)[:n_main]
     civ_names = {cid: (ci.get('name') if isinstance(ci, dict) else str(ci)) for cid, ci in (first.get('civilizations') or {}).items()}
     pairs = [(a, b) for i, a in enumerate(civs) for b in civs[i+1:]]
     n_r, n_t, n_c = len(tags), len(turns), len(civs)
@@ -146,7 +146,7 @@ def do_world(args):
             checks['missing_sgtables'] += 1; bad.append(tag); events.append([]); continue
         sg = load(sgp[0]); st = sg.get('static') or {}
         if tech_vec is None and st.get('technology_vector'): tech_vec = st['technology_vector']
-        evs, kinds = exact_events(sg, wonders, tech_vec or [])
+        evs, kinds = exact_events(sg, wonders, tech_vec or [], n_main)
         events.append(evs); kinds_all.update(kinds.values())
         # wonders_count: GREAT wonders only, from the per-city improvement tables (the serializer's
         # series counts the Palace, a small wonder, for every civ)
@@ -204,6 +204,7 @@ def do_world(args):
 if __name__ == '__main__':
     ap = argparse.ArgumentParser(); ap.add_argument('root'); ap.add_argument('out')
     ap.add_argument('--workers', type=int, default=4); ap.add_argument('--anchors', nargs='*', type=int)
+    ap.add_argument('--n-main', type=int, default=N_MAIN, help='number of main (non-barbarian) players in every world')
     ap.add_argument('--ruleset', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'state', 'ruleset.json'))
     a = ap.parse_args(); os.makedirs(a.out, exist_ok=True)
     wonders = wonder_set(a.ruleset)
@@ -211,7 +212,7 @@ if __name__ == '__main__':
     print({w: len(t) for w, t in sorted(bw.items())}, flush=True)
     summary = {}
     with Pool(a.workers) as p:
-        for w, nr, na, nb, nt, ntr, checks, bad in p.imap_unordered(do_world, [(w, t, a.out, wonders) for w, t in sorted(bw.items())]):
+        for w, nr, na, nb, nt, ntr, checks, bad in p.imap_unordered(do_world, [(w, t, a.out, wonders, a.n_main) for w, t in sorted(bw.items())]):
             print(f'{w}: {nr} replays (A {na} / B {nb} / 1 reserved), {nt} turns, truncated {ntr}, checks {checks}, unreadable {bad[:5]}', flush=True)
             summary[w] = dict(replays=nr, halfA=na, halfB=nb, turns=nt, truncated=ntr, checks=checks, unreadable=bad)
     json.dump(summary, open(a.out.rstrip('/') + '_SUMMARY.json', 'w'), indent=1)
