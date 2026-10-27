@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from elicit_v2 import DATA, REPORTS, SETS, FIRST_PARTY, call, load_models, spent  # noqa: E402
+from elicit_v2 import DATA, REPORTS, SETS, FIRST_PARTY, with_civs, call, load_models, spent  # noqa: E402
 
 # ---- run-1 texts, verbatim (elicit_v1.py v1.8) ----
 BASE_PREFIX = """You will be asked a binary forecasting question about a simulation in progress. Your task is to estimate the probability that the event described in the question occurs. Please provide your reasoning before stating your final probability.
@@ -26,6 +26,7 @@ Question Background: This is a partial report on a FreeCiv game simulation in pr
 
 {report}
 """
+BASE_PREFIX = with_civs(BASE_PREFIX)
 BASE_TAIL = """
 Question Title: {question}
 {fact}
