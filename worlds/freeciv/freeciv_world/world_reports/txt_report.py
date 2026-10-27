@@ -347,17 +347,15 @@ def generate_txt_report(
     lines.extend(_format_events(data.get("events", []), civ_names, max_turn=report_turn))
     lines.append("")
 
-    # Territory maps
+    # Territory maps (none when map_interval is 0)
     map_dir = output_dir / f"turn_{report_turn:03d}_territory_maps"
-    map_dir.mkdir(parents=True, exist_ok=True)
-    visualizer = MapVisualizer(dpi=150, style="seaborn", data_loader=data_loader)
-    map_turns = [t for t in range(map_interval, report_turn + 1, map_interval)]
-    if report_turn not in map_turns:
-        map_turns.append(report_turn)
-    lines.append("TERRITORY MAPS (PNG)")
-    if not map_turns:
-        lines.append("No map turns available.")
-    else:
+    if map_interval > 0:
+        map_dir.mkdir(parents=True, exist_ok=True)
+        visualizer = MapVisualizer(dpi=150, style="seaborn", data_loader=data_loader)
+        map_turns = [t for t in range(map_interval, report_turn + 1, map_interval)]
+        if report_turn not in map_turns:
+            map_turns.append(report_turn)
+        lines.append("TERRITORY MAPS (PNG)")
         for t in sorted(set(map_turns)):
             state = data_loader.get_state(t)
             if not state or "map" not in state or "player" not in state:

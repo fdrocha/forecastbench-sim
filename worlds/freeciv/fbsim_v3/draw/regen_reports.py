@@ -107,9 +107,11 @@ for seed in sys.argv[3:]:
     # insert BORDERS after the DIPLOMACY table; add the barbarian setting to the header
     bs = d['metadata'].get('borders_section')
     if bs: body = re.sub(r'(\nDIPLOMACY \(TURN 60\)\n(?:.*\n)*?)\n', lambda m: m.group(1) + '\n' + bs + '\n\n', body, count=1)
-    # barbarians run at FreeCiv's default settings (the savegame lists only changed settings, and 'barbarians' is not
-    # among them): raids by barbarians and pirates begin around turn 60; none exist at the snapshot.
-    body = body.replace('\nMap size:', "\nBarbarians: default settings (barbarian and pirate raids begin around turn 60; none exist at turn 60)\nMap size:", 1)
+    # the savegame lists only changed settings: no 'barbarians' entry (the paper's anchors) means FreeCiv's default,
+    # with raids by barbarians and pirates beginning around turn 60; none exist at the snapshot.
+    barb_line = ("Barbarians: disabled (no barbarian or pirate players for the whole game)" if (d['metadata'].get('barbarians_setting') or '').upper() == 'DISABLED'
+                 else "Barbarians: default settings (barbarian and pirate raids begin around turn 60; none exist at turn 60)")
+    body = body.replace('\nMap size:', f"\n{barb_line}\nMap size:", 1)
     lines = body.split('\n'); out_lines = []; mode = None
     for ln in lines:
         if ln.startswith('CIVILIZATIONS'): mode = 'civ'
