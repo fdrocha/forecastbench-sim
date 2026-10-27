@@ -10,7 +10,7 @@ if [ "$todo" -gt 0 ] || [ "$inprog" -gt 0 ]; then echo "queue not empty: todo=$t
 dirs=$(ls -d /workspace/out/a*/forks/rng* 2>/dev/null)
 n=$(echo "$dirs" | grep -c .)
 echo "$(date -u +%FT%TZ) sg_tables over $n forks with $W workers"
-python $F/sg_tables.py $dirs --workers "$W" > $F/logs/sg_tables.log 2>&1
+python /workspace/civbench/sg_tables.py $dirs --workers "$W" > $F/logs/sg_tables.log 2>&1
 echo "sg_tables rc=$? ok=$(grep -c ' saves, ' $F/logs/sg_tables.log) err=$(grep -vc ' saves, ' $F/logs/sg_tables.log)"
 # final sync now (the loop also keeps running)
 read -r AIP APORT NAME < <(pgrep -af '/workspace/fleet/sync_loop.sh' | head -1 | awk '{print $(NF-3), $(NF-2), $(NF-1)}')

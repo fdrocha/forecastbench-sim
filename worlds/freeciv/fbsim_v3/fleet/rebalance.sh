@@ -3,12 +3,13 @@
 # whose todo has dropped below MIN_TODO (default 2 x lanes). Tasks are moved atomically on the
 # source pod (mv todo -> moved) before being created on the destination, so no lane can claim twice.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; cd "$HERE"
+[ -s state/archive_pods.txt ] || { echo "no archive pods in state/archive_pods.txt"; exit 1; }
 SSHKEY="$HOME/.ssh/id_ed25519_runpod"
 tmp="$(mktemp -d)"
 # 1. snapshot todo counts + lanes per worker
 while IFS=$'\t' read -r ts id name flavor vcpu cloud dc cost status; do
   case "$ts" in \#*) continue;; esac; [ "$status" = deleted ] && continue
-  case "$id" in 3xwo7xrkdsq40e|89spdc0ezuuqwi|mks2924lqlbh6a) continue;; esac
+  grep -qx "$id" state/archive_pods.txt 2>/dev/null && continue
   ( t="$(bash rp.sh ssh "$id" 'echo $(ls /workspace/fleet/queue/todo | wc -l) $(ls /workspace/fleet/queue/inprog | wc -l)' 2>/dev/null)" && echo "$id $vcpu $t" > "$tmp/$id" ) &
 done < state/pods.tsv; wait
 cat "$tmp"/* | sort -k3 -n > "$tmp/all"

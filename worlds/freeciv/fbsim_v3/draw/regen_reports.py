@@ -11,6 +11,8 @@ OUT = Path(sys.argv[2])
 for seed in sys.argv[3:]:
     src = BASE / f'anchors_raw/seed{seed}'
     d = json.load(gzip.open(src / f'seed{seed}_data.json.gz', 'rt'))
+    st = src / 'settings.txt'   # written by anchor_one.sh; the paper's anchors have none (5 players)
+    NP = int(re.search(r'^players=(\d+)', st.read_text(), re.M).group(1)) if st.exists() else 5
     sav = sorted(glob.glob(str(src / f'savegames/seed{seed}_T60_*.sav.xz')))[0]
     txt = lzma.open(sav, 'rt', errors='replace').read()
     xs = re.search(r'^"xsize",(\d+)', txt, re.M); ys = re.search(r'^"ysize",(\d+)', txt, re.M)
@@ -33,7 +35,7 @@ for seed in sys.argv[3:]:
         return int(_np.maximum(dx, dy).min())      # Chebyshev distance: 1 = adjacent tiles (touching territories)
     _names = {int(c): (v.get('name') if isinstance(v, dict) else str(v)) for c, v in (d.get('civilizations') or {}).items()}
     nm_ = lambda p_: _names.get(int(p_), f'Player {p_}')
-    main = [c for c in sorted(_names) if c < 5]
+    main = [c for c in sorted(_names) if c < NP]
     border_rows = []
     for i_, a in enumerate(main):
         for b in main[i_ + 1:]:
@@ -48,7 +50,7 @@ for seed in sys.argv[3:]:
     sgp = src / f'seed{seed}_sgtables.json.gz'
     if sgp.exists():
         sg = json.load(gzip.open(sgp, 'rt')); tv = (sg.get('static') or {}).get('technology_vector') or []
-        rs = json.load(open(BASE / 'ruleset.json')); wonders = {v['name'] for v in rs['improvements'].values() if v.get('genus') == 0}
+        rs = json.load(open(BASE / 'ruleset.json' if (BASE / 'ruleset.json').exists() else src / 'ruleset.json')); wonders = {v['name'] for v in rs['improvements'].values() if v.get('genus') == 0}
         names = {int(c): (v.get('name') if isinstance(v, dict) else str(v)) for c, v in (d.get('civilizations') or {}).items()}
         nm = lambda p: names.get(int(p), f'Player {p}')
         cname = {}
@@ -83,7 +85,7 @@ for seed in sys.argv[3:]:
         for e in sg['events']:
             if e.get('type') != 'diplomacy_change' or e.get('turn', 99) > 60: continue
             a, b = int(e['player_id']), int(e['other'])
-            if a >= 5 or b >= 5: continue
+            if a >= NP or b >= NP: continue
             key = (e['turn'], min(a, b), max(a, b))
             if key in seen: continue
             seen.add(key)
@@ -100,6 +102,8 @@ for seed in sys.argv[3:]:
     js = out / f'seed{seed}_data.json'; json.dump(d, open(js, 'w'))
     rs = BASE / 'ruleset.json'
     if rs.exists() and not (src / 'ruleset.json').exists(): shutil.copy(rs, src / 'ruleset.json')
+    if not glob.glob(str(src / 'turn_*_state.json')) and (src / 'recording_states.tar.gz').exists():   # as anchor_one.sh publishes them
+        import tarfile; tarfile.open(src / 'recording_states.tar.gz').extractall(src, filter='data')
     p, _ = generate_txt_report(js, src, out, 60, 5, 0)
     body = open(p).read()
     # cuts: RANKINGS section; Adjective + Nation ID columns; the Metadata column of EVENTS
