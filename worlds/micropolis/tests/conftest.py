@@ -27,6 +27,14 @@ def _no_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_credentials_file(monkeypatch, tmp_path):
+    """Keep the checkout's credentials/.env out of the tests, subprocesses included."""
+    from fbsim_core import local
+    monkeypatch.setattr(local, "ENV_FILE", tmp_path / "absent.env")
+    monkeypatch.setenv("FBSIM_TEST_ENV_FILE", str(tmp_path / "absent.env"))
+
+
+@pytest.fixture(autouse=True)
 def _block_engine_and_sockets(monkeypatch):
     import socket
     from micropolis_world.city_sim import CitySimulation

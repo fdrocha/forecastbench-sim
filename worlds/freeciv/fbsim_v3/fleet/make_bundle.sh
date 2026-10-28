@@ -4,7 +4,7 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; REPO="$(cd "$HERE/../../../.." && pwd)"
 OUT="${1:?OUT_DIR}"; mkdir -p "$OUT/packages" "$OUT/worlds"
-X=(--exclude .venv --exclude __pycache__ --exclude '*.pyc' --exclude '*.egg-info')
+X=(--exclude .venv --exclude __pycache__ --exclude '*.pyc' --exclude '*.egg-info' --exclude .env --exclude '*.env')   # keys never ship to pods
 rsync -a --delete "${X[@]}" "$HERE/pod_bundle/" "$OUT/" --exclude packages --exclude worlds --exclude pyproject.toml
 rsync -a --delete "${X[@]}" "$REPO/packages/fbsim-core/" "$OUT/packages/fbsim-core/"
 rsync -a --delete "${X[@]}" --exclude fbsim_v3 --exclude logs "$REPO/worlds/freeciv/" "$OUT/worlds/freeciv/"

@@ -21,7 +21,7 @@ The subprocess pattern:
 
     script = '''
     from freeciv_world.forking import ForkManager
-    manager = ForkManager("logs/recordings/s100", 100)
+    manager = ForkManager("data/freeciv/logs/recordings/s100", 100)
     fork = manager.create_fork(checkpoint_turn=50, modifications=[], fork_name="test")
     result = manager.run_fork(fork, 60)
     print("RESULT:" + json.dumps({"success": result.success, ...}))
@@ -29,7 +29,7 @@ The subprocess pattern:
     result = subprocess.run([sys.executable, "-c", script], capture_output=True)
 
 Example usage (single fork per process):
-    manager = ForkManager("logs/recordings/s100", base_seed=100)
+    manager = ForkManager("data/freeciv/logs/recordings/s100", base_seed=100)
 
     # Create forks with different modifications
     baseline = manager.create_fork(
@@ -102,7 +102,7 @@ class ForkManager:
 
         Args:
             base_recording_dir: Path to recording directory containing savegames/
-                               (e.g., "logs/recordings/s100")
+                               (e.g., "data/freeciv/logs/recordings/s100")
             base_seed: The seed of the base game (used for fork naming)
         """
         self.base_dir = Path(base_recording_dir)

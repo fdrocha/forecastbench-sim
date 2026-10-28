@@ -16,7 +16,7 @@
 set -euo pipefail
 
 BUNDLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_ROOT="${BUNDLE_DIR}/worlds/freeciv/logs"
+LOG_ROOT="${BUNDLE_DIR}/data/freeciv/logs"
 ENV_FILE="${BUNDLE_DIR}/pod_env.sh"
 
 echo "== pod_setup: apt deps (incl. zstd) =="

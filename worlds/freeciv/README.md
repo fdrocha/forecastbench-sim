@@ -33,7 +33,7 @@ uv run python scripts/evaluate_llm_forecasts_parallel.py \
   --models openai/gpt-4o -n 5 --horizon H0 H1
 ```
 
-Results are saved to `data/evaluations/runs/`.
+Results are saved to `data/freeciv/evaluations/runs/` (repository root).
 
 ## Pipeline
 
@@ -72,7 +72,7 @@ Prompt templates for the intervention experiments live in `freeciv_world/evaluat
 
 ## Data
 
-All generated data (game snapshots, questions, evaluation results) is produced by the pipeline scripts above and excluded from the repository. See `data/README.md` for the expected directory structure.
+All generated data (game snapshots, questions, evaluation results, game recordings and logs) is produced by the pipeline scripts above and written under `data/freeciv/` at the repository root: `games/`, `questions/`, `conditional/`, `results/`, `evaluations/` and `logs/recordings/`. Keys and `GOOGLE_CLOUD_PROJECT` come from `credentials/.env`; most scripts then fetch provider keys from GCP Secret Manager. Both `data/` and `credentials/` are symlinks to directories outside the checkout (`scripts/setup_worktree.sh`).
 
 ## Evaluation output
 

@@ -14,7 +14,8 @@
   ],
   "adaptations": [
     "Question sets, reports and model panels read from FBSIM_FREECIV_V3_DATA (default: this folder) instead of the producer checkout (run/elicit_v1.py, elicit_v2.py, elicit_natcond_v1.py, effort_check_v2.py, score_v1.py, score_v2.py, selection_fractions.py)",
-    "API keys from the environment only (run/elicit_v1.py, fleet/rp.sh)",
+    "API keys from the environment or the repository's credentials/.env, never from a file in this folder (run/elicit_v1.py, elicit_v2.py, elicit_natcond_v1.py, effort_check_v2.py, fleet/rp.sh); --env-file removed",
+    "Fleet run state in data/freeciv/fbsim_v3/fleet_state and ssh keys in credentials/freeciv, outside the checkout (fleet/paths.sh, sourced by every fleet script); pods record games under data/freeciv/logs",
     "Producer paths replaced by arguments or environment variables (draw/qc_pipeline.py, draw/regen_reports.py, draw/sg_tables.py, fleet/pull.sh, fleet/pull2.sh, fleet/exhausted.sh, fleet/finalize.sh, fleet/pod_bundle/bench/test_observability.py)",
     "fleet/finalize.sh: pod ids as arguments, draw scripts called from ../draw, the legacy mine_v3.py step removed (that script was never committed)",
     "run/score_selftest.py: system temp directory",

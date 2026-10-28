@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate a readable TXT world report plus territory maps.
 
-This script builds a human-readable TXT report from game data (data/games/)
+This script builds a human-readable TXT report from game data (data/freeciv/games/)
 and recordings. It also renders territory maps every N turns.
 """
 
@@ -20,6 +20,8 @@ from freeciv_world.world_reports.config import ReportConfig
 from freeciv_world.world_reports.data_loader import DataLoader
 from freeciv_world.world_reports.extractors.metrics_collector import MetricsCollector
 from freeciv_world.world_reports.utils.visualizations import MapVisualizer
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 EVENT_TYPES = [
     "city_founded",
@@ -416,16 +418,16 @@ def main() -> int:
     parser.add_argument("--turn", type=int, default=50, help="Snapshot turn (default: 50)")
     parser.add_argument("--sample-interval", type=int, default=5, help="Sampling interval for most time series")
     parser.add_argument("--map-interval", type=int, default=10, help="Map generation interval in turns")
-    parser.add_argument("--games-dir", type=Path, default=Path("data/games"), help="Directory containing game data files")
-    parser.add_argument("--recordings-dir", type=Path, default=Path("logs/recordings"), help="Recordings base directory")
+    parser.add_argument("--games-dir", type=Path, default=Path(f"{FC_DATA}/games"), help="Directory containing game data files")
+    parser.add_argument("--recordings-dir", type=Path, default=Path(f"{FC_DATA}/logs/recordings"), help="Recordings base directory")
     parser.add_argument("--output-dir", type=Path, default=None, help="Output directory for TXT and maps")
     args = parser.parse_args()
 
     game_id = args.game_id
-    # Load from data/games/{game_id}_data.json (source of truth)
+    # Load from data/freeciv/games/{game_id}_data.json (source of truth)
     game_data_path = args.games_dir / f"{game_id}_data.json"
     recording_dir = args.recordings_dir / game_id
-    output_dir = args.output_dir or (Path("data/questions") / game_id / "world_report")
+    output_dir = args.output_dir or (Path(f"{FC_DATA}/questions") / game_id / "world_report")
 
     if not game_data_path.exists():
         raise FileNotFoundError(f"Game data not found: {game_data_path}")

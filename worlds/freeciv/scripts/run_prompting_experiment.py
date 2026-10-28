@@ -22,9 +22,9 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from dotenv import load_dotenv
+from fbsim_core.local import load_env
 
-load_dotenv(Path(__file__).parent.parent / ".env")
+load_env()
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from fbsim_core.evaluation.models import get_models, load_api_keys_from_gcp
@@ -36,6 +36,8 @@ from freeciv_world.evaluation.rate_limiter import ProviderRateLimiter
 from freeciv_world.evaluation import parallel_evaluator
 from freeciv_world.evaluation.parallel_evaluator import run_batch_evaluation
 from fbsim_core.metrics import compute_brier_score, compute_calibration_error
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 
 # Models spanning the conditional gap range
@@ -45,8 +47,8 @@ EXPERIMENT_MODELS = [
     "openai/gpt-4.1-2025-04-14",      # largest gap
 ]
 
-DATA_DIR = Path("data/conditional/republic/conditional")
-OUTPUT_DIR = Path("data/results/prompting_experiment")
+DATA_DIR = Path(f"{FC_DATA}/conditional/republic/conditional")
+OUTPUT_DIR = Path(f"{FC_DATA}/results/prompting_experiment")
 
 # Prompting conditions: (name, prefix text inserted before the world report)
 PROMPTING_CONDITIONS = {

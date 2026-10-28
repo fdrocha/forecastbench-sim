@@ -31,30 +31,32 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from freeciv_world.world_reports import generate_txt_report
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 # Republic fork directories for each seed
 REPUBLIC_FORKS = {
-    "seed0": "logs/recordings/seed0forkgovRepp0v1770146193",
-    "seed1": "logs/recordings/seed1forkgovRepublicp0",
-    "seed2": "logs/recordings/seed2forkgovRepublicp0",
-    "seed3": "logs/recordings/seed3forkgovRepublicp0",
-    "seed4": "logs/recordings/seed4forkgovRepublicp0",
-    "seed5": "logs/recordings/seed5forkgovRepublicp0",
-    "seed6": "logs/recordings/seed6forkgovRepublicp0",
-    "seed7": "logs/recordings/seed7forkgovRepublicp0",
-    "seed8": "logs/recordings/seed8forkgovRepublicp0",
-    "seed9": "logs/recordings/seed9forkgovRepublicp0",
-    "seed10": "logs/recordings/seed10forkgovRepublicp0",
-    "seed11": "logs/recordings/seed11forkgovRepublicp0",
-    "seed12": "logs/recordings/seed12forkgovRepublicp0",
-    "seed13": "logs/recordings/seed13forkgovRepublicp0",
-    "seed14": "logs/recordings/seed14forkgovRepublicp0",
-    "seed15": "logs/recordings/seed15forkgovRepublicp0",
-    "seed16": "logs/recordings/seed16forkgovRepublicp0",
-    "seed17": "logs/recordings/seed17forkgovRepublicp0",
-    "seed18": "logs/recordings/seed18forkgovRepublicp0",
-    "seed19": "logs/recordings/seed19forkgovRepublicp0",
-    "seed20": "logs/recordings/seed20forkgovRepublicp0",
+    "seed0": f"{FC_DATA}/logs/recordings/seed0forkgovRepp0v1770146193",
+    "seed1": f"{FC_DATA}/logs/recordings/seed1forkgovRepublicp0",
+    "seed2": f"{FC_DATA}/logs/recordings/seed2forkgovRepublicp0",
+    "seed3": f"{FC_DATA}/logs/recordings/seed3forkgovRepublicp0",
+    "seed4": f"{FC_DATA}/logs/recordings/seed4forkgovRepublicp0",
+    "seed5": f"{FC_DATA}/logs/recordings/seed5forkgovRepublicp0",
+    "seed6": f"{FC_DATA}/logs/recordings/seed6forkgovRepublicp0",
+    "seed7": f"{FC_DATA}/logs/recordings/seed7forkgovRepublicp0",
+    "seed8": f"{FC_DATA}/logs/recordings/seed8forkgovRepublicp0",
+    "seed9": f"{FC_DATA}/logs/recordings/seed9forkgovRepublicp0",
+    "seed10": f"{FC_DATA}/logs/recordings/seed10forkgovRepublicp0",
+    "seed11": f"{FC_DATA}/logs/recordings/seed11forkgovRepublicp0",
+    "seed12": f"{FC_DATA}/logs/recordings/seed12forkgovRepublicp0",
+    "seed13": f"{FC_DATA}/logs/recordings/seed13forkgovRepublicp0",
+    "seed14": f"{FC_DATA}/logs/recordings/seed14forkgovRepublicp0",
+    "seed15": f"{FC_DATA}/logs/recordings/seed15forkgovRepublicp0",
+    "seed16": f"{FC_DATA}/logs/recordings/seed16forkgovRepublicp0",
+    "seed17": f"{FC_DATA}/logs/recordings/seed17forkgovRepublicp0",
+    "seed18": f"{FC_DATA}/logs/recordings/seed18forkgovRepublicp0",
+    "seed19": f"{FC_DATA}/logs/recordings/seed19forkgovRepublicp0",
+    "seed20": f"{FC_DATA}/logs/recordings/seed20forkgovRepublicp0",
 }
 
 # Template text for baseline (unconditional) questions
@@ -342,14 +344,14 @@ def setup_evaluation_directories():
     base_dir = Path(__file__).parent.parent
 
     # Output directories
-    baseline_eval_dir = base_dir / "data" / "conditional" / "republic" / "baseline"
-    conditional_eval_dir = base_dir / "data" / "conditional" / "republic" / "conditional"
-    conditional_no_eval_dir = base_dir / "data" / "conditional" / "republic" / "conditional_no"
-    given_that_eval_dir = base_dir / "data" / "conditional" / "republic" / "given_that"
-    post_intervention_eval_dir = base_dir / "data" / "conditional" / "republic" / "post_intervention"
+    baseline_eval_dir = FC_DATA / "conditional" / "republic" / "baseline"
+    conditional_eval_dir = FC_DATA / "conditional" / "republic" / "conditional"
+    conditional_no_eval_dir = FC_DATA / "conditional" / "republic" / "conditional_no"
+    given_that_eval_dir = FC_DATA / "conditional" / "republic" / "given_that"
+    post_intervention_eval_dir = FC_DATA / "conditional" / "republic" / "post_intervention"
 
     # Source directory for baseline questions (for civilizations info and world_report)
-    questions_dir = base_dir / "data" / "questions"
+    questions_dir = FC_DATA / "questions"
 
     total_baseline = 0
     total_conditional = 0
@@ -452,16 +454,16 @@ def setup_evaluation_directories():
             json.dump(post_intervention_questions, f, indent=2)
 
         # Build merged recording dir (baseline turns 1-59 + fork turn 60 state)
-        baseline_recording_dir = base_dir / "logs" / "recordings" / seed
+        baseline_recording_dir = FC_DATA / "logs" / "recordings" / seed
         merged_dir = create_merged_recording_dir(
             baseline_recording_dir=baseline_recording_dir,
             fork_recording_dir=fork_path,
-            output_dir=base_dir / "logs" / "recordings" / f"_merged_{seed}_republic",
+            output_dir=FC_DATA / "logs" / "recordings" / f"_merged_{seed}_republic",
             fork_turn=60,
         )
 
         # Generate post-intervention world report from merged recording
-        game_data_path = base_dir / "data" / "games" / f"{seed}_data.json"
+        game_data_path = FC_DATA / "games" / f"{seed}_data.json"
         generate_txt_report(
             game_data_path=game_data_path,
             recording_dir=merged_dir,
@@ -501,19 +503,19 @@ def setup_evaluation_directories():
     print()
     print("To run evaluations:")
     print("  # Baseline")
-    print(f"  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/conditional/republic/baseline --models anthropic/claude-opus-4-5-20251101")
+    print(f"  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/freeciv/conditional/republic/baseline --models anthropic/claude-opus-4-5-20251101")
     print()
     print("  # Conditional (Republic intervention)")
-    print(f"  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/conditional/republic/conditional --models anthropic/claude-opus-4-5-20251101")
+    print(f"  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/freeciv/conditional/republic/conditional --models anthropic/claude-opus-4-5-20251101")
     print()
     print("  # Null conditional (NOT Republic)")
-    print(f"  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/conditional/republic/conditional_no --models anthropic/claude-opus-4-5-20251101")
+    print(f"  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/freeciv/conditional/republic/conditional_no --models anthropic/claude-opus-4-5-20251101")
     print()
     print("  # Given-that conditional (presuppositional framing)")
-    print(f"  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/conditional/republic/given_that --models anthropic/claude-opus-4-5-20251101")
+    print(f"  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/freeciv/conditional/republic/given_that --models anthropic/claude-opus-4-5-20251101")
     print()
     print("  # Post-intervention baseline (unconditional + post-intervention world state)")
-    print(f"  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/conditional/republic/post_intervention --models anthropic/claude-opus-4-5-20251101")
+    print(f"  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/freeciv/conditional/republic/post_intervention --models anthropic/claude-opus-4-5-20251101")
 
 
 if __name__ == "__main__":

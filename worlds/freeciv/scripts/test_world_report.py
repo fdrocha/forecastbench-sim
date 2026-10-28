@@ -15,6 +15,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
 from freeciv_world.world_reports import ReportGenerator, ReportConfig
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 
 def main():
@@ -23,7 +25,7 @@ def main():
     # Configuration
     report_config = ReportConfig(
         # Input: where game recordings are stored
-        recording_dir='logs/recordings/s100/',
+        recording_dir=f'{FC_DATA}/logs/recordings/s100/',
 
         # Output: where to save the report
         output_dir='reports/test',

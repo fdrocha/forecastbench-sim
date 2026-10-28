@@ -21,17 +21,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from freeciv_world.world_reports import generate_txt_report
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 # Gold +500 fork directories for each seed
 GOLD500_FORKS = {
-    "seed0": "logs/recordings/seed0forkgoldadd500p0",
-    "seed2": "logs/recordings/seed2forkgoldadd500p0",
-    "seed3": "logs/recordings/seed3forkgoldadd500p0",
-    "seed4": "logs/recordings/seed4forkgoldadd500p0",
-    "seed5": "logs/recordings/seed5forkgoldadd500p0",
-    "seed6": "logs/recordings/seed6forkgoldadd500p0",
-    "seed7": "logs/recordings/seed7forkgoldadd500p0",
-    "seed8": "logs/recordings/seed8forkgoldadd500p0",
+    "seed0": f"{FC_DATA}/logs/recordings/seed0forkgoldadd500p0",
+    "seed2": f"{FC_DATA}/logs/recordings/seed2forkgoldadd500p0",
+    "seed3": f"{FC_DATA}/logs/recordings/seed3forkgoldadd500p0",
+    "seed4": f"{FC_DATA}/logs/recordings/seed4forkgoldadd500p0",
+    "seed5": f"{FC_DATA}/logs/recordings/seed5forkgoldadd500p0",
+    "seed6": f"{FC_DATA}/logs/recordings/seed6forkgoldadd500p0",
+    "seed7": f"{FC_DATA}/logs/recordings/seed7forkgoldadd500p0",
+    "seed8": f"{FC_DATA}/logs/recordings/seed8forkgoldadd500p0",
 }
 
 # Unconditional question templates (same as baseline)
@@ -162,8 +164,8 @@ def create_merged_recording_dir(
 def setup_evaluation_directories():
     base_dir = Path(__file__).parent.parent
 
-    post_intervention_eval_dir = base_dir / "data" / "conditional" / "gold500" / "post_intervention"
-    questions_dir = base_dir / "data" / "questions"
+    post_intervention_eval_dir = FC_DATA / "conditional" / "gold500" / "post_intervention"
+    questions_dir = FC_DATA / "questions"
 
     total = 0
 
@@ -199,18 +201,18 @@ def setup_evaluation_directories():
             json.dump(questions, f, indent=2)
 
         # Build merged recording dir
-        baseline_recording_dir = base_dir / "logs" / "recordings" / seed
+        baseline_recording_dir = FC_DATA / "logs" / "recordings" / seed
         merged_dir = create_merged_recording_dir(
             baseline_recording_dir=baseline_recording_dir,
             fork_recording_dir=fork_path,
-            output_dir=base_dir / "logs" / "recordings" / f"_merged_{seed}_gold500",
+            output_dir=FC_DATA / "logs" / "recordings" / f"_merged_{seed}_gold500",
             fork_turn=60,
         )
 
         # Generate post-intervention world report with patched treasury
         # The report reads treasury from game_data JSON (not recordings),
         # so we need to patch the turn-60 treasury value to reflect +500 gold.
-        game_data_path = base_dir / "data" / "games" / f"{seed}_data.json"
+        game_data_path = FC_DATA / "games" / f"{seed}_data.json"
         patched_game_data_path = seed_dir / f"{seed}_data_patched.json"
         with open(game_data_path) as f:
             game_data = json.load(f)
@@ -247,9 +249,9 @@ def setup_evaluation_directories():
     print()
     print("To run evaluation:")
     print(f"  uv run python scripts/evaluate_llm_forecasts_parallel.py \\")
-    print(f"    --data-dir data/conditional/gold500/post_intervention \\")
+    print(f"    --data-dir data/freeciv/conditional/gold500/post_intervention \\")
     print(f"    --models anthropic/claude-opus-4-5-20251101 \\")
-    print(f"    --output data/evaluations/gold500_post_intervention_opus45_eval.json")
+    print(f"    --output data/freeciv/evaluations/gold500_post_intervention_opus45_eval.json")
 
 
 if __name__ == "__main__":

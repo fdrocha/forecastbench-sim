@@ -6,7 +6,7 @@ set -u
 LIST="${1:?}"; CONC="${2:-4}"; TO="${3:-5400}"; F=/workspace/fleet; Q=$F/queue; B=/workspace/civbench; OUT=/workspace/out
 mkdir -p $Q/done $Q/failed $OUT/logs
 run1() { local A="$1" R="$2"; local t="a$A-rng$R"; local log="$OUT/logs/$t.rerun.log" t0 t1 rc
-  rm -rf "$OUT/a$A/forks/rng$R" "$OUT/a$A/forks_failed/rng$R.FAILED" "$B/worlds/freeciv/logs/recordings/seed${A}forkrng$R" 2>/dev/null
+  rm -rf "$OUT/a$A/forks/rng$R" "$OUT/a$A/forks_failed/rng$R.FAILED" "$B/data/freeciv/logs/recordings/seed${A}forkrng$R" 2>/dev/null
   t0=$(date +%s); FBSIM_OUT_DIR="$OUT/a$A" FBSIM_FORK_TIMEOUT_S="$TO" timeout -k 60 $((TO+300)) bash "$B/fork_one.sh" "$A" "rng$R" "$R" 210 > "$log" 2>&1; rc=$?; t1=$(date +%s)
   if [ "$rc" -eq 0 ] && [ -s "$OUT/a$A/forks/rng$R/seed${A}forkrng${R}_data.json.gz" ]; then
     echo "$(date -u +%FT%TZ) rerun $((t1-t0))s $(ls $OUT/a$A/forks/rng$R/savegames | wc -l)saves" > "$Q/done/$t"; echo "DONE $t $((t1-t0))s"

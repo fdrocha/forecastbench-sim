@@ -10,6 +10,8 @@ import argparse
 import subprocess
 import re
 import sys
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 
 def get_docker_savegame_counts(container="freeciv-web"):
@@ -45,7 +47,7 @@ def get_docker_savegame_counts(container="freeciv-web"):
     return forks
 
 
-def get_local_savegame_counts(recordings_dir="logs/recordings"):
+def get_local_savegame_counts(recordings_dir=f"{FC_DATA}/logs/recordings"):
     """Get savegame counts for fork directories already downloaded locally."""
     from pathlib import Path
     recordings = Path(recordings_dir)

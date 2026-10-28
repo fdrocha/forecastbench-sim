@@ -18,10 +18,11 @@
 #   bash scripts/run_agentic_tooluse.sh claude-sonnet-4-5 seed0  # single model + seed
 
 set -euo pipefail
+FC_DATA="$(cd "$(dirname "$0")/../../.." && pwd)/data/freeciv"  # <repo>/data/freeciv
 
 CIVBENCH_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SANDBOX_DIR="/tmp/civbench-agentic-tooluse"
-RESULTS_DIR="$CIVBENCH_DIR/data/results/agentic_tooluse"
+RESULTS_DIR="$FC_DATA/results/agentic_tooluse"
 
 MODELS=(
     anthropic/claude-opus-4-6
@@ -43,12 +44,13 @@ fi
 # ── Load API keys from GCP Secret Manager ──────────────────────────────────
 echo "Loading API keys from GCP..."
 eval "$(cd "$CIVBENCH_DIR" && \
-    GOOGLE_CLOUD_PROJECT=civbench \
     GOOGLE_APPLICATION_CREDENTIALS="$HOME/.config/gcloud/application_default_credentials.json" \
     uv run python -c "
-from src.civrealm.evaluation.models import load_api_keys_from_gcp
+from fbsim_core.evaluation.models import load_api_keys_from_gcp
+from fbsim_core.local import load_env
 import os
-load_api_keys_from_gcp('civbench')
+load_env()  # GOOGLE_CLOUD_PROJECT from credentials/.env
+load_api_keys_from_gcp()
 for k in ['ANTHROPIC_API_KEY','OPENAI_API_KEY','GEMINI_API_KEY']:
     v = os.environ.get(k,'')
     if not v and k=='GEMINI_API_KEY': v=os.environ.get('GOOGLE_API_KEY','')

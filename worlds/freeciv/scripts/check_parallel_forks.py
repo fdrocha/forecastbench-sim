@@ -14,7 +14,7 @@ Usage:
     uv run python scripts/test_parallel_forks.py --seed 100 --checkpoint-turn 50 --run-turns 10
 
 Prerequisites:
-    - A completed game recording at logs/recordings/s{seed}/
+    - A completed game recording at data/freeciv/logs/recordings/s{seed}/
     - Savegames downloaded from Docker to savegames/ subdirectory
 """
 
@@ -25,6 +25,8 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Dict, List, Tuple
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 
 # Parse our arguments first, before importing freeciv_world (which has its own argparse)
@@ -262,7 +264,7 @@ def main():
         print("Error: --run-turns is required")
         return 1
 
-    recording_dir = args.recording_dir or f"logs/recordings/s{args.seed}"
+    recording_dir = args.recording_dir or f"{FC_DATA}/logs/recordings/s{args.seed}"
 
     civbench_dir = Path(__file__).parent.parent
     if not (civbench_dir / recording_dir).exists():

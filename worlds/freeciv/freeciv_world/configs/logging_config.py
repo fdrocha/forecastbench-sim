@@ -5,7 +5,7 @@ from freeciv_world.configs import fc_args
 if fc_args['debug.logging_path'] is not None:
     logging_dir = os.path.expanduser(fc_args['debug.logging_path'])
 else:
-    # Default recording/logging root: worlds/freeciv/logs.
+    # Default recording/logging root: <repo>/data/freeciv/logs.
     #
     # This MUST resolve to the same root that worlds/freeciv/scripts/*
     # (run_world.py savegame downloads, serializers) use. A post-restructure
@@ -14,8 +14,8 @@ else:
     # published dark worlds. run_world.py imports `logging_dir` from here, so
     # there is a single source of truth; pin debug.logging_path to relocate
     # BOTH observation states and savegames together.
-    logging_dir = os.path.normpath(os.path.join(os.path.dirname(
-        os.path.realpath(__file__)), '..', '..', 'logs'))
+    from fbsim_core.local import data_dir
+    logging_dir = str(data_dir('freeciv') / 'logs')
 
 # Level for the freeciv_world file logger. DEBUG logs every packet, which has
 # filled pods (37 GB/pod). Set FBSIM_FC_LOG_LEVEL=WARNING (or INFO) to tame it.

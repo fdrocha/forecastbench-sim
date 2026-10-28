@@ -13,19 +13,19 @@ import argparse
 import json
 import re
 from datetime import datetime, timezone
-from pathlib import Path
 
 import numpy as np
 
+from fbsim_core.local import data_dir, load_env
 from fbsim_core.metrics import compute_brier_score
 
 from .scenarios import sample_scenarios, build_corpus
 from .report import build_prompt
 
-PKG_DIR = Path(__file__).resolve().parent.parent  # worlds/pandemic
-CACHE_PATH = PKG_DIR / ".response_cache.json"
-RESULTS_PATH = PKG_DIR / "scale_results.json"
-CHART_PATH = PKG_DIR / "conditional_brier_gap.png"
+OUT_DIR = data_dir("pandemic")
+CACHE_PATH = OUT_DIR / "response_cache.json"
+RESULTS_PATH = OUT_DIR / "scale_results.json"
+CHART_PATH = OUT_DIR / "conditional_brier_gap.png"
 
 DEFAULT_MODELS = [
     "deepinfra/meta-llama/Meta-Llama-3.1-8B-Instruct",
@@ -145,6 +145,8 @@ def main() -> None:
         return
 
     from fbsim_core.evaluation.models import get_models
+    load_env()
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     cache = load_cache()
     agg: dict[str, dict] = {}
 

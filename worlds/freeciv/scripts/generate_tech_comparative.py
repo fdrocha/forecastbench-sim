@@ -35,6 +35,8 @@ from freeciv_world.world_reports.questions.generator import QuestionGenerator
 from fbsim_core.questions.resolver import QuestionResolver
 from fbsim_core.questions.io import question_bank_to_json, save_question_bank
 from freeciv_world.world_reports import ReportGenerator, ReportConfig
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 
 class TechComparativeGenerator(QuestionGenerator):
@@ -142,15 +144,15 @@ def main():
         description='Generate tech_comparative questions and world reports'
     )
     parser.add_argument(
-        '--data-dir', type=str, default='data/games',
+        '--data-dir', type=str, default=f'{FC_DATA}/games',
         help='Directory containing game data JSON files'
     )
     parser.add_argument(
-        '--recording-dir', type=str, default='logs/recordings',
+        '--recording-dir', type=str, default=f'{FC_DATA}/logs/recordings',
         help='Directory containing game recordings'
     )
     parser.add_argument(
-        '--output-dir', type=str, default='data/questions/tech_comparative',
+        '--output-dir', type=str, default=f'{FC_DATA}/questions/tech_comparative',
         help='Output directory for questions and reports'
     )
     parser.add_argument(

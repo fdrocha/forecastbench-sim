@@ -15,11 +15,13 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 NAVIGATION_FORKS = {
-    f"seed{i}": f"logs/recordings/seed{i}forktech56p0"
+    f"seed{i}": f"{FC_DATA}/logs/recordings/seed{i}forktech56p0"
     for i in range(21)
 }
 
@@ -173,11 +175,11 @@ def generate_questions_from_conditional_results(
 
 
 def get_civilizations(seed: str, base_dir: Path) -> dict | None:
-    questions_path = base_dir / "data" / "questions" / seed / "questions.json"
+    questions_path = FC_DATA / "questions" / seed / "questions.json"
     if questions_path.exists():
         with open(questions_path) as f:
             return json.load(f).get("civilizations", {})
-    game_data_path = base_dir / "data" / "games" / f"{seed}_data.json"
+    game_data_path = FC_DATA / "games" / f"{seed}_data.json"
     if game_data_path.exists():
         with open(game_data_path) as f:
             return json.load(f).get("civilizations", {})
@@ -185,10 +187,10 @@ def get_civilizations(seed: str, base_dir: Path) -> dict | None:
 
 
 def get_world_report_dir(seed: str, base_dir: Path) -> Path | None:
-    wr = base_dir / "data" / "questions" / seed / "world_report"
+    wr = FC_DATA / "questions" / seed / "world_report"
     if wr.exists():
         return wr
-    wr = base_dir / "data" / "questions" / "data" / "questions" / seed / "world_report"
+    wr = FC_DATA / "questions" / "data" / "questions" / seed / "world_report"
     if wr.exists():
         return wr
     return None
@@ -197,8 +199,8 @@ def get_world_report_dir(seed: str, base_dir: Path) -> Path | None:
 def setup_evaluation_directories():
     base_dir = Path(__file__).parent.parent
 
-    baseline_eval_dir = base_dir / "data" / "conditional" / "navigation" / "baseline"
-    conditional_eval_dir = base_dir / "data" / "conditional" / "navigation" / "conditional"
+    baseline_eval_dir = FC_DATA / "conditional" / "navigation" / "baseline"
+    conditional_eval_dir = FC_DATA / "conditional" / "navigation" / "conditional"
 
     total_baseline = 0
     total_conditional = 0
@@ -267,7 +269,7 @@ def setup_evaluation_directories():
     print()
     print("To run evaluations:")
     print("  uv run python scripts/evaluate_llm_forecasts_parallel.py \\")
-    print("    --data-dir data/conditional/navigation/conditional \\")
+    print("    --data-dir data/freeciv/conditional/navigation/conditional \\")
     print("    --models openai/o3-2025-04-16 anthropic/claude-opus-4-5-20251101 openai/gpt-4.1-2025-04-14")
 
 

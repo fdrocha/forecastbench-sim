@@ -36,6 +36,8 @@ from setup_republic_conditional_eval import (
     REPUBLIC_FORKS,
     format_question_text,
 )
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 SNAPSHOT_TURN = 90
 MIN_RESOLUTION_TURN = 120  # Only H2+ horizons
@@ -180,11 +182,11 @@ def setup_diverged_state_directories():
     """Set up diverged-state evaluation directories."""
     base_dir = Path(__file__).parent.parent
 
-    diverged_baseline_dir = base_dir / "data" / "conditional" / "republic" / "diverged_baseline"
-    diverged_fork_dir = base_dir / "data" / "conditional" / "republic" / "diverged_fork"
+    diverged_baseline_dir = FC_DATA / "conditional" / "republic" / "diverged_baseline"
+    diverged_fork_dir = FC_DATA / "conditional" / "republic" / "diverged_fork"
 
     # Civilizations info comes from existing baseline condition directory
-    existing_baseline_dir = base_dir / "data" / "conditional" / "republic" / "baseline"
+    existing_baseline_dir = FC_DATA / "conditional" / "republic" / "baseline"
 
     total_baseline = 0
     total_fork = 0
@@ -215,16 +217,16 @@ def setup_diverged_state_directories():
         civilizations = baseline_data.get("civilizations", {})
 
         # --- Create merged turn-90 recording ---
-        baseline_recording_dir = base_dir / "logs" / "recordings" / seed
+        baseline_recording_dir = FC_DATA / "logs" / "recordings" / seed
         merged_dir = create_merged_turn90_recording(
             baseline_recording_dir=baseline_recording_dir,
             fork_recording_dir=fork_path,
-            output_dir=base_dir / "logs" / "recordings" / f"_merged_turn90_{seed}_republic",
+            output_dir=FC_DATA / "logs" / "recordings" / f"_merged_turn90_{seed}_republic",
         )
         print(f"    Created merged recording: {merged_dir.name}")
 
         # --- Generate turn-90 world reports ---
-        game_data_path = base_dir / "data" / "games" / f"{seed}_data.json"
+        game_data_path = FC_DATA / "games" / f"{seed}_data.json"
 
         # Baseline turn-90 world report
         baseline_seed_dir = diverged_baseline_dir / seed
@@ -296,12 +298,12 @@ def setup_diverged_state_directories():
     print("To run evaluations:")
     print("  # Diverged baseline (X=0)")
     print(f"  uv run python scripts/evaluate_llm_forecasts_parallel.py \\")
-    print(f"      --data-dir data/conditional/republic/diverged_baseline \\")
+    print(f"      --data-dir data/freeciv/conditional/republic/diverged_baseline \\")
     print(f"      --models anthropic/claude-opus-4-5-20251101 openai/o3-2025-04-16 --all")
     print()
     print("  # Diverged fork (X=1)")
     print(f"  uv run python scripts/evaluate_llm_forecasts_parallel.py \\")
-    print(f"      --data-dir data/conditional/republic/diverged_fork \\")
+    print(f"      --data-dir data/freeciv/conditional/republic/diverged_fork \\")
     print(f"      --models anthropic/claude-opus-4-5-20251101 openai/o3-2025-04-16 --all")
 
 

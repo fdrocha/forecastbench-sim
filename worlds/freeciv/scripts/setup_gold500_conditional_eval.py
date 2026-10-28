@@ -14,33 +14,35 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Gold +500 fork directories for each seed
 GOLD500_FORKS = {
-    "seed0": "logs/recordings/seed0forkgoldadd500p0",
-    "seed1": "logs/recordings/seed1forkgoldadd500p0",
-    "seed2": "logs/recordings/seed2forkgoldadd500p0",
-    "seed3": "logs/recordings/seed3forkgoldadd500p0",
-    "seed4": "logs/recordings/seed4forkgoldadd500p0",
-    "seed5": "logs/recordings/seed5forkgoldadd500p0",
-    "seed6": "logs/recordings/seed6forkgoldadd500p0",
-    "seed7": "logs/recordings/seed7forkgoldadd500p0",
-    "seed8": "logs/recordings/seed8forkgoldadd500p0",
-    "seed9": "logs/recordings/seed9forkgoldadd500p0",
-    "seed10": "logs/recordings/seed10forkgoldadd500p0",
-    "seed11": "logs/recordings/seed11forkgoldadd500p0",
-    "seed12": "logs/recordings/seed12forkgoldadd500p0",
-    "seed13": "logs/recordings/seed13forkgoldadd500p0",
-    "seed14": "logs/recordings/seed14forkgoldadd500p0",
-    "seed15": "logs/recordings/seed15forkgoldadd500p0",
-    "seed16": "logs/recordings/seed16forkgoldadd500p0",
-    "seed17": "logs/recordings/seed17forkgoldadd500p0",
-    "seed18": "logs/recordings/seed18forkgoldadd500p0",
-    "seed19": "logs/recordings/seed19forkgoldadd500p0",
-    "seed20": "logs/recordings/seed20forkgoldadd500p0",
+    "seed0": f"{FC_DATA}/logs/recordings/seed0forkgoldadd500p0",
+    "seed1": f"{FC_DATA}/logs/recordings/seed1forkgoldadd500p0",
+    "seed2": f"{FC_DATA}/logs/recordings/seed2forkgoldadd500p0",
+    "seed3": f"{FC_DATA}/logs/recordings/seed3forkgoldadd500p0",
+    "seed4": f"{FC_DATA}/logs/recordings/seed4forkgoldadd500p0",
+    "seed5": f"{FC_DATA}/logs/recordings/seed5forkgoldadd500p0",
+    "seed6": f"{FC_DATA}/logs/recordings/seed6forkgoldadd500p0",
+    "seed7": f"{FC_DATA}/logs/recordings/seed7forkgoldadd500p0",
+    "seed8": f"{FC_DATA}/logs/recordings/seed8forkgoldadd500p0",
+    "seed9": f"{FC_DATA}/logs/recordings/seed9forkgoldadd500p0",
+    "seed10": f"{FC_DATA}/logs/recordings/seed10forkgoldadd500p0",
+    "seed11": f"{FC_DATA}/logs/recordings/seed11forkgoldadd500p0",
+    "seed12": f"{FC_DATA}/logs/recordings/seed12forkgoldadd500p0",
+    "seed13": f"{FC_DATA}/logs/recordings/seed13forkgoldadd500p0",
+    "seed14": f"{FC_DATA}/logs/recordings/seed14forkgoldadd500p0",
+    "seed15": f"{FC_DATA}/logs/recordings/seed15forkgoldadd500p0",
+    "seed16": f"{FC_DATA}/logs/recordings/seed16forkgoldadd500p0",
+    "seed17": f"{FC_DATA}/logs/recordings/seed17forkgoldadd500p0",
+    "seed18": f"{FC_DATA}/logs/recordings/seed18forkgoldadd500p0",
+    "seed19": f"{FC_DATA}/logs/recordings/seed19forkgoldadd500p0",
+    "seed20": f"{FC_DATA}/logs/recordings/seed20forkgoldadd500p0",
 }
 
 # Template text for conditional (intervention) questions - Gold +500
@@ -219,11 +221,11 @@ def setup_evaluation_directories():
     base_dir = Path(__file__).parent.parent
 
     # Output directories
-    gold500_conditional_dir = base_dir / "data" / "conditional" / "gold500" / "conditional"
-    gold500_baseline_dir = base_dir / "data" / "conditional" / "gold500" / "baseline"
+    gold500_conditional_dir = FC_DATA / "conditional" / "gold500" / "conditional"
+    gold500_baseline_dir = FC_DATA / "conditional" / "gold500" / "baseline"
 
     # Source directory for baseline questions (for civilizations info and world_report)
-    questions_dir = base_dir / "data" / "questions"
+    questions_dir = FC_DATA / "questions"
 
     total_conditional = 0
     total_baseline = 0
@@ -297,8 +299,8 @@ def setup_evaluation_directories():
     print(f"  {gold500_conditional_dir}")
     print()
     print("To run evaluations:")
-    print(f"  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/conditional/gold500/baseline --models anthropic/claude-opus-4-5-20251101")
-    print(f"  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/conditional/gold500/conditional --models anthropic/claude-opus-4-5-20251101")
+    print(f"  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/freeciv/conditional/gold500/baseline --models anthropic/claude-opus-4-5-20251101")
+    print(f"  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/freeciv/conditional/gold500/conditional --models anthropic/claude-opus-4-5-20251101")
 
 
 if __name__ == "__main__":

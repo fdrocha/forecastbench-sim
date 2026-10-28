@@ -13,6 +13,7 @@
 #   bash scripts/generate_test_seeds.sh 2>&1 | tee generate_test_seeds.log
 
 set -e
+FC_DATA="$(cd "$(dirname "$0")/../../.." && pwd)/data/freeciv"  # <repo>/data/freeciv
 
 cd "$(dirname "$0")/.."  # cd to project root
 
@@ -35,7 +36,7 @@ log "=== STAGE 1: Running baseline games (seeds $START_SEED-$END_SEED, ${PARALLE
 # Check which seeds already exist
 SEEDS_TO_RUN=""
 for SEED in $(seq $START_SEED $END_SEED); do
-    RECORDING_DIR="logs/recordings/seed${SEED}"
+    RECORDING_DIR="$FC_DATA/logs/recordings/seed${SEED}"
     if [ -d "$RECORDING_DIR/savegames" ]; then
         COUNT=$(ls $RECORDING_DIR/savegames/*.sav.xz 2>/dev/null | wc -l)
         if [ "$COUNT" -gt 250 ]; then
@@ -69,7 +70,7 @@ if [ -n "$SEEDS_TO_RUN" ]; then
             PID=${BATCH_PIDS[$idx]}
             SEED=${BATCH_SEEDS[$idx]}
             if wait $PID; then
-                COUNT=$(ls logs/recordings/seed${SEED}/savegames/*.sav.xz 2>/dev/null | wc -l)
+                COUNT=$(ls "$FC_DATA"/logs/recordings/seed${SEED}/savegames/*.sav.xz 2>/dev/null | wc -l)
                 log "[seed${SEED}] Done — $COUNT savegames"
             else
                 log "[seed${SEED}] FAILED (exit code $?)"
@@ -92,15 +93,15 @@ echo
 # ============================================================
 log "=== STAGE 2: Extracting game data ==="
 
-mkdir -p data/games
+mkdir -p "$FC_DATA"/games
 
 uv run python scripts/generate_data_batch.py \
-    --input-dir logs/recordings \
-    --output-dir data/games \
+    --input-dir "$FC_DATA"/logs/recordings \
+    --output-dir "$FC_DATA"/games \
     --workers 4
 
 for SEED in $(seq $START_SEED $END_SEED); do
-    if [ ! -f "data/games/seed${SEED}_data.json" ]; then
+    if [ ! -f "$FC_DATA/games/seed${SEED}_data.json" ]; then
         log "WARNING: Missing game data for seed${SEED}!"
     fi
 done
@@ -117,7 +118,7 @@ run_fork_and_generate() {
     local MOD=$2
     local FORK_NAME=$3
     local CONDITION=$4
-    local FORK_DIR="logs/recordings/seed${SEED}fork${FORK_NAME}"
+    local FORK_DIR="$FC_DATA/logs/recordings/seed${SEED}fork${FORK_NAME}"
 
     if [ -d "$FORK_DIR" ] && [ -f "$FORK_DIR/conditional_results.json" ]; then
         log "[seed${SEED}/${FORK_NAME}] Already exists — skipping"
@@ -131,19 +132,19 @@ run_fork_and_generate() {
         --end-turn $END_TURN \
         --modification "$MOD" \
         --fork-name "$FORK_NAME" \
-        --recording-dir "logs/recordings/seed${SEED}" 2>&1; then
+        --recording-dir "$FC_DATA/logs/recordings/seed${SEED}" 2>&1; then
         log "[seed${SEED}/${FORK_NAME}] Fork FAILED — skipping"
         return 1
     fi
 
     log "[seed${SEED}/${FORK_NAME}] Generating conditional results..."
     uv run python scripts/generate_conditional_results.py \
-        --baseline-dir "logs/recordings/seed${SEED}" \
+        --baseline-dir "$FC_DATA/logs/recordings/seed${SEED}" \
         --fork-dir "$FORK_DIR" \
         --condition "$CONDITION" \
         --checkpoint-turn $CHECKPOINT \
         --end-turn $END_TURN \
-        --game-data "data/games/seed${SEED}_data.json" \
+        --game-data "$FC_DATA/games/seed${SEED}_data.json" \
         --verbose
 
     log "[seed${SEED}/${FORK_NAME}] Done"
@@ -195,7 +196,7 @@ log "=== ALL STAGES COMPLETE ==="
 log ""
 log "Baseline games:"
 for SEED in $(seq $START_SEED $END_SEED); do
-    DIR="logs/recordings/seed${SEED}"
+    DIR="$FC_DATA/logs/recordings/seed${SEED}"
     if [ -d "$DIR/savegames" ]; then
         echo "  seed${SEED}: $(ls $DIR/savegames/*.sav.xz 2>/dev/null | wc -l) savegames"
     else
@@ -206,9 +207,9 @@ done
 log ""
 log "Forks (conditional_results.json present):"
 for SEED in $(seq $START_SEED $END_SEED); do
-    REPUBLIC="logs/recordings/seed${SEED}forkgovRepublicp0/conditional_results.json"
-    GOLD="logs/recordings/seed${SEED}forkgoldadd500p0/conditional_results.json"
-    MAPMAKING="logs/recordings/seed${SEED}forktech45p0/conditional_results.json"
+    REPUBLIC="$FC_DATA/logs/recordings/seed${SEED}forkgovRepublicp0/conditional_results.json"
+    GOLD="$FC_DATA/logs/recordings/seed${SEED}forkgoldadd500p0/conditional_results.json"
+    MAPMAKING="$FC_DATA/logs/recordings/seed${SEED}forktech45p0/conditional_results.json"
     printf "  seed%-2d: Republic=%s  Gold=%s  MapMaking=%s\n" \
         $SEED \
         $([ -f "$REPUBLIC" ] && echo "✓" || echo "✗") \

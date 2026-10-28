@@ -30,6 +30,8 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -39,12 +41,12 @@ ALL_SEEDS = [f"seed{i}" for i in range(21)]
 # === Fork directories ===
 
 N2_FORKS = {
-    f"seed{i}": f"logs/recordings/seed{i}forkRepGold500p0"
+    f"seed{i}": f"{FC_DATA}/logs/recordings/seed{i}forkRepGold500p0"
     for i in range(21)
 }
 
 N3_FORKS = {
-    f"seed{i}": f"logs/recordings/seed{i}forkRepGold500Nav56p0"
+    f"seed{i}": f"{FC_DATA}/logs/recordings/seed{i}forkRepGold500Nav56p0"
     for i in range(21)
 }
 
@@ -243,14 +245,14 @@ def generate_questions_from_conditional_results(
 def get_civilizations(seed: str, base_dir: Path) -> dict | None:
     """Get civilizations info from questions.json or game_data.json."""
     # Try questions.json first (seeds 11-20)
-    questions_path = base_dir / "data" / "questions" / seed / "questions.json"
+    questions_path = FC_DATA / "questions" / seed / "questions.json"
     if questions_path.exists():
         with open(questions_path) as f:
             return json.load(f).get("civilizations", {})
 
     # Fall back to game_data.json (seeds 0-10)
     seed_num = seed.replace("seed", "")
-    game_data_path = base_dir / "data" / "games" / f"{seed}_data.json"
+    game_data_path = FC_DATA / "games" / f"{seed}_data.json"
     if game_data_path.exists():
         with open(game_data_path) as f:
             return json.load(f).get("civilizations", {})
@@ -261,12 +263,12 @@ def get_civilizations(seed: str, base_dir: Path) -> dict | None:
 def get_world_report_dir(seed: str, base_dir: Path) -> Path | None:
     """Find world_report directory for a seed."""
     # Try standard location (seeds 11-20)
-    wr = base_dir / "data" / "questions" / seed / "world_report"
+    wr = FC_DATA / "questions" / seed / "world_report"
     if wr.exists():
         return wr
 
     # Try nested location (seeds 0-10)
-    wr = base_dir / "data" / "questions" / "data" / "questions" / seed / "world_report"
+    wr = FC_DATA / "questions" / "data" / "questions" / seed / "world_report"
     if wr.exists():
         return wr
 
@@ -286,8 +288,8 @@ def setup_condition(
     Returns:
         (total_baseline, total_conditional) question counts
     """
-    conditional_dir = base_dir / "data" / "conditional" / condition_name / "conditional"
-    baseline_dir = base_dir / "data" / "conditional" / condition_name / "baseline"
+    conditional_dir = FC_DATA / "conditional" / condition_name / "conditional"
+    baseline_dir = FC_DATA / "conditional" / condition_name / "baseline"
 
     total_conditional = 0
     total_baseline = 0
@@ -416,14 +418,14 @@ def main():
     print(f"  Total:                               {n2_baseline + n3_baseline} baseline, {n2_conditional + n3_conditional} conditional")
     print()
     print("Evaluation directories:")
-    print(f"  data/conditional/republic_gold500/baseline/")
-    print(f"  data/conditional/republic_gold500/conditional/")
-    print(f"  data/conditional/republic_gold500_navigation/baseline/")
-    print(f"  data/conditional/republic_gold500_navigation/conditional/")
+    print(f"  data/freeciv/conditional/republic_gold500/baseline/")
+    print(f"  data/freeciv/conditional/republic_gold500/conditional/")
+    print(f"  data/freeciv/conditional/republic_gold500_navigation/baseline/")
+    print(f"  data/freeciv/conditional/republic_gold500_navigation/conditional/")
     print()
     print("To run evaluations:")
-    print("  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/conditional/republic_gold500/conditional --models ...")
-    print("  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/conditional/republic_gold500_navigation/conditional --models ...")
+    print("  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/freeciv/conditional/republic_gold500/conditional --models ...")
+    print("  python scripts/evaluate_llm_forecasts_parallel.py --data-dir data/freeciv/conditional/republic_gold500_navigation/conditional --models ...")
 
 
 if __name__ == "__main__":

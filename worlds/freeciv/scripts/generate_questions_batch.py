@@ -3,7 +3,7 @@
 Batch generate questions from all game data files.
 
 Usage:
-    python scripts/generate_questions_batch.py --data-dir data/games --output questions_all.json
+    python scripts/generate_questions_batch.py --data-dir data/freeciv/games --output questions_all.json
 """
 
 import argparse
@@ -22,6 +22,8 @@ from freeciv_world.world_reports.questions import (
     QuestionBank,
     question_bank_to_dict,
 )
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 
 def process_single_game(args: tuple) -> dict | None:
@@ -105,11 +107,11 @@ def process_single_game(args: tuple) -> dict | None:
 
 def main():
     parser = argparse.ArgumentParser(description='Batch generate questions from game data')
-    parser.add_argument('--data-dir', type=str, default='data/games',
+    parser.add_argument('--data-dir', type=str, default=f'{FC_DATA}/games',
                         help='Directory containing game data JSON files')
     parser.add_argument('--snapshot-turn', type=int, default=60,
                         help='Turn at which forecasters see data (default: 60)')
-    parser.add_argument('--output', '-o', type=str, default='data/questions/questions_all.json',
+    parser.add_argument('--output', '-o', type=str, default=f'{FC_DATA}/questions/questions_all.json',
                         help='Output JSON file')
     parser.add_argument('--workers', type=int, default=4,
                         help='Number of parallel workers (default: 4)')

@@ -14,7 +14,7 @@ Usage:
     uv run python scripts/test_determinism.py --seed 100 --checkpoint-turn 50 --run-turns 10
 
 Prerequisites:
-    - A completed game recording at logs/recordings/s{seed}/
+    - A completed game recording at data/freeciv/logs/recordings/s{seed}/
     - Savegames downloaded from Docker to savegames/ subdirectory
 """
 
@@ -24,6 +24,8 @@ import argparse
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 
 # Parse our arguments first, before importing freeciv_world (which has its own argparse)
@@ -193,7 +195,7 @@ def main():
     if args.recording_dir:
         recording_dir = args.recording_dir
     else:
-        recording_dir = f"logs/recordings/s{args.seed}"
+        recording_dir = f"{FC_DATA}/logs/recordings/s{args.seed}"
 
     # Verify recording exists
     civbench_dir = Path(__file__).parent.parent

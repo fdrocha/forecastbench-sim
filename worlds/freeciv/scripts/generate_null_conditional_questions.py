@@ -14,11 +14,11 @@ Example transformations:
 The ground truth remains the same since no actual intervention happens.
 
 Usage:
-    python scripts/generate_null_conditional_questions.py --output data/conditional/null_conditional
+    python scripts/generate_null_conditional_questions.py --output data/freeciv/conditional/null_conditional
 
     # Then evaluate with:
     python scripts/evaluate_llm_forecasts_parallel.py \
-        --data-dir data/conditional/null_conditional \
+        --data-dir data/freeciv/conditional/null_conditional \
         --models anthropic/claude-opus-4-5-20251101 \
         -n 10
 """
@@ -30,6 +30,8 @@ import sys
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -213,11 +215,11 @@ def main():
         description="Generate null conditional framed questions for framing experiment"
     )
     parser.add_argument(
-        "--input-dir", type=str, default="data/questions",
+        "--input-dir", type=str, default=f"{FC_DATA}/questions",
         help="Input directory containing question banks"
     )
     parser.add_argument(
-        "--output-dir", "-o", type=str, default="data/conditional/null_conditional",
+        "--output-dir", "-o", type=str, default=f"{FC_DATA}/conditional/null_conditional",
         help="Output directory for null conditional questions"
     )
     parser.add_argument(

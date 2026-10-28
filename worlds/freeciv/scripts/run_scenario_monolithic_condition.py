@@ -24,13 +24,15 @@ from pathlib import Path
 
 print = partial(print, flush=True)
 
-from dotenv import load_dotenv
-load_dotenv(Path(__file__).parent.parent / ".env")
+from fbsim_core.local import load_env
+load_env()
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from fbsim_core.evaluation.models import load_api_keys_from_gcp, LiteLLMModel
 from fbsim_core.metrics import compute_crps
 from freeciv_world.evaluation.scenario_monolithic_prompt import build_scenario_monolithic_prompt
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 _keys_loaded = False
 def ensure_api_keys():
@@ -76,9 +78,9 @@ MODELS = [
     "xai/grok-4-1-fast-reasoning",
 ]
 
-DATA_DIR = Path("data/conditional/republic/baseline")
-GAMES_DIR = Path("data/games")
-RESULTS_DIR = Path("data/results/scenario_monolithic_condition")
+DATA_DIR = Path(f"{FC_DATA}/conditional/republic/baseline")
+GAMES_DIR = Path(f"{FC_DATA}/games")
+RESULTS_DIR = Path(f"{FC_DATA}/results/scenario_monolithic_condition")
 
 DISRUPTABLE_TEMPLATES = {
     "population_continuous", "territory_continuous",

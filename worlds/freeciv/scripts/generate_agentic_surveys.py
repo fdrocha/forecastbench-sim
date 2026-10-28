@@ -2,8 +2,8 @@
 """Generate survey files and answer keys for the agentic baseline experiment.
 
 Assembles survey_seed{N}.txt and answer_key_seed{N}.json from:
-  - World report: data/conditional/republic/baseline/{seed}/world_report/turn_060_report.txt
-  - Game data:    data/games/{seed}_data.json  (civ names + ground truth values)
+  - World report: data/freeciv/conditional/republic/baseline/{seed}/world_report/turn_060_report.txt
+  - Game data:    data/freeciv/games/{seed}_data.json  (civ names + ground truth values)
 
 Usage:
     cd /Users/elsehow/Projects/civbench
@@ -14,11 +14,13 @@ Usage:
 import json
 import sys
 from pathlib import Path
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 CIVBENCH_DIR = Path(__file__).parent.parent
-RESULTS_DIR = CIVBENCH_DIR / "data" / "results" / "agentic_baseline"
-GAMES_DIR = CIVBENCH_DIR / "data" / "games"
-BASELINE_DIR = CIVBENCH_DIR / "data" / "conditional" / "republic" / "baseline"
+RESULTS_DIR = FC_DATA / "results" / "agentic_baseline"
+GAMES_DIR = FC_DATA / "games"
+BASELINE_DIR = FC_DATA / "conditional" / "republic" / "baseline"
 
 ALL_SEEDS = ["seed0", "seed1", "seed4", "seed5", "seed9",
              "seed10", "seed13", "seed15", "seed16", "seed20"]

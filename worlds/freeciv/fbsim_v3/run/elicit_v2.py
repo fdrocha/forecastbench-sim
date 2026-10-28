@@ -5,9 +5,9 @@ Run 2 (Jaeho, 2026-09-19): bank, tails, mirrors and continuous are batched here;
 unbatched as in run 1 (elicit_natcond_v1.py for the re-pinned models, rebuild_natcond_rows.py for the rest).  The
 grouped turn-2 code below is kept for a fully batched variant (--sets ...,natcond) but is not the run-2 design.
 
-  python elicit_v2.py --out DIR [--models NAME_OR_ID,...] [--models-file models_v2.csv]
-                      [--sets bank,tails,mirrors,continuous,natcond] [--per-prompt 50] [--t2 grouped|percell]
-                      [--workers W] [--limit-batches N] [--smoke] [--dry-run] [--env-file PATH]
+  uv run python elicit_v2.py --out DIR [--models NAME_OR_ID,...] [--models-file models_v2.csv]
+                             [--sets bank,tails,mirrors,continuous,natcond] [--per-prompt 50] [--t2 grouped|percell]
+                             [--workers W] [--limit-batches N] [--smoke] [--dry-run]
 
 What changed from elicit_v1.py (one question per prompt): questions that share a world and an answer kind share
 one prompt, up to --per-prompt of them, following Fabio's Micropolis batching:
@@ -40,8 +40,8 @@ Provider routing follows Fabio's registry (models_v2.csv: endpoint, quantization
 quantizations / ignore, allow_fallbacks false, require_parameters true).  Reasoning as in run 1 (lowest level
 per model; DeepSeek V4 Flash at effort low, which it ignores, as in the other two worlds).
 
-The API key comes from OPENROUTER_API_KEY or --env-file (a file outside this repository with KEY=value lines).
-Nothing under this folder holds a credential.
+The API key comes from OPENROUTER_API_KEY, exported or in the repository's credentials/.env (a symlink to a
+directory outside the checkout). Nothing under this folder holds a credential.
 """
 import argparse, collections, csv, hashlib, json, math, os, random, re, sys, threading, time, urllib.error, urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -450,7 +450,6 @@ def main():
     ap.add_argument("--limit-batches", type=int, default=0, help="only the first N turn-1 batches (and their follow-ups)")
     ap.add_argument("--smoke", action="store_true", help="one binary and one continuous batch of one world, with follow-ups")
     ap.add_argument("--dry-run", action="store_true", help="build the jobs, print counts and write PREFLIGHT_v2.md, make no calls")
-    ap.add_argument("--env-file", default="", help="file with OPENROUTER_API_KEY=...; kept outside the repository")
     ap.add_argument("--no-stream", action="store_true", help="plain (non-streamed) completions")
     ap.add_argument("--idle-timeout", type=int, default=180, help="seconds without data before a streamed attempt is retried")
     a = ap.parse_args()
@@ -458,11 +457,9 @@ def main():
     STREAM, IDLE_TIMEOUT = not a.no_stream, a.idle_timeout
     global ORDER, REASK
     ORDER, REASK = a.order, a.reask
+    from fbsim_core.local import load_env
+    load_env()  # credentials/.env; an exported variable wins
     KEY = os.environ.get("OPENROUTER_API_KEY")
-    if not KEY and a.env_file:
-        for l in open(os.path.expanduser(a.env_file)):
-            if l.startswith("OPENROUTER_API_KEY="):
-                KEY = l.split("=", 1)[1].strip().strip("\"'")
     models = load_models(a.models_file)
     if a.models:
         want = a.models.split(",")
@@ -502,7 +499,7 @@ def main():
         print("wrote", out / "PREFLIGHT_v2.md")
         return
     if not KEY:
-        sys.exit("OPENROUTER_API_KEY missing (export it or pass --env-file)")
+        sys.exit("OPENROUTER_API_KEY missing (export it or put it in credentials/.env)")
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     rows_f, calls_f = out / "results.jsonl", out / "calls.jsonl"

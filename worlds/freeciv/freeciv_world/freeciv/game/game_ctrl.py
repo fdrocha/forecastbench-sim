@@ -16,6 +16,7 @@
 import os
 import json
 import time
+from fbsim_core.local import data_dir
 from freeciv_world.freeciv.connectivity.civ_connection import CivConnection
 from freeciv_world.freeciv.players.player_ctrl import PlayerCtrl
 
@@ -227,7 +228,7 @@ class GameCtrl(CivPropController):
 
                 evaluations[ptag_name][pplayer].append(value)
 
-        game_scores_folder = f"game_scores/{time.strftime('%Y-%m-%d-%H:%M:%S')}-{self.ws_client.client_port}"
+        game_scores_folder = f"{data_dir('freeciv')}/game_scores/{time.strftime('%Y-%m-%d-%H:%M:%S')}-{self.ws_client.client_port}"
         if not os.path.exists(game_scores_folder):
             os.makedirs(game_scores_folder)
 

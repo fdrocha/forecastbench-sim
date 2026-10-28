@@ -5,12 +5,14 @@ import time
 from pathlib import Path
 
 
+from fbsim_core import local
+
 from . import messages as msg
 from .usage import LLMResponse, usage_from_response
 
 PKG_DIR = Path(__file__).resolve().parent.parent  # forecastbench-sim/worlds/micropolis
 FBS_DIR = PKG_DIR.parent.parent  # forecastbench-sim
-DATA_ROOT = Path(os.environ.get("FBSIM_DATA_ROOT", str(Path.cwd() / "data"))).expanduser().resolve()
+DATA_ROOT = local.DATA_ROOT  # <repo>/data (the tests point it at a temp dir)
 
 # Everything this world writes — sim logs, ground truth, both evals' caches and
 # datasets, the paper's CSVs — lives under one directory of data/. A config's
@@ -63,9 +65,10 @@ def set_data_dir(subdir: str, source: Path) -> None:
     _data_dir_source = source
 
 
-# No implicit .env search or engine requirement during imports/help/cached work.
-# Users may explicitly export configuration in their shell.
+# credentials/.env is read only when a runner needs the engine or keys, never during
+# imports/help/cached work. Variables exported in the shell take precedence.
 def engine_app_path(*, continuations: bool = False) -> Path:
+    local.load_env()
     raw = os.environ.get("MICROPOLIS_CORE_PATH")
     if not raw:
         raise RuntimeError("Set MICROPOLIS_CORE_PATH to a compatible MicropolisCore checkout; see worlds/micropolis/README.md")
@@ -81,8 +84,9 @@ _keys_loaded = False
 
 
 def ensure_api_keys() -> None:
-    """Validate explicitly supplied credentials; never fetch cloud secrets."""
+    """Load credentials/.env, then check the provider keys; never fetch cloud secrets."""
     from .llm_backend import REQUIRED_ENV_KEYS
+    local.load_env()
     missing = [key for key in REQUIRED_ENV_KEYS if not os.environ.get(key)]
     if missing:
         raise RuntimeError("Export the required provider credentials: " + ", ".join(missing))

@@ -20,9 +20,11 @@ import re
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
+from fbsim_core.local import load_env
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
-load_dotenv(Path(__file__).parent.parent / ".env")
+load_env()
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -62,7 +64,7 @@ def load_sample_questions(data_dir: Path, n_per_type: int = 3) -> list[dict]:
         questions.extend(continuous_uncon)
 
     # 2. Binary + continuous conditional from conditional_results.json
-    cond_results_path = Path("logs/recordings/seed0forkgoldadd500p0/conditional_results.json")
+    cond_results_path = Path(f"{FC_DATA}/logs/recordings/seed0forkgoldadd500p0/conditional_results.json")
     if cond_results_path.exists():
         cond_data = json.load(open(cond_results_path))
         binary_cond = []
@@ -214,7 +216,7 @@ async def main():
     parser = argparse.ArgumentParser(description="Sense-check eval across all question types")
     parser.add_argument("--dry-run", action="store_true", help="Just show prompts, don't call API")
     parser.add_argument("--n", type=int, default=2, help="Questions per type (default: 2)")
-    parser.add_argument("--data-dir", type=str, default="data/questions", help="Questions directory")
+    parser.add_argument("--data-dir", type=str, default=f"{FC_DATA}/questions", help="Questions directory")
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)

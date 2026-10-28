@@ -25,6 +25,8 @@ import json
 import shutil
 from datetime import datetime
 from pathlib import Path
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 
 # === Text templates (from setup_multi_intervention_eval.py) ===
@@ -431,7 +433,7 @@ def main():
     args = parser.parse_args()
 
     base_dir = Path(__file__).parent.parent
-    n1_dir = base_dir / "data" / "conditional" / "republic"
+    n1_dir = FC_DATA / "conditional" / "republic"
     seeds = parse_seed_range(args.seeds)
 
     conditions = [
@@ -443,7 +445,7 @@ def main():
         print("Verifying regenerated eval data...\n")
         all_ok = True
         for cond_name, _, _ in conditions:
-            compound_dir = base_dir / "data" / "conditional" / cond_name
+            compound_dir = FC_DATA / "conditional" / cond_name
             print(f"=== {cond_name} ===")
             ok = verify_condition(cond_name, n1_dir, compound_dir, seeds)
             if not ok:
@@ -461,7 +463,7 @@ def main():
         print("DRY RUN — no files will be written\n")
 
     for cond_name, cond_templates, cond_metadata in conditions:
-        compound_dir = base_dir / "data" / "conditional" / cond_name
+        compound_dir = FC_DATA / "conditional" / cond_name
         print(f"{'=' * 60}")
         print(f"Regenerating: {cond_name}")
         print(f"{'=' * 60}")
