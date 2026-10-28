@@ -25,12 +25,14 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-from dotenv import load_dotenv
+from fbsim_core.local import load_env
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+load_env()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from fbsim_core.evaluation.models import LiteLLMModel, load_api_keys_from_gcp
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 load_api_keys_from_gcp()
 
@@ -42,7 +44,7 @@ logger = logging.getLogger("prompting_experiment")
 MODEL_ID = "claude-sonnet-4-5-20250929"
 SONNET_KEY = "anthropic/claude-sonnet-4-5-20250929"  # key in results JSON
 MAX_CONCURRENT = 5  # Anthropic concurrency
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+DATA_DIR = FC_DATA
 
 
 # ── Prompt templates ────────────────────────────────────────────────────────

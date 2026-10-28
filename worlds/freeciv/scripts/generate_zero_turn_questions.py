@@ -7,11 +7,11 @@ with no prediction required. Expected Brier score should be ~0 for perfect
 comprehension.
 
 Usage:
-    # Generate H0 questions for a single game (loads from data/games/)
+    # Generate H0 questions for a single game (loads from data/freeciv/games/)
     python scripts/generate_zero_turn_questions.py --game-id s12201 \
-        --output data/questions/s12201/h0_questions.json
+        --output data/freeciv/questions/s12201/h0_questions.json
 
-    # Generate H0 questions for all games in data/games/
+    # Generate H0 questions for all games in data/freeciv/games/
     python scripts/generate_zero_turn_questions.py --all --snapshot-turn 50
 """
 
@@ -26,6 +26,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from freeciv_world.world_reports.questions.generator import QuestionGenerator
 from fbsim_core.questions.resolver import QuestionResolver
 from fbsim_core.questions.io import save_question_bank
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 
 def generate_h0_questions_for_game(
@@ -39,14 +41,14 @@ def generate_h0_questions_for_game(
 
     Args:
         game_id: Game identifier (e.g., "s12201")
-        games_dir: Directory containing game data files (data/games/)
+        games_dir: Directory containing game data files (data/freeciv/games/)
         snapshot_turn: Turn to use as snapshot (defaults to data's turn)
         resolve: Whether to resolve questions (compute answers)
 
     Returns:
         Tuple of (bank, num_questions, num_true)
     """
-    # Load game data from data/games/{game_id}_data.json
+    # Load game data from data/freeciv/games/{game_id}_data.json
     data_file = games_dir / f"{game_id}_data.json"
 
     if not data_file.exists():
@@ -95,12 +97,12 @@ def main():
         help='Game ID (e.g., s12201). Required unless --all is specified.'
     )
     parser.add_argument(
-        '--games-dir', type=Path, default=Path('data/games'),
-        help='Directory containing game data files (default: data/games)'
+        '--games-dir', type=Path, default=Path(f'{FC_DATA}/games'),
+        help='Directory containing game data files (default: data/freeciv/games)'
     )
     parser.add_argument(
-        '--output-dir', type=Path, default=Path('data/questions'),
-        help='Output directory for question files (default: data/questions)'
+        '--output-dir', type=Path, default=Path(f'{FC_DATA}/questions'),
+        help='Output directory for question files (default: data/freeciv/questions)'
     )
     parser.add_argument(
         '--output', '-o',

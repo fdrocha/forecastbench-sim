@@ -31,12 +31,14 @@ from pathlib import Path
 # Force unbuffered output for background execution
 print = partial(print, flush=True)
 
-from dotenv import load_dotenv
+from fbsim_core.local import load_env
 
-load_dotenv(Path(__file__).parent.parent / ".env")
+load_env()
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from fbsim_core.evaluation.models import LiteLLMModel, load_api_keys_from_gcp
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 # Only load GCP keys when actually querying models (not for dry run)
 _keys_loaded = False
@@ -48,8 +50,8 @@ def ensure_api_keys():
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
-DATA_DIR = Path(__file__).parent.parent / "data" / "questions"
-RESULTS_DIR = Path(__file__).parent.parent / "data" / "results"
+DATA_DIR = FC_DATA / "questions"
+RESULTS_DIR = FC_DATA / "results"
 
 # Models to test (low ECI → high ECI)
 MODELS = [

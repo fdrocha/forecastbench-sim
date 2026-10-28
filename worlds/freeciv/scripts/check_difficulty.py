@@ -44,7 +44,7 @@ USAGE:
 ------
     cd ~/Projects/civbench
     uv run python scripts/test_difficulty.py
-    xzcat logs/recordings/s{seed}/savegames/*T5*.xz | grep 'ai.level'
+    xzcat data/freeciv/logs/recordings/s{seed}/savegames/*T5*.xz | grep 'ai.level'
 """
 
 import sys
@@ -56,6 +56,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 from freeciv_world.configs import fc_args
 from freeciv_world.agents import NoOpAgent
 import gymnasium
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 def main():
     seed = 99993  # Test seed - final verification
@@ -106,12 +108,12 @@ def main():
 
     print()
     print("Downloading savegames from Docker...")
-    recordings_dir = Path(f"logs/recordings/{run_id}")
+    recordings_dir = Path(f"{FC_DATA}/logs/recordings/{run_id}")
     download_all_savegames_from_docker(run_id, recordings_dir)
 
     print()
     print("Game complete. Check savegames with:")
-    print(f"  xzcat logs/recordings/{run_id}/savegames/*.xz | grep 'ai.level'")
+    print(f"  xzcat data/freeciv/logs/recordings/{run_id}/savegames/*.xz | grep 'ai.level'")
 
 if __name__ == '__main__':
     main()

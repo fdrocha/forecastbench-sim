@@ -24,20 +24,22 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from freeciv_world.world_reports import generate_txt_report
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 # Map Making fork directories for each seed
 MAPMAKING_FORKS = {
-    "seed0": "logs/recordings/seed0forktech45p0",
-    "seed1": "logs/recordings/seed1forktech45p0",
-    "seed2": "logs/recordings/seed2forktech45p0",
+    "seed0": f"{FC_DATA}/logs/recordings/seed0forktech45p0",
+    "seed1": f"{FC_DATA}/logs/recordings/seed1forktech45p0",
+    "seed2": f"{FC_DATA}/logs/recordings/seed2forktech45p0",
     # seed3 skipped — Map Making not researchable at turn 60
-    "seed4": "logs/recordings/seed4forktech45p0",
-    "seed5": "logs/recordings/seed5forktech45p0",
-    "seed6": "logs/recordings/seed6forktech45p0",
-    "seed7": "logs/recordings/seed7forktech45p0",
-    "seed8": "logs/recordings/seed8forktech45p0",
-    "seed9": "logs/recordings/seed9forktech45p0",
-    "seed10": "logs/recordings/seed10forktech45p0",
+    "seed4": f"{FC_DATA}/logs/recordings/seed4forktech45p0",
+    "seed5": f"{FC_DATA}/logs/recordings/seed5forktech45p0",
+    "seed6": f"{FC_DATA}/logs/recordings/seed6forktech45p0",
+    "seed7": f"{FC_DATA}/logs/recordings/seed7forktech45p0",
+    "seed8": f"{FC_DATA}/logs/recordings/seed8forktech45p0",
+    "seed9": f"{FC_DATA}/logs/recordings/seed9forktech45p0",
+    "seed10": f"{FC_DATA}/logs/recordings/seed10forktech45p0",
 }
 
 # Template text for baseline (unconditional) questions
@@ -196,15 +198,15 @@ def generate_questions_from_conditional_results(
 def setup_evaluation_directories():
     base_dir = Path(__file__).parent.parent
 
-    conditional_eval_dir = base_dir / "data" / "conditional" / "mapmaking" / "conditional_giventhat"
+    conditional_eval_dir = FC_DATA / "conditional" / "mapmaking" / "conditional_giventhat"
 
-    questions_dir = base_dir / "data" / "questions"
-    games_dir = base_dir / "data" / "games"
+    questions_dir = FC_DATA / "questions"
+    games_dir = FC_DATA / "games"
 
     total_conditional = 0
 
     print("Setting up 'Given that' evaluation directories for Map Making conditional...")
-    print("(Baseline reused from data/conditional/mapmaking/baseline/)")
+    print("(Baseline reused from data/freeciv/conditional/mapmaking/baseline/)")
     print()
 
     for seed, fork_dir in MAPMAKING_FORKS.items():
@@ -256,9 +258,9 @@ def setup_evaluation_directories():
     print()
     print("To run evaluation:")
     print(f"  uv run python scripts/evaluate_llm_forecasts_parallel.py \\")
-    print(f"    --data-dir data/conditional/mapmaking/conditional_giventhat --all \\")
+    print(f"    --data-dir data/freeciv/conditional/mapmaking/conditional_giventhat --all \\")
     print(f"    --models openai/o3-2025-04-16 anthropic/claude-opus-4-5-20251101 openai/gpt-4.1-2025-04-14 \\")
-    print(f"    -o data/results/mapmaking_giventhat_eval.json")
+    print(f"    -o data/freeciv/results/mapmaking_giventhat_eval.json")
 
 
 if __name__ == "__main__":

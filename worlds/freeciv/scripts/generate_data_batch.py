@@ -6,7 +6,7 @@ the JSON data files needed for question generation and base rate computation.
 
 Usage:
     python generate_data_batch.py
-    python generate_data_batch.py --input-dir logs/recordings --output-dir data/games
+    python generate_data_batch.py --input-dir data/freeciv/logs/recordings --output-dir data/freeciv/games
     python generate_data_batch.py --workers 8 --force
 """
 
@@ -17,6 +17,8 @@ from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from tqdm import tqdm
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
@@ -90,14 +92,14 @@ def main():
     parser.add_argument(
         '--input-dir',
         type=str,
-        default='logs/recordings',
-        help='Directory containing game recordings (default: logs/recordings)'
+        default=f'{FC_DATA}/logs/recordings',
+        help='Directory containing game recordings (default: data/freeciv/logs/recordings)'
     )
     parser.add_argument(
         '--output-dir',
         type=str,
-        default='data/games',
-        help='Directory for output JSON files (default: data/games)'
+        default=f'{FC_DATA}/games',
+        help='Directory for output JSON files (default: data/freeciv/games)'
     )
     parser.add_argument(
         '--workers',

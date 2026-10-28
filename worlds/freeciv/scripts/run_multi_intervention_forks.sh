@@ -9,8 +9,8 @@
 # Each fork: checkpoint T60, end T150, resolution turns 90/120/150 (H1/H2/H3).
 #
 # Prerequisites:
-#   - Baseline games exist for all seeds (logs/recordings/seed{N}/)
-#   - Game data JSONs exist (data/games/seed{N}_data.json)
+#   - Baseline games exist for all seeds ($FC_DATA/logs/recordings/seed{N}/)
+#   - Game data JSONs exist ($FC_DATA/games/seed{N}_data.json)
 #   - freeciv-web Docker container running
 #
 # Usage:
@@ -18,6 +18,7 @@
 #   bash scripts/run_multi_intervention_forks.sh 2>&1 | tee run_multi_intervention_forks.log
 
 set -e
+FC_DATA="$(cd "$(dirname "$0")/../../.." && pwd)/data/freeciv"  # <repo>/data/freeciv
 
 cd "$(dirname "$0")/.."  # cd to project root
 
@@ -34,7 +35,7 @@ run_fork_and_generate() {
     local MODS=$2       # space-separated modification args for run_fork.py
     local FORK_NAME=$3
     local CONDITION=$4   # condition arg for generate_conditional_results.py
-    local FORK_DIR="logs/recordings/seed${SEED}fork${FORK_NAME}"
+    local FORK_DIR="$FC_DATA/logs/recordings/seed${SEED}fork${FORK_NAME}"
 
     if [ -d "$FORK_DIR" ] && [ -f "$FORK_DIR/conditional_results.json" ]; then
         log "[seed${SEED}/${FORK_NAME}] Already exists — skipping"
@@ -55,19 +56,19 @@ run_fork_and_generate() {
         --end-turn $END_TURN \
         $MOD_ARGS \
         --fork-name "$FORK_NAME" \
-        --recording-dir "logs/recordings/seed${SEED}" 2>&1; then
+        --recording-dir "$FC_DATA/logs/recordings/seed${SEED}" 2>&1; then
         log "[seed${SEED}/${FORK_NAME}] Fork FAILED"
         return 1
     fi
 
     log "[seed${SEED}/${FORK_NAME}] Generating conditional results..."
     uv run python scripts/generate_conditional_results.py \
-        --baseline-dir "logs/recordings/seed${SEED}" \
+        --baseline-dir "$FC_DATA/logs/recordings/seed${SEED}" \
         --fork-dir "$FORK_DIR" \
         --condition "$CONDITION" \
         --checkpoint-turn $CHECKPOINT \
         --end-turn $END_TURN \
-        --game-data "data/games/seed${SEED}_data.json" \
+        --game-data "$FC_DATA/games/seed${SEED}_data.json" \
         --verbose
 
     log "[seed${SEED}/${FORK_NAME}] Done"
@@ -146,9 +147,9 @@ echo
 
 log "N=1 forks (seeds 0-10):"
 for SEED in $(seq 0 10); do
-    REPUBLIC="logs/recordings/seed${SEED}forkgovRepublicp0/conditional_results.json"
-    GOLD="logs/recordings/seed${SEED}forkgoldadd500p0/conditional_results.json"
-    NAVIGATION="logs/recordings/seed${SEED}forktech56p0/conditional_results.json"
+    REPUBLIC="$FC_DATA/logs/recordings/seed${SEED}forkgovRepublicp0/conditional_results.json"
+    GOLD="$FC_DATA/logs/recordings/seed${SEED}forkgoldadd500p0/conditional_results.json"
+    NAVIGATION="$FC_DATA/logs/recordings/seed${SEED}forktech56p0/conditional_results.json"
     printf "  seed%-2d: Republic=%s  Gold=%s  Navigation=%s\n" \
         $SEED \
         $([ -f "$REPUBLIC" ] && echo "✓" || echo "✗") \
@@ -159,14 +160,14 @@ done
 echo
 log "N=2 forks (Republic + Gold, seeds 0-20):"
 for SEED in $(seq 0 20); do
-    CR="logs/recordings/seed${SEED}forkRepGold500p0/conditional_results.json"
+    CR="$FC_DATA/logs/recordings/seed${SEED}forkRepGold500p0/conditional_results.json"
     printf "  seed%-2d: %s\n" $SEED $([ -f "$CR" ] && echo "✓" || echo "✗")
 done
 
 echo
 log "N=3 forks (Republic + Gold + Navigation, seeds 0-20):"
 for SEED in $(seq 0 20); do
-    CR="logs/recordings/seed${SEED}forkRepGold500Nav56p0/conditional_results.json"
+    CR="$FC_DATA/logs/recordings/seed${SEED}forkRepGold500Nav56p0/conditional_results.json"
     printf "  seed%-2d: %s\n" $SEED $([ -f "$CR" ] && echo "✓" || echo "✗")
 done
 

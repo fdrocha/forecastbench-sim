@@ -10,6 +10,7 @@
 #   bash scripts/run_mapmaking_forks.sh
 
 set -e
+FC_DATA="$(cd "$(dirname "$0")/../../.." && pwd)/data/freeciv"  # <repo>/data/freeciv
 
 SEEDS=(0 1 2 4 5 6 7 8 9 10)
 CHECKPOINT=60
@@ -22,7 +23,7 @@ echo "Checkpoint: turn ${CHECKPOINT}, End: turn ${END_TURN}"
 echo ""
 
 for SEED in "${SEEDS[@]}"; do
-    FORK_DIR="logs/recordings/seed${SEED}forktech${TECH_ID}p0"
+    FORK_DIR="$FC_DATA/logs/recordings/seed${SEED}forktech${TECH_ID}p0"
 
     if [ -d "$FORK_DIR" ] && [ -f "$FORK_DIR/conditional_results.json" ]; then
         echo "[seed${SEED}] Fork already exists with conditional_results.json — skipping"
@@ -35,17 +36,17 @@ for SEED in "${SEEDS[@]}"; do
         --checkpoint-turn "$CHECKPOINT" \
         --modification "tech:0:${TECH_ID}" \
         --end-turn "$END_TURN" \
-        --recording-dir "logs/recordings/seed${SEED}" \
+        --recording-dir "$FC_DATA/logs/recordings/seed${SEED}" \
         --fork-name "tech${TECH_ID}p0"
 
     echo "[seed${SEED}] Generating conditional results..."
     uv run python scripts/generate_conditional_results.py \
-        --baseline-dir "logs/recordings/seed${SEED}" \
+        --baseline-dir "$FC_DATA/logs/recordings/seed${SEED}" \
         --fork-dir "$FORK_DIR" \
         --condition "tech:0:${TECH_ID}" \
         --checkpoint-turn "$CHECKPOINT" \
         --end-turn "$END_TURN" \
-        --game-data "data/games/seed${SEED}_data.json" \
+        --game-data "$FC_DATA/games/seed${SEED}_data.json" \
         --verbose
 
     echo "[seed${SEED}] Done"

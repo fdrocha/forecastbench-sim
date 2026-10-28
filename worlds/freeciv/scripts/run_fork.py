@@ -30,10 +30,10 @@ Modification format:
                                    engine reseeds freshly per fork)
 
 Output:
-    logs/recordings/{seed}fork{name}/savegames/ — Fork savegames
+    data/freeciv/logs/recordings/{seed}fork{name}/savegames/ — Fork savegames
 
 Prerequisites:
-    - A completed game recording at logs/recordings/seed{seed}/
+    - A completed game recording at data/freeciv/logs/recordings/seed{seed}/
     - Savegames downloaded from Docker to savegames/ subdirectory
     - Run `uv run python scripts/run_world.py --seed {seed} --max_turns {turns}` first
 """
@@ -59,6 +59,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 # Now import freeciv_world (this will parse its own config args)
 from freeciv_world.forking import ForkManager
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 
 def parse_modification(mod_str: str) -> dict:
@@ -162,7 +164,7 @@ def main():
     if args.recording_dir:
         recording_dir = args.recording_dir
     else:
-        recording_dir = f"logs/recordings/s{args.base_seed}"
+        recording_dir = f"{FC_DATA}/logs/recordings/s{args.base_seed}"
 
     # Verify recording exists
     if not Path(recording_dir).exists():

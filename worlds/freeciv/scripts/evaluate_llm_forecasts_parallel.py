@@ -16,7 +16,7 @@ Usage:
     python scripts/evaluate_llm_forecasts_parallel.py --dry-run --questions-per-template 5
 
     # Resume from checkpoint
-    python scripts/evaluate_llm_forecasts_parallel.py --resume logs/eval_20251216_143000/checkpoint.json
+    python scripts/evaluate_llm_forecasts_parallel.py --resume data/freeciv/logs/eval_20251216_143000/checkpoint.json
 
     # Specify specific models
     python scripts/evaluate_llm_forecasts_parallel.py --models claude-3-7-sonnet-20250219 gpt-4o-mini
@@ -35,17 +35,17 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from dotenv import load_dotenv
+from fbsim_core.local import load_env
 
-# Load environment variables from .env file
-load_dotenv(Path(__file__).parent.parent / ".env")
+# Load environment variables from credentials/.env
+load_env()
 
 # Add src to path for local imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from fbsim_core.evaluation.models import get_models, load_api_keys_from_gcp
 
-# Load API keys from GCP Secret Manager (uses GOOGLE_CLOUD_PROJECT from .env)
+# Load API keys from GCP Secret Manager (uses GOOGLE_CLOUD_PROJECT from credentials/.env)
 load_api_keys_from_gcp()
 from fbsim_core.evaluation.sampling import (
     load_all_questions,
@@ -57,6 +57,8 @@ from fbsim_core.evaluation.sampling import (
 from freeciv_world.evaluation.rate_limiter import ProviderRateLimiter
 from freeciv_world.evaluation.parallel_evaluator import run_batch_evaluation, run_continuous_batch_evaluation
 from fbsim_core.metrics import compute_brier_score, compute_calibration_error, compute_crps, compute_aggregate_crps, compute_aggregate_mae
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 # - [X] claude forecastbench models
 # - [ ] gpt/gemini fast models
@@ -304,7 +306,7 @@ async def main():
         description="Parallel LLM evaluation for CivBench forecasting questions"
     )
     parser.add_argument(
-        "--data-dir", type=str, default="data/questions",
+        "--data-dir", type=str, default=f"{FC_DATA}/questions",
         help="Directory containing question data"
     )
     parser.add_argument(
@@ -387,7 +389,7 @@ async def main():
 
     # Setup run ID and logging
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + f"_{os.getpid()}"
-    log_dir = Path("logs") / f"eval_{run_id}"
+    log_dir = (FC_DATA / "logs") / f"eval_{run_id}"
     logger = setup_logging(run_id, log_dir)
 
     logger.info(f"CivBench Parallel Evaluation - Run {run_id}")
@@ -655,7 +657,7 @@ async def main():
     if args.output:
         output_path = Path(args.output)
     else:
-        output_path = Path(f"data/evaluations/runs/parallel_eval_{args.seed}_{run_id}.json")
+        output_path = Path(f"{FC_DATA}/evaluations/runs/parallel_eval_{args.seed}_{run_id}.json")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, 'w') as f:
@@ -674,8 +676,8 @@ async def main():
                 update_question_files,
             )
 
-            eval_dir = Path("data/evaluations/results")
-            questions_dir = Path("data/questions")
+            eval_dir = Path(f"{FC_DATA}/evaluations/results")
+            questions_dir = Path(f"{FC_DATA}/questions")
 
             aggregated = aggregate_evaluations(eval_dir)
             difficulties = compute_question_difficulties(aggregated)

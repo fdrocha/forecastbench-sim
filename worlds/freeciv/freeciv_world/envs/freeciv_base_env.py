@@ -19,6 +19,7 @@ import json
 import traceback
 import time
 import datetime
+from fbsim_core.local import data_dir
 import matplotlib.pyplot as plt
 from BitVector import BitVector
 import numpy as np
@@ -254,7 +255,7 @@ class FreecivBaseEnv(gymnasium.Env, utils.EzPickle):
         if evaluations is None:
             return
 
-        plot_game_scores_folder = (f"plot_game_scores/{time.strftime('%Y-%m-%d-%H-%M-%S')}-"
+        plot_game_scores_folder = (f"{data_dir('freeciv')}/plot_game_scores/{time.strftime('%Y-%m-%d-%H-%M-%S')}-"
                                    f"{self.civ_controller.client_port}")
         if not os.path.exists(plot_game_scores_folder):
             os.makedirs(plot_game_scores_folder)

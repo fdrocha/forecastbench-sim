@@ -11,7 +11,7 @@ Computes:
 Usage:
     cd /Users/elsehow/Projects/civbench
     uv run python scripts/score_bin_condition.py
-    uv run python scripts/score_bin_condition.py --compare data/results/trajectory_condition/trajectory_results.json
+    uv run python scripts/score_bin_condition.py --compare data/freeciv/results/trajectory_condition/trajectory_results.json
 """
 
 import argparse
@@ -21,6 +21,8 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 # ECI scores for the 5 intervention models
 ECI_MAP = {
@@ -510,7 +512,7 @@ def analyze_results(results_file: str, compare_file: str = None):
 
 def main():
     parser = argparse.ArgumentParser(description="Score bin probability forecasts")
-    parser.add_argument("--results", default="data/results/bin_condition/bin_results.json",
+    parser.add_argument("--results", default=f"{FC_DATA}/results/bin_condition/bin_results.json",
                         help="Bin condition results file")
     parser.add_argument("--compare", default=None,
                         help="Quantile baseline results file for comparison")

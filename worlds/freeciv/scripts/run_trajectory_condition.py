@@ -31,13 +31,15 @@ from pathlib import Path
 # Force unbuffered output
 print = partial(print, flush=True)
 
-from dotenv import load_dotenv
+from fbsim_core.local import load_env
 
-load_dotenv(Path(__file__).parent.parent / ".env")
+load_env()
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from fbsim_core.evaluation.models import load_api_keys_from_gcp, LiteLLMModel
 from freeciv_world.evaluation.trajectory_prompt import build_trajectory_continuous_prompt
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 _keys_loaded = False
 def ensure_api_keys():
@@ -61,9 +63,9 @@ MODELS = [
 
 ALL_CONDITIONS = ["baseline", "trajectory"]
 
-DATA_DIR = Path("data/conditional/republic/baseline")
-GAMES_DIR = Path("data/games")
-RESULTS_DIR = Path("data/results/trajectory_condition")
+DATA_DIR = Path(f"{FC_DATA}/conditional/republic/baseline")
+GAMES_DIR = Path(f"{FC_DATA}/games")
+RESULTS_DIR = Path(f"{FC_DATA}/results/trajectory_condition")
 
 DISRUPTABLE_TEMPLATES = {
     "population_continuous", "territory_continuous",

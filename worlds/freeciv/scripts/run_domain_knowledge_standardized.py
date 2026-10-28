@@ -25,12 +25,14 @@ from pathlib import Path
 # Force unbuffered output for background execution
 print = partial(print, flush=True)
 
-from dotenv import load_dotenv
+from fbsim_core.local import load_env
 
-load_dotenv(Path(__file__).parent.parent / ".env")
+load_env()
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from fbsim_core.evaluation.models import load_api_keys_from_gcp, LiteLLMModel
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 load_api_keys_from_gcp()
 
@@ -43,7 +45,7 @@ TEMPLATES_BASELINE = {"population_continuous", "territory_continuous"}
 TEMPLATES_CONDITIONAL = {"conditional_population_continuous", "conditional_territory_continuous"}
 CONDITIONS = ["baseline", "conditional"]
 
-OUTPUT_DIR = Path("data/results/domain_knowledge_standardized")
+OUTPUT_DIR = Path(f"{FC_DATA}/results/domain_knowledge_standardized")
 
 # ── Domain knowledge supplement ─────────────────────────────────────────────
 
@@ -66,8 +68,8 @@ def load_ground_truth_map() -> dict:
     """Load ground truth from existing results files (questions.json has stale values)."""
     gt_map = {}  # (question_text, condition) -> ground_truth
     for path, condition in [
-        (Path("data/results/republic_baseline_continuous_all.json"), "baseline"),
-        (Path("data/results/republic_conditional_continuous_all.json"), "conditional"),
+        (Path(f"{FC_DATA}/results/republic_baseline_continuous_all.json"), "baseline"),
+        (Path(f"{FC_DATA}/results/republic_conditional_continuous_all.json"), "conditional"),
     ]:
         if not path.exists():
             continue
@@ -173,10 +175,10 @@ async def run_experiment(model_id: str, seeds: list[str], dry_run: bool = False)
 
     for condition in CONDITIONS:
         if condition == "baseline":
-            data_dir = Path("data/conditional/republic/baseline")
+            data_dir = Path(f"{FC_DATA}/conditional/republic/baseline")
             q_file = "questions.json"
         else:
-            data_dir = Path("data/conditional/republic/conditional")
+            data_dir = Path(f"{FC_DATA}/conditional/republic/conditional")
             q_file = "conditional_questions.json"
 
         for seed in seeds:

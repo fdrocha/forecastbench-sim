@@ -11,9 +11,11 @@ import sys
 
 sys.path.insert(0, ".")
 from fbsim_core.metrics import compute_crps, compute_mae
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 
-RESULTS_DIR = "data/results/agentic_baseline"
+RESULTS_DIR = f"{FC_DATA}/results/agentic_baseline"
 SEEDS = ["seed0", "seed1", "seed4", "seed5", "seed9",
          "seed10", "seed13", "seed15", "seed16", "seed20"]
 MODELS = ["gpt-4.1", "claude-sonnet-4-5", "gpt-5",

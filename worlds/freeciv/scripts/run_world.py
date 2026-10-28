@@ -17,7 +17,7 @@ Setup:
 - All players use the same Freeciv AI algorithm
 
 Output:
-- Recordings saved to: logs/recordings/seed{seed}/
+- Recordings saved to: data/freeciv/logs/recordings/seed{seed}/
 
 Authentication note:
 - The freeciv-proxy validates usernames via regex: [a-z][a-z0-9]* with 3-31 char length
@@ -114,7 +114,7 @@ def main(seed: int, max_turns: int = 50, num_ai_players: int = 5, quiet: bool = 
     if not load_game:
         log(f"Setup: {num_ai_players - 1} via aifill + 1 connected player toggled to AI")
     log(f"Max turns: {max_turns} (fc_args: {fc_args['max_turns']})")
-    log(f"Recording to: logs/recordings/{run_id}/")
+    log(f"Recording to: data/freeciv/logs/recordings/{run_id}/")
     log("")
 
     # Clean up any existing savegames for this run (skip if loading)

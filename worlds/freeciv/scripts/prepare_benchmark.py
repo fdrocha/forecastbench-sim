@@ -37,6 +37,8 @@ from pathlib import Path
 from typing import Any
 
 from tqdm import tqdm
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 
 def process_single_game(
@@ -210,7 +212,7 @@ def main() -> int:
     # Game selection
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--game-id', type=str, help='Single game ID (e.g., seed0)')
-    group.add_argument('--all', action='store_true', help='Process all games in data/games/')
+    group.add_argument('--all', action='store_true', help='Process all games in data/freeciv/games/')
 
     # Filtering
     parser.add_argument('--filter', type=str, default=None,
@@ -243,11 +245,11 @@ def main() -> int:
                         help='Detailed output')
 
     # Paths
-    parser.add_argument('--games-dir', type=Path, default=Path('data/games'),
+    parser.add_argument('--games-dir', type=Path, default=Path(f'{FC_DATA}/games'),
                         help='Directory containing game data JSON files')
-    parser.add_argument('--output-dir', type=Path, default=Path('data/questions'),
+    parser.add_argument('--output-dir', type=Path, default=Path(f'{FC_DATA}/questions'),
                         help='Output directory for questions and reports')
-    parser.add_argument('--recordings-dir', type=Path, default=Path('logs/recordings'),
+    parser.add_argument('--recordings-dir', type=Path, default=Path(f'{FC_DATA}/logs/recordings'),
                         help='Recordings base directory')
 
     args = parser.parse_args()

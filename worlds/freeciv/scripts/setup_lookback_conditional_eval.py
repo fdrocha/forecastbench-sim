@@ -19,6 +19,8 @@ import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 # Seeds to process (same as other conditional experiments, skip seed3)
 SEEDS = ["seed0", "seed1", "seed2", "seed4", "seed5", "seed6", "seed7", "seed8", "seed9", "seed10"]
@@ -112,11 +114,11 @@ def make_lookback_text(event: dict, original_text: str, civilizations: dict) -> 
 
 def setup_lookback_eval():
     base_dir = Path(__file__).parent.parent
-    games_dir = base_dir / "data" / "games"
-    questions_dir = base_dir / "data" / "questions"
+    games_dir = FC_DATA / "games"
+    questions_dir = FC_DATA / "questions"
 
-    baseline_eval_dir = base_dir / "data" / "conditional" / "lookback_giventhat" / "baseline"
-    conditional_eval_dir = base_dir / "data" / "conditional" / "lookback_giventhat" / "conditional"
+    baseline_eval_dir = FC_DATA / "conditional" / "lookback_giventhat" / "baseline"
+    conditional_eval_dir = FC_DATA / "conditional" / "lookback_giventhat" / "conditional"
 
     # Load all questions from combined file
     questions_all_path = questions_dir / "questions_all.json"
@@ -306,14 +308,14 @@ def setup_lookback_eval():
     print()
     print("To run evaluations:")
     print(f"  uv run python scripts/evaluate_llm_forecasts_parallel.py \\")
-    print(f"    --data-dir data/conditional/lookback/baseline --all \\")
+    print(f"    --data-dir data/freeciv/conditional/lookback/baseline --all \\")
     print(f"    --models openai/o3-2025-04-16 anthropic/claude-opus-4-5-20251101 openai/gpt-4.1-2025-04-14 \\")
-    print(f"    -o data/results/lookback_baseline_eval.json")
+    print(f"    -o data/freeciv/results/lookback_baseline_eval.json")
     print()
     print(f"  uv run python scripts/evaluate_llm_forecasts_parallel.py \\")
-    print(f"    --data-dir data/conditional/lookback/conditional --all \\")
+    print(f"    --data-dir data/freeciv/conditional/lookback/conditional --all \\")
     print(f"    --models openai/o3-2025-04-16 anthropic/claude-opus-4-5-20251101 openai/gpt-4.1-2025-04-14 \\")
-    print(f"    -o data/results/lookback_conditional_eval.json")
+    print(f"    -o data/freeciv/results/lookback_conditional_eval.json")
 
 
 if __name__ == "__main__":

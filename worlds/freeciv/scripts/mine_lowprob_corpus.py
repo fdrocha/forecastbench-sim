@@ -22,9 +22,9 @@ scoring truth labels.
 
 Usage:
     uv run python worlds/freeciv/scripts/mine_lowprob_corpus.py \
-        --data-dir data/games data/games_mc --snapshot-turn 40 \
+        --data-dir data/freeciv/games data/freeciv/games_mc --snapshot-turn 40 \
         --rate-lo 0.01 --rate-hi 0.09 --min-n 30 --workers 8 \
-        --out-dir data/lowprob
+        --out-dir data/freeciv/lowprob
 """
 
 import argparse
@@ -35,6 +35,8 @@ import sys
 from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from fbsim_core.local import data_dir
+FC_DATA = data_dir("freeciv")
 
 sys.path.insert(0, 'src')
 
@@ -173,7 +175,7 @@ def process_single_game(args: tuple):
 
 def main():
     ap = argparse.ArgumentParser(description="Mine low-probability FreeCiv question corpus")
-    ap.add_argument("--data-dir", nargs="+", default=["data/games"],
+    ap.add_argument("--data-dir", nargs="+", default=[f"{FC_DATA}/games"],
                     help="one or more game-data dirs (pooled)")
     ap.add_argument("--snapshot-turn", type=int, default=40)
     ap.add_argument("--rate-lo", type=float, default=0.01)
@@ -189,7 +191,7 @@ def main():
     ap.add_argument("--split-seed", type=int, default=0,
                     help="seed for the split-half game-id hash")
     ap.add_argument("--workers", type=int, default=8)
-    ap.add_argument("--out-dir", default="data/lowprob")
+    ap.add_argument("--out-dir", default=f"{FC_DATA}/lowprob")
     ap.add_argument("--limit", type=int, default=None, help="cap #games (debug)")
     args = ap.parse_args()
 
