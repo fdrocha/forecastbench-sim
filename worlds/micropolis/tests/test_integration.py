@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_all_entrypoints_help_without_engine_or_keys(tmp_path):
     env = {k: v for k, v in os.environ.items() if not k.endswith("API_KEY") and k not in {"MICROPOLIS_CORE_PATH", "PYTHONPATH"}}
-    env.update(FBSIM_DATA_ROOT=str(tmp_path), LITELLM_LOCAL_MODEL_COST_MAP="True")
+    env.update(FBSIM_TEST_DATA_ROOT=str(tmp_path), LITELLM_LOCAL_MODEL_COST_MAP="True")
     for script in sorted((ROOT / "scripts").glob("*.py")):
         result = subprocess.run([sys.executable, str(script), "--help"], env=env, capture_output=True, text=True, timeout=30)
         assert result.returncode == 0, (script.name, result.stderr)
@@ -98,7 +98,7 @@ def test_cached_pipeline(tmp_path, synthetic_corpus):
 
 def test_installed_default_reaches_engine_diagnostic(tmp_path):
     env = {k: v for k, v in os.environ.items() if k not in {"MICROPOLIS_CORE_PATH", "PYTHONPATH"}}
-    env.update(FBSIM_DATA_ROOT=str(tmp_path), LITELLM_LOCAL_MODEL_COST_MAP="True")
+    env.update(FBSIM_TEST_DATA_ROOT=str(tmp_path), LITELLM_LOCAL_MODEL_COST_MAP="True")
     result = subprocess.run([sys.executable, str(ROOT / "scripts/run_sim.py"), "--no-plot"], env=env, capture_output=True, text=True, timeout=30)
     assert result.returncode != 0
     assert "Set MICROPOLIS_CORE_PATH" in result.stderr

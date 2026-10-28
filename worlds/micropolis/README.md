@@ -26,7 +26,7 @@ uv run --offline --no-project --python .venv-micropolis/bin/python -m pytest -q 
 uv run --offline --no-project --python .venv-micropolis/bin/python worlds/micropolis/scripts/run_sim.py --help
 ```
 
-Tests block engine launches and provider transports. Corpus tests use invented trajectory rows; the process-contract test mocks pnpm. Neither is a live-engine validation. CLI `--help`, cached parsing/scoring and imports need no engine path or credentials. A missing engine is reported when a runner is invoked, rather than during import. No `.env` file or cloud secret store is loaded implicitly.
+Tests block engine launches and provider transports. Corpus tests use invented trajectory rows; the process-contract test mocks pnpm. Neither is a live-engine validation. CLI `--help`, cached parsing/scoring and imports need no engine path or credentials. A missing engine is reported when a runner is invoked, rather than during import. `credentials/.env` (repo root) is read only when a runner needs the engine or provider keys; variables exported in the shell take precedence, and no cloud secret store is used.
 
 ## External engine setup
 
@@ -61,14 +61,13 @@ All script paths are under `worlds/micropolis/scripts/`. Use `uv run --no-projec
 | `check_determinism.py CONFIG` | Repeats live engine runs; opt-in only |
 | `score_cached.py --input DATASET --kind binary\|continuous` | Reads gathered JSON and prints per-forecast realized Brier or raw quantile CRPS; no engine/provider/normalization |
 
-Choose a fresh output root before running:
+The example configs write to their own `data/micropolis-example*` folders (their `data_dir`), apart from `data/micropolis`:
 
 ```sh
-export FBSIM_DATA_ROOT=/path/to/new/run-data
 uv run --no-project --python .venv-micropolis/bin/python worlds/micropolis/scripts/run_sim.py worlds/micropolis/configs/example.json5 --no-plot
 uv run --no-project --python .venv-micropolis/bin/python worlds/micropolis/scripts/gen_corpus.py worlds/micropolis/configs/example.json5
 ```
 
-The config's `data_dir` selects one child of `FBSIM_DATA_ROOT`; absent the environment variable, the root is `./data` relative to the working directory. Cached gathering preserves the native content-addressed prompt/response scheme. Missing cached forecasts remain absent, unparsed forecasts remain null: the raw scorer does not apply paper eligibility or imputation rules.
+The config's `data_dir` selects one child of the repository's `data/` (a symlink set up by `scripts/setup_worktree.sh`). Cached gathering preserves the native content-addressed prompt/response scheme. Missing cached forecasts remain absent, unparsed forecasts remain null: the raw scorer does not apply paper eligibility or imputation rules.
 
-Actual model gathering requires explicitly exporting `OPENROUTER_API_KEY`. No GCP fallback is attempted. Optionally set `MICROPOLIS_MODEL_SPECS` to your own JSON5 routing/spec file before invoking Python; the installed registry is empty. An unqualified model uses provider defaults, while a suffixed slug must have a configured spec. No production model panel is supplied, and no model call was made to validate this integration.
+Actual model gathering requires `OPENROUTER_API_KEY`, from `credentials/.env` or the shell. No GCP fallback is attempted. Optionally set `MICROPOLIS_MODEL_SPECS` to your own JSON5 routing/spec file before invoking Python; the installed registry is empty. An unqualified model uses provider defaults, while a suffixed slug must have a configured spec. No production model panel is supplied, and no model call was made to validate this integration.
