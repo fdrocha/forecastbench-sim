@@ -20,6 +20,6 @@ for spec in "$@"; do
     $RSH "root@$IP" "mkdir -p /workspace/civbench/worlds/freeciv/logs/recordings/$s/savegames"
     rsync -az -e "$RSH" "$d/savegames/" "root@$IP:/workspace/civbench/worlds/freeciv/logs/recordings/$s/savegames/"; done
   $RSH "root@$IP" "chmod -R a+rX /workspace/civbench/worlds/freeciv/logs/recordings 2>/dev/null; chmod 600 /workspace/fleet/archive_key 2>/dev/null
-    pgrep -f 'fleet/sync_loop[.]sh' >/dev/null || nohup setsid bash /workspace/fleet/sync_loop.sh $AIP $APORT $name 300 >/dev/null 2>&1 </dev/null &
-    sleep 1; bash /workspace/fleet/worker.sh $lanes 210; echo todo=\$(ls /workspace/fleet/queue/todo | wc -l) anchors=\$(ls /workspace/civbench/worlds/freeciv/logs/recordings/ | tr '\n' ' ')"
+    bash /workspace/fleet/start_sync.sh $AIP $APORT $name 300   # a pgrep here would match this ssh command line itself
+    bash /workspace/fleet/worker.sh $lanes 210; echo todo=\$(ls /workspace/fleet/queue/todo | wc -l) anchors=\$(ls /workspace/civbench/worlds/freeciv/logs/recordings/ | tr '\n' ' ')"
 done
