@@ -25,6 +25,26 @@ It's a [uv workspace](https://docs.astral.sh/uv/concepts/workspaces/). Install w
 uv sync --all-packages
 ```
 
+## Local data and credentials
+
+Every package writes its output to `data/<package>/` (`data/freeciv/`, `data/micropolis/`, `data/pandemic/`; Micropolis
+runs with a config `data_dir` use sibling `data/micropolis_*` folders) and reads its keys from `credentials/.env`, one
+file with every variable any package needs (sourceable: `set -a; . credentials/.env; set +a`). Variables exported in
+the shell take precedence. Code finds both through `fbsim_core.local` (`FBSIM_TEST_DATA_ROOT` and `FBSIM_TEST_ENV_FILE`
+redirect them, for tests only).
+
+Both are gitignored symlinks at the repository root, to directories outside the checkout so that every worktree
+shares them. In the main checkout they may also be real directories.
+
+```bash
+mkdir -p ../fbsim-local/data ../fbsim-local/credentials && chmod 700 ../fbsim-local/credentials   # once per machine
+scripts/setup_worktree.sh             # links data/ and credentials/ (main checkout: to ../fbsim-local/)
+git config core.hooksPath .githooks   # once per clone: every new worktree is then linked automatically
+```
+
+`core.hooksPath` replaces `.git/hooks`: git stops running hooks there. If you have any, skip the last command and run
+`scripts/setup_worktree.sh` in each new worktree instead.
+
 ## Paper material
 
 This repository holds reusable world code. Material specific to the ForecastBench-Sim
@@ -61,7 +81,7 @@ cd packages/fbsim-core && uv run --project .. python -m pytest tests
 
 # FreeCiv world: generate + resolve questions from a recorded game
 uv run python worlds/freeciv/scripts/generate_questions.py \
-    data/games/seed1619_data.json --snapshot-turn 60 --summary
+    data/freeciv/games/seed1619_data.json --snapshot-turn 60 --summary
 
 # Pandemic world: scaled conditional/unconditional benchmark + chart (cached)
 uv run python -m pandemic_world.scale_eval --eval

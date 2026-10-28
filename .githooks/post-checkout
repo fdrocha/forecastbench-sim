@@ -1,0 +1,5 @@
+#!/bin/sh
+# post-checkout: give the checkout (including a new worktree) its data/ and credentials/ links.
+root="$(git rev-parse --show-toplevel)" || exit 0
+[ -x "$root/scripts/setup_worktree.sh" ] && "$root/scripts/setup_worktree.sh" --quiet
+exit 0
