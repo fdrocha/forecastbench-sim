@@ -2,17 +2,18 @@
 # rp.sh — minimal RunPod REST helper for the hand-driven fbsim v3 rerun (2026-09-02).
 #   rp.sh create NAME FLAVOR VCPU CLOUD [--dc DC] [--volume ID] [--deadman H] [--disk GB] [--start FILE]
 #   rp.sh list | get ID | addr ID | ssh ID [CMD...] | delete ID | ledger
-# Ledger: state/pods.tsv (created_at, id, name, flavor, vcpu, cloud, dc, cost, status)
+# Ledger: $STATE/pods.tsv (created_at, id, name, flavor, vcpu, cloud, dc, cost, status)
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STATE="$HERE/state"; mkdir -p "$STATE"
+. "$HERE/paths.sh"
+mkdir -p "$STATE"
 LEDGER="$STATE/pods.tsv"
 API="https://rest.runpod.io/v1"
 KEY="${RUNPOD_API_KEY:-}"
-PUBKEY="$(cat "$HOME/.ssh/id_ed25519_runpod.pub")"
-SSHKEY="$HOME/.ssh/id_ed25519_runpod"
+[ -n "$KEY" ] || [ ! -f "$CRED/.env" ] || KEY="$(sed -n 's/^RUNPOD_API_KEY=//p' "$CRED/.env" | tail -n1 | tr -d "\"'")"
+PUBKEY="$(cat "$SSHKEY.pub")"
 IMAGE="civrealm/freeciv-web:1.4"
-[ -n "$KEY" ] || { echo "no RUNPOD_API_KEY" >&2; exit 1; }
+[ -n "$KEY" ] || { echo "no RUNPOD_API_KEY (export it or put it in credentials/.env)" >&2; exit 1; }
 
 HTTP=""
 rp() { # rp METHOD PATH [JSON]  -> body on stdout, HTTP set
@@ -61,7 +62,7 @@ PY
 
 cmd_get() { rp GET "/pods/$1"; echo; }
 
-cmd_addr() { # -> "IP PORT" or empty; cached in state/addr_cache.tsv (used when the API is down)
+cmd_addr() { # -> "IP PORT" or empty; cached in $STATE/addr_cache.tsv (used when the API is down)
   local id="$1" a
   a="$(rp GET "/pods/$id" 2>/dev/null | python3 -c '
 import json,sys

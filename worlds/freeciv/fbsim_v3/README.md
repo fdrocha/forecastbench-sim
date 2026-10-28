@@ -15,8 +15,11 @@ Inputs live outside this folder:
 
 - `FBSIM_FREECIV_V3_DATA`: a folder with `sets/draw_v1/`, `reports/` and `run/models_v*.csv`, such as
   `forecastbench-sim-paper/production/freeciv` (the paper's question sets, reports and model panels).
-- `FBSIM_V3_CORPUS`: the working corpus of a replay run (`raw/`, `consol_v4/`, `bank_v1/`).
-- `OPENROUTER_API_KEY`, `RUNPOD_API_KEY`: from the environment or `--env-file`; never stored here.
+- `FBSIM_V3_CORPUS`: the working corpus of a replay run (`raw/`, `consol_v4/`, `bank_v1/`), e.g.
+  `<repo>/data/freeciv/fbsim_v3/freeciv_1p`.
+- `OPENROUTER_API_KEY`, `RUNPOD_API_KEY`: exported, or in the repository's `credentials/.env`; never stored here.
+  The fleet's ssh keys are `credentials/freeciv/{runpod_key,archive_key}` and its run state (pod ledger, queues,
+  anchors, logs) is `data/freeciv/fbsim_v3/fleet_state/` (both set in `fleet/paths.sh`; see `AGENTS.md`).
 
 Launch scripts, run records and the paper's analysis are in `forecastbench-sim-paper` (`production/freeciv`,
 `src/fbsim_paper/assets/freeciv`). Raw responses and scores are in the private data archive.

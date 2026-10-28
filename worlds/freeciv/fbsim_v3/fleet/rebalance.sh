@@ -3,15 +3,15 @@
 # whose todo has dropped below MIN_TODO (default 2 x lanes). Tasks are moved atomically on the
 # source pod (mv todo -> moved) before being created on the destination, so no lane can claim twice.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; cd "$HERE"
-[ -s state/archive_pods.txt ] || { echo "no archive pods in state/archive_pods.txt"; exit 1; }
-SSHKEY="$HOME/.ssh/id_ed25519_runpod"
+. "$HERE/paths.sh"
+[ -s "$STATE"/archive_pods.txt ] || { echo "no archive pods in $STATE/archive_pods.txt"; exit 1; }
 tmp="$(mktemp -d)"
 # 1. snapshot todo counts + lanes per worker
 while IFS=$'\t' read -r ts id name flavor vcpu cloud dc cost status; do
   case "$ts" in \#*) continue;; esac; [ "$status" = deleted ] && continue
-  grep -qx "$id" state/archive_pods.txt 2>/dev/null && continue
+  grep -qx "$id" "$STATE"/archive_pods.txt 2>/dev/null && continue
   ( t="$(bash rp.sh ssh "$id" 'echo $(ls /workspace/fleet/queue/todo | wc -l) $(ls /workspace/fleet/queue/inprog | wc -l)' 2>/dev/null)" && echo "$id $vcpu $t" > "$tmp/$id" ) &
-done < state/pods.tsv; wait
+done < "$STATE"/pods.tsv; wait
 cat "$tmp"/* | sort -k3 -n > "$tmp/all"
 echo "== todo snapshot (id vcpu todo inprog):"; cat "$tmp/all"
 # 2. donors = top pods by todo; receivers = todo < threshold
@@ -29,7 +29,7 @@ while read -r id vcpu todo inprog; do
   [ "$n" -gt 0 ] || continue
   # create on receiver
   echo "$moved" | bash rp.sh ssh "$id" 'while read -r f a r; do [ -n "$f" ] || continue; printf "%s %s\n" "$a" "$r" > /workspace/fleet/queue/todo/$f; done; echo received $(ls /workspace/fleet/queue/todo | wc -l)'
-  echo "$moved" | awk -v d="$did" -v r="$id" '{print d, r, $1}' >> state/rebalance.log
+  echo "$moved" | awk -v d="$did" -v r="$id" '{print d, r, $1}' >> "$STATE"/rebalance.log
   # update snapshot numbers
   awk -v d="$did" -v r="$id" -v n="$n" '$1==d{$3-=n} $1==r{$3+=n} {print}' "$tmp/all" > "$tmp/all2" && mv "$tmp/all2" "$tmp/all"
 done < "$tmp/all"

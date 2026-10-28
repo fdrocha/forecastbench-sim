@@ -27,6 +27,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # (sets/draw_v1/, reports/, run/models_v*.csv), e.g. forecastbench-sim-paper/production/freeciv.
 DATA = os.environ.get('FBSIM_FREECIV_V3_DATA', os.path.join(HERE, '..'))
 SETS = os.path.join(DATA, 'sets', 'draw_v1'); REPORTS = os.path.join(DATA, 'reports')
+from fbsim_core.local import load_env
+load_env()  # credentials/.env; an exported variable wins
 KEY = os.environ.get('OPENROUTER_API_KEY')
 # Prompt = [prefix (intro + background + report), tail (question, optional fact, criteria, instructions)].
 # The prefix is identical for every question of one kind in one world and is sent as its own content part with a
@@ -285,7 +287,7 @@ def main():
     print(f"jobs per model: t1={len(jobs['t1'])} t2={len(jobs['t2'])} nonews={len(jobs['nonews'])} single={len(jobs['single'])} "
           f"total={sum(len(v) for v in jobs.values())}; models={len(models)}; reasoning={a.reasoning}", flush=True)
     if a.dry_run: return
-    if not KEY: sys.exit('OPENROUTER_API_KEY missing')
+    if not KEY: sys.exit('OPENROUTER_API_KEY missing (export it or put it in credentials/.env)')
     os.makedirs(a.out, exist_ok=True); ck = f'{a.out}/results.jsonl'; done = {}
     if os.path.exists(ck):
         for line in open(ck):

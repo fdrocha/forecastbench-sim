@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""effort_check_v2.py --out DIR [--env-file F] [--models a,b] [--dry-run] [--smoke] [--workers N]
+"""effort_check_v2.py --out DIR [--models a,b] [--dry-run] [--smoke] [--workers N]
 
 The reasoning-effort check of Appendix D repeated on the grouped prompts (Jaeho, 20 September 2026): the same 200 bank
 questions as the check of 9 September (elicit_v1's stratified sample, `--sample bank=200`, seed 11), asked in grouped
@@ -77,18 +77,15 @@ def build_prompts(ids):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
-    ap.add_argument("--env-file", default="")
     ap.add_argument("--models", default=",".join(SEVEN))
     ap.add_argument("--models-file", default=str(ev.DATA / "run" / "models_v2.csv"))
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--smoke", action="store_true", help="one prompt of the first model only")
     a = ap.parse_args()
+    from fbsim_core.local import load_env
+    load_env()  # credentials/.env; an exported variable wins
     key = os.environ.get("OPENROUTER_API_KEY")
-    if not key and a.env_file:
-        for l in open(os.path.expanduser(a.env_file)):
-            if l.startswith("OPENROUTER_API_KEY="):
-                key = l.split("=", 1)[1].strip().strip("\"'")
     ev.KEY = key
     ids = sample_ids()
     batches = build_prompts(ids)

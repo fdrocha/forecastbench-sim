@@ -28,7 +28,7 @@ lane() {
     log="$OUT/logs/$t.a$attempt.log"
     # hygiene
     find /var/lib/tomcat10/webapps/data/savegames -type f -mmin +180 -delete 2>/dev/null
-    rm -rf "$OUT/a$A/forks/rng$R" "$OUT/a$A/forks_failed/rng$R.FAILED" "$B/worlds/freeciv/logs/recordings/seed${A}forkrng$R" 2>/dev/null
+    rm -rf "$OUT/a$A/forks/rng$R" "$OUT/a$A/forks_failed/rng$R.FAILED" "$B/data/freeciv/logs/recordings/seed${A}forkrng$R" 2>/dev/null
     local free; free=$(df -m /workspace | awk 'NR==2{print $4}')
     if [ "${free:-0}" -lt 2500 ]; then echo "$(date -u +%FT%TZ) lane$N DISK LOW ${free}MB; pausing"; mv "$Q/inprog/$t.lane$N" "$Q/todo/$t"; sleep 300; continue; fi
     echo "$(date -u +%FT%TZ) lane$N START $t attempt $attempt"
@@ -44,7 +44,7 @@ lane() {
     else
       { echo "rc=$rc secs=$((t1-t0)) host=$HOST lane=$N"; grep -m1 'reason:' "$OUT/a$A/forks_failed/rng$R.FAILED" 2>/dev/null; echo '--- log tail ---'; tail -c 6000 "$log" 2>/dev/null; } > "$Q/failed/$t.$attempt"
       rm -f "$Q/inprog/$t.lane$N"
-      rm -rf "$OUT/a$A/forks/rng$R" "$B/worlds/freeciv/logs/recordings/seed${A}forkrng$R" 2>/dev/null
+      rm -rf "$OUT/a$A/forks/rng$R" "$B/data/freeciv/logs/recordings/seed${A}forkrng$R" 2>/dev/null
       echo "$(date -u +%FT%TZ) lane$N FAILED $t attempt $attempt rc=$rc ($((t1-t0))s)"
       if [ "$attempt" -lt 2 ]; then printf '%s %s\n' "$A" "$R" > "$Q/todo/$t"; fi
     fi

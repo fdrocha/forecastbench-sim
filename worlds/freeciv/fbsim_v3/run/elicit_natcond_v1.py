@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """elicit_natcond_v1.py — the natural-conditional arm exactly as run 1 asked it, for the re-pinned models.
 
-  python elicit_natcond_v1.py --out DIR --models "DeepSeek: DeepSeek V3,DeepSeek: DeepSeek V4 Flash 0731"
-                              [--models-file models_v2.csv] [--workers W] [--limit N] [--dry-run] [--env-file PATH]
+  uv run python elicit_natcond_v1.py --out DIR --models "DeepSeek: DeepSeek V3,DeepSeek: DeepSeek V4 Flash 0731"
+                                     [--models-file models_v2.csv] [--workers W] [--limit N] [--dry-run]
 
 Run 2 keeps the natural conditionals unbatched: one question per prompt at turn 1, the uniform reveal sentence
 and the question again at turn 2, and the no-news control on 100 cells.  The prompt texts, message structure,
@@ -118,14 +118,11 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="only the first N turn-1 questions and their cells")
     ap.add_argument("--reask", type=int, default=1)
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--env-file", default="")
     a = ap.parse_args()
     import elicit_v2
+    from fbsim_core.local import load_env
+    load_env()  # credentials/.env; an exported variable wins
     elicit_v2.KEY = os.environ.get("OPENROUTER_API_KEY")
-    if not elicit_v2.KEY and a.env_file:
-        for l in open(os.path.expanduser(a.env_file)):
-            if l.startswith("OPENROUTER_API_KEY="):
-                elicit_v2.KEY = l.split("=", 1)[1].strip().strip("\"'")
     want = a.models.split(",")
     models = [m for m in load_models(a.models_file) if m["name"] in want or m["openrouter_id"] in want]
     missing = [w for w in want if not any(m["name"] == w or m["openrouter_id"] == w for m in models)]
@@ -136,7 +133,7 @@ def main():
     if a.dry_run:
         return
     if not elicit_v2.KEY:
-        sys.exit("OPENROUTER_API_KEY missing (export it or pass --env-file)")
+        sys.exit("OPENROUTER_API_KEY missing (export it or put it in credentials/.env)")
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     ck = out / "results.jsonl"; done = {}
     if ck.exists():
