@@ -30,13 +30,13 @@ Tests block engine launches and provider transports. Corpus tests use invented t
 
 ## External engine setup
 
-Use [fdrocha/MicropolisCore, exploration](https://github.com/fdrocha/MicropolisCore/tree/4fe3a7238b735f9cdd3ec13c957ccc8a3a3b0481), pinned for this integration's **source-interface inspection** to `4fe3a7238b735f9cdd3ec13c957ccc8a3a3b0481`. It contains both `apps/micropolis/cli/run_sim.js` and `run_continuations.js`. The `fbs` branch at `d50b799d5915944263c0385fc43a8990e5d4e32e` has run_sim but lacks run_continuations; it is not a substitute for ground-truth extraction.
+Use [fdrocha/MicropolisCore, fbs](https://github.com/fdrocha/MicropolisCore/tree/befe1e27d852b84474b0a01adc44908ad20b3297) at `befe1e27d852b84474b0a01adc44908ad20b3297`. It contains `apps/micropolis/cli/run_sim.js` and `run_continuations.js`, and the interventions behind `--at` / `--intervene` (forced disasters, demolishing power plants or the airport). This integration's source-interface inspection was against `4fe3a7238b735f9cdd3ec13c957ccc8a3a3b0481` (branch `exploration`), which has both scripts but no interventions.
 
 Prerequisites in that engine revision: Node >=20, pnpm 10.28.0 (declared packageManager), make, and an activated Emscripten toolchain providing `em++`. The engine makefile uses Emscripten APIs including `--emit-tsd`; no exact tested Emscripten version or historical producer-engine pin was established in this port. Its source specifies `pnpm run build:engine` → `make install`. Setup below is for a separately provisioned engine checkout and may download/build substantial dependencies; it was **not executed by the offline integration tests**:
 
 ```sh
 # In a separately obtained fdrocha/MicropolisCore checkout:
-git checkout 4fe3a7238b735f9cdd3ec13c957ccc8a3a3b0481
+git checkout befe1e27d852b84474b0a01adc44908ad20b3297
 pnpm install --frozen-lockfile
 pnpm run build:engine
 export MICROPOLIS_CORE_PATH="$PWD"
@@ -50,14 +50,14 @@ All script paths are under `worlds/micropolis/scripts/`. Use `uv run --no-projec
 
 | Script | What it does |
 |---|---|
-| `run_sim.py CONFIG --no-plot` | Runs the external engine and writes log/event files; optional plot |
+| `run_sim.py CONFIG --no-plot` | Runs the external engine and writes log/event files; optional plot. `--at TURN:ACTION` (repeatable) applies an intervention just after turn TURN's row — `makeFire`, `makeFlood`, `makeTornado`, `makeEarthquake`, `makeMonster`, `makeMeltdown`, `makeFireBombs`, `demolishCoalPower`, `demolishNuclearPower`, `demolishPowerPlants`, `demolishAirport` — into files suffixed `-at<TURN>_<ACTION>`; its own events fall in turn TURN. One with no effect (a flood without river edges, a meltdown without a nuclear plant, nothing to demolish) is an error |
 | `gen_corpus.py CONFIG` | Runs/reuses city trajectories, generates and resolves continuous questions |
 | `gen_report.py CONFIG` | Produces a situation report; reads cached trajectory files |
 | `generate_prompt.py CONFIG` | Builds an example continuous prompt; may run simulations on cache misses |
 | `run_eval_binary.py CONFIG`, `run_eval_continuous.py CONFIG` | Builds corpus and gathers model responses, then writes the respective dataset |
 | Same eval scripts with `--cache-only` | No provider calls; reads existing raw-response cache, but corpus construction can still simulate |
 | Same eval scripts with `--dry-run` | Builds corpus without gathering; **can still simulate** |
-| `extract_ground_truth.py CONFIG --jobs 1` | Runs reseeded continuations through external `run_continuations.js`; not an offline smoke command. Writes `ground_truth/<scenario>_T<snapshot>.jsonl`, one line per horizon: Yes `counts` and `yes_idx` (the 0-based continuations resolving Yes) per question, and per-continuation `values` per metric |
+| `extract_ground_truth.py CONFIG --jobs 1` | Runs reseeded continuations through external `run_continuations.js`; not an offline smoke command. Writes `ground_truth/<scenario>_T<snapshot>.jsonl`, one line per horizon: Yes `counts` and `yes_idx` (the 0-based continuations resolving Yes) per question, and per-continuation `values` per metric. `--intervene ACTION` (repeatable, same actions as `run_sim.py --at`) applies it once at the snapshot turn, before branching, so every continuation starts from the same post-intervention state (as `run_sim.py --at`), and writes `<scenario>_T<snapshot>_do-<ACTION>.jsonl` with an `interventions` field; the intervention's own events are outside the `(S, S+h]` window. A scenario where it has no effect fails |
 | `draw_natcond.py [--n 400] [--seed 42]` | Draws natural-conditional cells (question A at S+horizon_A, revealed fact B at the horizon just before it; `--max-gap` widens this) from the ground-truth `yes_idx`, after FreeCiv's draw: 0.05 < P(A) ≤ 0.95, B Yes in ≥ 100 of 1,000 replays, 0.02 < P(A\|B) < 0.98; irrelevant / mechanical / inferential blocks, template-balanced, ≤ 2 reveals per A and ≤ 8 cells per revealed event. Writes `natcond/natcond_<n>_seed<seed>.jsonl`; no engine or provider |
 | `build_natcond_prompts.py [--draw FILE] [--show N]` | Builds the natural-conditional prompts after FreeCiv's: turn 1 asks question A alone, turn 2 continues the conversation with the revealed fact (no no-news control; FreeCiv's covers it). The world report comes from the binary eval's cached prompt. Writes `<draw>_prompts.jsonl`; no provider calls |
 | `elicit_natcond.py --model-specs SPECS [--models LIST] [--limit N]` | Asks models the natural-conditional prompts: turn 1 per question, then turn 2 per cell on top of the model's own turn-1 reply; unparsed replies re-asked once. `--models` defaults to the 22-model panel (`configs/models-22.json5`); every model needs a registry entry (provider pin, effort). 16 calls in flight (`--concurrency`), 8 retries per call (`--retries`). Appends to `<draw>_elicit/results.jsonl` and resumes from it, re-asking prompts whose messages changed; **makes paid calls** (`--dry-run` counts them) |
